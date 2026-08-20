@@ -1,0 +1,19 @@
+name: cronheart-node
+
+services:
+  node:
+    build: .
+    init: true
+    working_dir: /app
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - fixture_node_modules:/app/test/fixture-consumer/node_modules
+      - pnpm_store:/app/.pnpm-store
+      - corepack:/home/node/.corepack
+
+volumes:
+  node_modules:
+  fixture_node_modules:
+  pnpm_store:
+  corepack:

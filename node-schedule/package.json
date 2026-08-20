@@ -1,0 +1,5 @@
+{
+  "main": "../dist/node-schedule.cjs",
+  "module": "../dist/node-schedule.mjs",
+  "types": "../dist/node-schedule.d.cts"
+}

@@ -1,0 +1,5 @@
+{
+  "main": "../dist/nestjs.cjs",
+  "module": "../dist/nestjs.mjs",
+  "types": "../dist/nestjs.d.cts"
+}

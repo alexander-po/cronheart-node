@@ -1,0 +1,5 @@
+{
+  "main": "../dist/croner.cjs",
+  "module": "../dist/croner.mjs",
+  "types": "../dist/croner.d.cts"
+}

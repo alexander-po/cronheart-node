@@ -1,0 +1,231 @@
+{
+  "name": "cronheart",
+  "version": "0.0.0",
+  "description": "Cron job monitoring and dead man's switch for Node.js and TypeScript \u2014 heartbeat check-ins that alert you when a scheduled job stops running. Works with node-cron, croner, cron, node-schedule, BullMQ, NestJS schedule, plain crontab and systemd timers, plus a CLI wrapper for any command. Official SDK for cronheart.com.",
+  "keywords": [
+    "cron",
+    "cron-monitoring",
+    "cron-job",
+    "crontab",
+    "heartbeat",
+    "dead-mans-switch",
+    "deadmanssnitch",
+    "job-monitoring",
+    "scheduled-jobs",
+    "uptime",
+    "alerting",
+    "observability",
+    "node-cron",
+    "croner",
+    "node-schedule",
+    "bullmq",
+    "nestjs",
+    "systemd-timer",
+    "cronitor",
+    "healthchecks",
+    "cronheart"
+  ],
+  "license": "MIT",
+  "author": "Alexander Palazok",
+  "homepage": "https://cronheart.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexander-po/cronheart-node.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alexander-po/cronheart-node/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "bin": {
+    "cronheart": "dist/cli.mjs"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./api": {
+      "import": {
+        "types": "./dist/api.d.mts",
+        "default": "./dist/api.mjs"
+      },
+      "require": {
+        "types": "./dist/api.d.cts",
+        "default": "./dist/api.cjs"
+      }
+    },
+    "./sync": {
+      "import": {
+        "types": "./dist/sync.d.mts",
+        "default": "./dist/sync.mjs"
+      },
+      "require": {
+        "types": "./dist/sync.d.cts",
+        "default": "./dist/sync.cjs"
+      }
+    },
+    "./testing": {
+      "import": {
+        "types": "./dist/testing.d.mts",
+        "default": "./dist/testing.mjs"
+      },
+      "require": {
+        "types": "./dist/testing.d.cts",
+        "default": "./dist/testing.cjs"
+      }
+    },
+    "./croner": {
+      "import": {
+        "types": "./dist/croner.d.mts",
+        "default": "./dist/croner.mjs"
+      },
+      "require": {
+        "types": "./dist/croner.d.cts",
+        "default": "./dist/croner.cjs"
+      }
+    },
+    "./cron": {
+      "import": {
+        "types": "./dist/cron.d.mts",
+        "default": "./dist/cron.mjs"
+      },
+      "require": {
+        "types": "./dist/cron.d.cts",
+        "default": "./dist/cron.cjs"
+      }
+    },
+    "./node-cron": {
+      "import": {
+        "types": "./dist/node-cron.d.mts",
+        "default": "./dist/node-cron.mjs"
+      },
+      "require": {
+        "types": "./dist/node-cron.d.cts",
+        "default": "./dist/node-cron.cjs"
+      }
+    },
+    "./node-schedule": {
+      "import": {
+        "types": "./dist/node-schedule.d.mts",
+        "default": "./dist/node-schedule.mjs"
+      },
+      "require": {
+        "types": "./dist/node-schedule.d.cts",
+        "default": "./dist/node-schedule.cjs"
+      }
+    },
+    "./bullmq": {
+      "import": {
+        "types": "./dist/bullmq.d.mts",
+        "default": "./dist/bullmq.mjs"
+      },
+      "require": {
+        "types": "./dist/bullmq.d.cts",
+        "default": "./dist/bullmq.cjs"
+      }
+    },
+    "./nestjs": {
+      "import": {
+        "types": "./dist/nestjs.d.mts",
+        "default": "./dist/nestjs.mjs"
+      },
+      "require": {
+        "types": "./dist/nestjs.d.cts",
+        "default": "./dist/nestjs.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "api",
+    "sync",
+    "testing",
+    "croner",
+    "cron",
+    "node-cron",
+    "node-schedule",
+    "bullmq",
+    "nestjs"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "typecheck:fixture": "tsc --project test/fixture-consumer",
+    "publint": "publint --strict",
+    "attw": "attw --pack .",
+    "size": "node scripts/size-budget.mjs",
+    "smoke": "node scripts/consumption-smoke.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "pnpm run typecheck && pnpm run typecheck:fixture && pnpm run publint && pnpm run attw && pnpm run size",
+    "check": "pnpm run build && pnpm run lint && pnpm run test && pnpm run smoke",
+    "audit": "pnpm audit --audit-level high",
+    "contract:check": "node contract/check.mjs",
+    "contract:vectors": "node contract/vectors.mjs",
+    "changeset": "changeset",
+    "release": "changeset publish"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^10.0.0 || ^11.0.0",
+    "@nestjs/schedule": "^4.0.0 || ^5.0.0 || ^6.0.0",
+    "bullmq": "^5.0.0 || ^6.0.0",
+    "cron": "^3.0.0 || ^4.0.0",
+    "croner": "^9.0.0 || ^10.0.0",
+    "node-cron": "^4.0.0",
+    "node-schedule": "^2.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/common": {
+      "optional": true
+    },
+    "@nestjs/schedule": {
+      "optional": true
+    },
+    "bullmq": {
+      "optional": true
+    },
+    "cron": {
+      "optional": true
+    },
+    "croner": {
+      "optional": true
+    },
+    "node-cron": {
+      "optional": true
+    },
+    "node-schedule": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@changesets/cli": "3.0.1",
+    "@types/node": "22.20.1",
+    "publint": "0.3.24",
+    "tsdown": "0.22.14",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "main": "../dist/bullmq.cjs",
+  "module": "../dist/bullmq.mjs",
+  "types": "../dist/bullmq.d.cts"
+}

@@ -1,0 +1,5 @@
+{
+  "main": "../dist/node-cron.cjs",
+  "module": "../dist/node-cron.mjs",
+  "types": "../dist/node-cron.d.cts"
+}

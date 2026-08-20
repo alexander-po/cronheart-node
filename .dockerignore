@@ -1,0 +1,9 @@
+.git/
+node_modules/
+**/node_modules/
+.pnpm-store/
+dist/
+coverage/
+*.tgz
+.DS_Store
+HANDOFF.md

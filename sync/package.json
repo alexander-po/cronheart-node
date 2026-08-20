@@ -1,0 +1,5 @@
+{
+  "main": "../dist/sync.cjs",
+  "module": "../dist/sync.mjs",
+  "types": "../dist/sync.d.cts"
+}
