@@ -47,11 +47,11 @@ Python port a port rather than a second design.
 
 1. The server changes. Nothing here notices on its own — see the limits below.
 2. Someone edits `cronheart-contract.json` and bumps `contract_version`.
-3. `contract:check` classifies the diff against `CLASSIFICATION.md` and fails if the
-   verdict does not match the version bump, or if any verdict is `undecidable` and no
-   human verdict was recorded in the PR.
-4. `contract:vectors` runs every case in `vectors/` against the SDK. A behavioural
-   change fails here.
+3. `contract:check` validates the file against itself and fails on any anchor that stops
+   resolving or whose value drifts. Classifying the diff against `CLASSIFICATION.md` — so
+   that a verdict disagreeing with the version bump fails — is planned, not shipped.
+4. `contract:vectors` will run every case in `vectors/` against the SDK, so a behavioural
+   change fails here. Not shipped: it needs an implementation to exercise.
 5. The SDK's constant test fails wherever an `anchors` value moved.
 6. The `contract_version` string is embedded in the User-Agent, so a support request
    names the contract the client was built against.
@@ -99,15 +99,15 @@ Four more gaps worth naming:
 
 ## Scripts
 
-The package is expected to wire these:
+| Script | Status | Does |
+| --- | --- | --- |
+| `contract:check` | **shipped** | Validates `cronheart-contract.json`: every `anchors` pointer resolves, every stated `value` equals what it resolves to, ids are unique, and the validated count matches the entry count. Runs in the local gate and in CI. |
+| `contract:check` diff classification | planned | Classifying a diff against the previous version using `CLASSIFICATION.md` needs a previous version to diff against; there is only one so far. |
+| `contract:vectors` | planned | Running every case in `vectors/` through an adapter needs an SDK implementation to exercise. The script does not exist yet — deliberately, rather than dangling. |
 
-| Script | Does |
-| --- | --- |
-| `contract:check` | Validates `cronheart-contract.json` (every `anchors` pointer resolves, every stated `value` matches what it resolves to), then classifies a diff against the previous version using `CLASSIFICATION.md`. |
-| `contract:vectors` | Runs every case in `vectors/` through the adapter. Fails on an unknown predicate, an unknown non-optional subject, or an executed-case count that disagrees with the files. |
-
-Both must run in CI on every pull request. `contract:vectors` is the one that has to be
-impossible to make vacuously green, which is why the runner asserts its own case count.
+Whatever exists must run in CI on every pull request. `contract:vectors` is the one that
+has to be impossible to make vacuously green, which is why the runner will assert its own
+case count against the files.
 
 ## Adding a vector
 
