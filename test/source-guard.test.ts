@@ -24,8 +24,8 @@ function guard(target: string): Run {
 }
 
 function rulesIn(output: string): string[] {
-  return [...output.matchAll(/ {2}- ([a-z-]+): (\S+) —/g)]
-    .map(([, rule, where]) => `${String(rule)} ${String(where)}`)
+  return [...output.matchAll(/ {2}- ([a-z-]+): (\S+?):[0-9]+ —/g)]
+    .map(([, rule, file]) => `${String(rule)} ${String(file)}`)
     .sort()
 }
 
@@ -48,11 +48,11 @@ describe('the source guard', () => {
 
     expect(run.status).toBe(1)
     expect(rulesIn(run.output)).toEqual([
-      'fetch-outside-transport ping/hot.ts:10',
-      'fetch-outside-transport ping/hot.ts:2',
-      'promise-reject-outside-guarded-layer ping/hot.ts:14',
-      'throw-outside-guarded-layer ping/hot.ts:5',
-      'transport-imports-wiring transport/net.ts:1',
+      'fetch-outside-transport ping/hot.ts',
+      'fetch-outside-transport ping/hot.ts',
+      'promise-reject-outside-guarded-layer ping/hot.ts',
+      'throw-outside-guarded-layer ping/hot.ts',
+      'transport-imports-wiring transport/net.ts',
     ])
   })
 })

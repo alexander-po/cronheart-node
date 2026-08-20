@@ -1,13 +1,12 @@
-import {
-  PING_BODY_BUDGET_BYTES,
-  PING_BODY_CAP_BYTES,
-  PING_BODY_TRUNCATION_MARKER,
-} from '../constants.js'
+import { PING_BODY_CAP_BYTES, PING_BODY_TRUNCATION_MARKER } from '../constants.js'
 
 export type TruncateMode = 'head' | 'tail'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
+
+export const PING_BODY_BUDGET_BYTES =
+  PING_BODY_CAP_BYTES - encoder.encode(PING_BODY_TRUNCATION_MARKER).length
 
 function isContinuation(byte: number | undefined): boolean {
   return byte !== undefined && (byte & 0xc0) === 0x80

@@ -3,9 +3,9 @@ export type EnvSource = Readonly<Record<string, string | undefined>>
 const TRUTHY = new Set(['1', 'true', 'yes', 'on'])
 
 export function ambientEnv(): EnvSource {
-  const host = globalThis as { process?: { env?: EnvSource } }
+  const globals = globalThis as { process?: { env?: EnvSource } }
 
-  return host.process?.env ?? {}
+  return globals.process?.env ?? {}
 }
 
 export function readEnv(env: EnvSource, name: string): string | undefined {

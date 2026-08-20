@@ -9,7 +9,7 @@ export interface InvocationContext {
   readonly host: () => unknown
 }
 
-export interface Integration {
+export interface EntryPoint {
   readonly id: string
   readonly exports: readonly string[]
   readonly pings: number
@@ -17,7 +17,7 @@ export interface Integration {
   invoke(context: InvocationContext): Promise<unknown>
 }
 
-export const INTEGRATIONS: readonly Integration[] = [
+export const ENTRY_POINTS: readonly EntryPoint[] = [
   {
     id: 'checkIn',
     exports: ['checkIn', 'ping'],
@@ -80,7 +80,7 @@ export const INTEGRATIONS: readonly Integration[] = [
   },
 ]
 
-export const UNSAFE_INTEGRATION: Integration = {
+export const UNSAFE_ENTRY_POINT: EntryPoint = {
   id: '__selftest__',
   exports: ['unsafelyMonitored'],
   pings: 1,
@@ -92,4 +92,4 @@ export const UNSAFE_INTEGRATION: Integration = {
     ),
 }
 
-export const REGISTRY: readonly Integration[] = [...INTEGRATIONS, UNSAFE_INTEGRATION]
+export const REGISTRY: readonly EntryPoint[] = [...ENTRY_POINTS, UNSAFE_ENTRY_POINT]

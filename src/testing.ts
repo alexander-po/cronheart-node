@@ -1,4 +1,7 @@
 import type { FetchLike, PingHttpResponse, PingRequestInit } from './ping/types.js'
+import { detachedCountdown } from './timer.js'
+
+export { clearWarnings } from './ping/warn.js'
 
 export interface RecordedPing {
   readonly url: string
@@ -43,16 +46,6 @@ function describeRequest(url: string, init: PingRequestInit): RecordedPing {
     monitorId: match?.[1] ?? '',
     action: match?.[2] ?? null,
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms)
-
-    if (typeof (timer as { unref?: () => void }).unref === 'function') {
-      ;(timer as { unref: () => void }).unref()
-    }
-  })
 }
 
 export function createPingRecorder(initial?: Responder | StubResponse): PingRecorder {
@@ -101,7 +94,7 @@ export function createPingRecorder(initial?: Responder | StubResponse): PingReco
 
       return stub.delayMs === undefined
         ? Promise.resolve(response)
-        : delay(stub.delayMs).then(() => response)
+        : detachedCountdown(stub.delayMs).reached.then(() => response)
     },
     get pings() {
       return pings

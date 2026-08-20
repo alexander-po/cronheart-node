@@ -21,7 +21,7 @@ export interface PingRequestInit {
   readonly headers: Readonly<Record<string, string>>
   readonly body?: string | undefined
   readonly redirect?: 'manual' | undefined
-  readonly signal?: unknown
+  readonly signal: AbortSignal
 }
 
 export type FetchLike = (url: string, init: PingRequestInit) => Promise<PingHttpResponse>
@@ -51,7 +51,9 @@ export interface PingOptions {
   readonly onResult?: ((result: PingResult) => void) | undefined
 }
 
-export interface CheckInWithOptions extends PingOptions {
+// A thunk a scheduler calls on every tick carries no body and measures no run, so the
+// two options the dispatch would discard are not offered.
+export interface CheckInWithOptions extends Omit<PingOptions, 'body' | 'runtimeMs'> {
   readonly action?: PingAction | undefined
 }
 

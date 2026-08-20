@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
+import { ENTRY_POINTS, REGISTRY } from './support/entry-points.js'
 import { FAULTS, MONITOR_ID } from './support/faults.js'
 import { hosts, observe, violations } from './support/fault-harness.js'
 import { HOSTILE_INPUTS, hostileHosts } from './support/hostile.js'
-import { INTEGRATIONS, REGISTRY } from './support/integrations.js'
 
 const repoRoot = new URL('../', import.meta.url)
 
@@ -18,6 +18,7 @@ const exportsMap = (
 const NEEDS_NO_CASE: Readonly<Record<string, string>> = {
   createPingClient: 'a factory — the client it hands back is reflected in its own right',
   createPingRecorder: 'a test double for consumers, not a check-in path',
+  clearWarnings: 'a test helper for consumers — it resets a warning ledger, it sends nothing',
   userAgent: 'builds a string',
   flush: 'takes a deadline, not a callable',
   start: 'a bare check-in — the bracketing entry points are the ones handed a callable',
@@ -67,10 +68,17 @@ async function publishedSurface(): Promise<string[]> {
   return [...found, ...callablesIn(index.createPingClient({ env: {} })), ...callablesIn(selftest)]
 }
 
+const PLANNED_CASES =
+  ENTRY_POINTS.length *
+  (FAULTS.length * hosts().length +
+    HOSTILE_INPUTS.length * (hosts().length + hostileHosts().length))
+
+let executedCases = 0
+
 describe('the fault matrix registry', () => {
   it('is derived from the built surface, so a new entry point of any shape is seen', async () => {
     const surface = [...new Set(await publishedSurface())]
-    const registered = new Set(REGISTRY.flatMap((integration) => integration.exports))
+    const registered = new Set(REGISTRY.flatMap((entryPoint) => entryPoint.exports))
 
     expect(surface.length).toBeGreaterThan(0)
     expect(
@@ -79,31 +87,39 @@ describe('the fault matrix registry', () => {
     expect([...registered].filter((name) => !surface.includes(name))).toEqual([])
     expect(Object.keys(NEEDS_NO_CASE).filter((name) => !surface.includes(name))).toEqual([])
   })
-
-  it('covers every fault against every integration and host', () => {
-    expect(INTEGRATIONS.length * FAULTS.length * hosts().length).toBeGreaterThan(200)
-    expect(
-      INTEGRATIONS.length * HOSTILE_INPUTS.length * (hosts().length + hostileHosts().length),
-    ).toBeGreaterThan(100)
-  })
 })
 
-describe.each(INTEGRATIONS)('$id survives', (integration) => {
+describe.each(ENTRY_POINTS)('$id survives', (entryPoint) => {
   describe.each(FAULTS)('$id', (fault) => {
     it.each(hosts())('while the job $id', async (host) => {
-      const observation = await observe(integration, fault, host)
+      executedCases += 1
+
+      const observation = await observe(entryPoint, fault, host)
 
       expect(violations(observation, host, MONITOR_ID)).toEqual([])
     })
   })
 })
 
-describe.each(INTEGRATIONS)('$id survives what the host hands in', (integration) => {
+describe.each(ENTRY_POINTS)('$id survives what the host hands in', (entryPoint) => {
   describe.each(HOSTILE_INPUTS)('$id', (fault) => {
     it.each([...hosts(), ...hostileHosts()])('while the job $id', async (host) => {
-      const observation = await observe(integration, fault, host)
+      executedCases += 1
+
+      const observation = await observe(entryPoint, fault, host)
 
       expect(violations(observation, host, MONITOR_ID)).toEqual([])
     })
   })
+})
+
+// The coverage claim is the count of cases that ran, not the product of the axis lengths:
+// an axis that empties multiplies out to a number nothing has to satisfy.
+afterAll(() => {
+  process.stderr.write(
+    `fault matrix — ${executedCases} case(s) over ${ENTRY_POINTS.length} entry point(s), ${FAULTS.length} fault(s), ${HOSTILE_INPUTS.length} hostile input(s)\n`,
+  )
+
+  expect(executedCases).toBe(PLANNED_CASES)
+  expect(executedCases).toBeGreaterThan(200)
 })

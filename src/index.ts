@@ -8,19 +8,11 @@ import type {
   PingOptions,
   PingResult,
 } from './ping/types.js'
+import { SDK_VERSION } from './version.js'
 
-export {
-  DEFAULT_BASE_URL,
-  PING_BODY_BUDGET_BYTES,
-  PING_BODY_CAP_BYTES,
-  PING_BODY_TRUNCATION_MARKER,
-  PING_ROUTE_UUID_PATTERN,
-  RETRY_AFTER_MAX_SECONDS,
-  RUNTIME_HEADER_MAX_VALUE,
-  RUNTIME_HEADER_NAME,
-} from './constants.js'
-export { PING_ACTIONS, PING_EMITTABLE_ACTIONS } from './ping/action.js'
-export { PING_DUPLICATE_BODY, PING_OUTCOMES, PING_STATUS_OUTCOMES } from './ping/outcome.js'
+export { PING_BODY_CAP_BYTES } from './constants.js'
+export { PING_ACTIONS } from './ping/action.js'
+export { PING_OUTCOMES } from './ping/outcome.js'
 export { createPingClient } from './ping/client.js'
 export { CONTRACT_VERSION, SDK_VERSION, userAgent } from './version.js'
 export {
@@ -48,21 +40,22 @@ export type {
   PingResult,
 } from './ping/types.js'
 
-const CLIENT_KEY = Symbol.for('cronheart.defaultClient')
+// The registry key is a well-known symbol on globalThis so that the ESM copy and the
+// CommonJS copy of this package share one client: otherwise flush() on one would silently
+// ignore the check-ins the other started. Symbol.for is shared across versions too, so the
+// major rides in the key — a v1 call site must not adopt a v2 client and return its shape.
+const CLIENT_KEY = Symbol.for(`cronheart.defaultClient/${Number.parseInt(SDK_VERSION, 10)}`)
 
-// The registry key is a well-known symbol on globalThis so that the ESM copy and
-// the CommonJS copy of this package share one client: otherwise flush() on one
-// would silently ignore the check-ins the other started.
 function defaultClient(): PingClient {
-  const host = globalThis as unknown as Record<symbol, unknown>
-  const existing = host[CLIENT_KEY]
+  const globals = globalThis as unknown as Record<symbol, unknown>
+  const existing = globals[CLIENT_KEY]
 
-  if (existing !== null && typeof existing === 'object' && 'ping' in existing) {
+  if (typeof (existing as PingClient | undefined)?.ping === 'function') {
     return existing as PingClient
   }
 
   const created = createPingClient()
-  host[CLIENT_KEY] = created
+  globals[CLIENT_KEY] = created
 
   return created
 }

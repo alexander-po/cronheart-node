@@ -44,10 +44,22 @@ describe('the contract check', () => {
     expect(run.output).toContain('not recorded as unanchored')
   })
 
+  it('sweeps the published root too, so pruning an export cannot hide a literal', () => {
+    const run = check(
+      'contract/cronheart-contract.json',
+      'build/contract-anchors.mjs',
+      'test/fixtures/contract/published-root-with-an-unanchored-literal.mjs',
+    )
+
+    expect(run.status).toBe(1)
+    expect(run.output).toContain('A_LITERAL_NOBODY_ANCHORED')
+    expect(run.output).toContain('not recorded as unanchored')
+  })
+
   it('fails on a ledger entry that no longer names an anchor', () => {
     const run = check(
       'test/fixtures/contract/contract-with-one-unheld-anchor.json',
-      'dist/index.mjs',
+      'build/contract-anchors.mjs',
     )
 
     expect(run.status).toBe(1)

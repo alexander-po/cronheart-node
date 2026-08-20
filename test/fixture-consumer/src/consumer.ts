@@ -11,6 +11,7 @@ import {
 } from 'cronheart'
 import type {
   CheckInThunk,
+  FetchLike,
   MonitorRun,
   PingClient,
   PingClientOptions,
@@ -35,12 +36,24 @@ export function describeClient(): string {
   return `${SDK_VERSION} via ${userAgent()} (body cap ${PING_BODY_CAP_BYTES})`
 }
 
+// The documented transport hook, implemented the way a consumer implements it: the init
+// goes straight to a real fetch, so a member the SDK types loosely surfaces here as a cast.
+export const forwarding: FetchLike = (url, init) =>
+  fetch(url, {
+    method: init.method,
+    headers: { ...init.headers },
+    body: init.body ?? null,
+    redirect: init.redirect ?? 'manual',
+    signal: init.signal,
+  })
+
 const options: PingClientOptions = {
   baseUrl: 'https://cronheart.com',
   monitors: { 'nightly-backup': '00000000-0000-4000-8000-000000000000' },
   timeoutMs: 2000,
   truncate: 'tail',
   redact: [/token=\S+/g],
+  fetch: forwarding,
   onResult: (result: PingResult) => outcomes.push(result.outcome),
 }
 

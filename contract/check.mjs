@@ -14,10 +14,18 @@ const contractUrl =
     ? new URL('cronheart-contract.json', import.meta.url)
     : pathToFileURL(process.argv[2])
 
-const sdkUrl =
+// The values live in a build-time module that is never published, so that holding a wire
+// fact costs the package nothing on its public surface. The published root is read too,
+// but only to sweep it: a wire literal exported to consumers still has to be accounted for.
+const anchorsUrl =
   process.argv[3] === undefined
-    ? new URL('../dist/index.mjs', import.meta.url)
+    ? new URL('../build/contract-anchors.mjs', import.meta.url)
     : pathToFileURL(process.argv[3])
+
+const publishedUrl =
+  process.argv[4] === undefined
+    ? new URL('../dist/index.mjs', import.meta.url)
+    : pathToFileURL(process.argv[4])
 
 const contract = JSON.parse(readFileSync(contractUrl, 'utf8'))
 
@@ -73,12 +81,11 @@ function inspect(anchor, position) {
   }
 }
 
-// Anchors the SDK holds as constants, and the ones it deliberately does not yet.
+// Anchors the SDK holds as constants, and the ones it deliberately does not.
 // An anchor in neither list fails: adding one to the contract has to be a decision
 // about the SDK, not a silent no-op.
 const HELD_AS_CONSTANTS = {
   'ping.body.cap_bytes': 'PING_BODY_CAP_BYTES',
-  'ping.uuid.pattern': 'PING_ROUTE_UUID_PATTERN',
   'ping.runtime_header.name': 'RUNTIME_HEADER_NAME',
   'ping.runtime_header.max_value': 'RUNTIME_HEADER_MAX_VALUE',
   'ping.default_base_url': 'DEFAULT_BASE_URL',
@@ -95,6 +102,8 @@ const HELD_AS_CONSTANTS = {
 const DEFERRED = {
   'ping.action.pattern':
     'the SDK emits a closed union of literals and never builds the segment from a value, so the route pattern is a server-side gate it holds no constant for; the conformance vectors read it from this file',
+  'ping.uuid.pattern':
+    'the SDK accepts only the canonical 8-4-4-4-12 shape, which this looser route pattern strictly contains, so testing both would decide nothing the narrower test has not already decided',
   'ping.dedup.window_seconds':
     'server behaviour the ping path neither implements nor compensates for',
   'api.pagination.limit_max': 'management client',
@@ -119,12 +128,8 @@ const UNANCHORED = {
   SDK_VERSION: 'the package version',
 }
 
-async function sdkConstants() {
-  if (!existsSync(sdkUrl)) {
-    return undefined
-  }
-
-  return import(sdkUrl.href)
+async function moduleAt(url) {
+  return existsSync(url) ? import(url.href) : undefined
 }
 
 function compareAgainstSdk(anchors, sdk) {
@@ -152,15 +157,21 @@ function compareAgainstSdk(anchors, sdk) {
   })
 }
 
-function sdkLiterals(sdk) {
-  return Object.entries(sdk)
-    .filter(([name, value]) => SDK_LITERAL.test(name) && typeof value !== 'function')
-    .map(([name]) => name)
+function sdkLiterals(modules) {
+  return [
+    ...new Set(
+      modules.flatMap((module) =>
+        Object.entries(module)
+          .filter(([name, value]) => SDK_LITERAL.test(name) && typeof value !== 'function')
+          .map(([name]) => name),
+      ),
+    ),
+  ]
 }
 
-function compareAgainstLedgers(sdk, anchorIds) {
+function compareAgainstLedgers(modules, anchorIds) {
   const held = new Set(Object.values(HELD_AS_CONSTANTS))
-  const literals = sdkLiterals(sdk)
+  const literals = sdkLiterals(modules)
 
   return [
     ...literals
@@ -214,13 +225,17 @@ if (failures.length > 0) {
 }
 
 const valueAssertions = outcomes.filter((outcome) => outcome.assertsValue).length
-const sdk = await sdkConstants()
+const anchorsModule = await moduleAt(anchorsUrl)
+const publishedModule = await moduleAt(publishedUrl)
 
-if (sdk === undefined) {
-  report(['dist/ is missing — build before checking the contract against the SDK'])
+if (anchorsModule === undefined || publishedModule === undefined) {
+  report(['build/ or dist/ is missing — build before checking the contract against the SDK'])
 }
 
-const drift = [...compareAgainstSdk(anchors, sdk), ...compareAgainstLedgers(sdk, anchorIds)]
+const drift = [
+  ...compareAgainstSdk(anchors, anchorsModule),
+  ...compareAgainstLedgers([anchorsModule, publishedModule], anchorIds),
+]
 
 if (drift.length > 0) {
   report(drift)

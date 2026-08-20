@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { RUNTIME_HEADER_NAME } from '../src/constants.js'
 import { createPingClient } from '../src/ping/client.js'
 import type { PingClientOptions, PingResult } from '../src/ping/types.js'
-import { clearWarnings } from '../src/ping/warn.js'
 import { UnknownMonitorError } from '../src/wiring/errors.js'
-import { createPingRecorder } from '../src/testing.js'
+import { clearWarnings, createPingRecorder } from '../src/testing.js'
 
 const MONITOR_ID = '00000000-0000-4000-8000-0000000000a1'
 const BASE = 'https://ping.example'
+const FLUSH_DEADLINE_MS = 30
 
 let recorder = createPingRecorder()
 let warnings: string[] = []
@@ -170,8 +171,9 @@ describe('withMonitor', () => {
   it('measures the run and reports it on the terminal ping only', async () => {
     await named().withMonitor('job', () => undefined)
 
-    expect(recorder.pings[0]?.headers['X-Cronheart-Runtime-Ms']).toBeUndefined()
-    expect(recorder.pings[1]?.headers['X-Cronheart-Runtime-Ms']).toMatch(/^[0-9]+$/)
+    expect(recorder.pings).toHaveLength(2)
+    expect(recorder.pings[0]?.headers[RUNTIME_HEADER_NAME]).toBeUndefined()
+    expect(recorder.pings[1]?.headers[RUNTIME_HEADER_NAME]).toMatch(/^[0-9]+$/)
   })
 })
 
@@ -254,9 +256,9 @@ describe('flush', () => {
 
     void sdk.ping('job')
     const started = Date.now()
-    await sdk.flush(30)
+    await sdk.flush(FLUSH_DEADLINE_MS)
 
-    expect(Date.now() - started).toBeLessThan(1000)
+    expect(Date.now() - started).toBeLessThan(FLUSH_DEADLINE_MS * 8)
   })
 })
 

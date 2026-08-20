@@ -1,7 +1,7 @@
 import { createPingClient } from '../../src/ping/client.js'
-import { clearWarnings } from '../../src/ping/warn.js'
+import { clearWarnings } from '../../src/testing.js'
 import { BUDGET_MS, type Fault } from './faults.js'
-import type { Integration } from './integrations.js'
+import type { EntryPoint } from './entry-points.js'
 import { captureUnhandledRejections } from './unhandled.js'
 
 const OVERHEAD_ALLOWANCE_MS = 300
@@ -126,7 +126,7 @@ function delay(ms: number): { reached: Promise<'capped'>; cancel: () => void } {
 }
 
 export async function observe(
-  integration: Integration,
+  entryPoint: EntryPoint,
   fault: Fault,
   host: Host,
 ): Promise<Observation> {
@@ -134,14 +134,14 @@ export async function observe(
   const client = createPingClient(instance.clientOptions)
   // The timeout is one budget across attempts, so a bound that multiplied by the
   // retry count would sit wide enough to hide a regression back to a per-attempt one.
-  const boundMs = integration.pings * BUDGET_MS + OVERHEAD_ALLOWANCE_MS
+  const boundMs = entryPoint.pings * BUDGET_MS + OVERHEAD_ALLOWANCE_MS
   const cap = delay(boundMs + HARD_CAP_ALLOWANCE_MS)
   const capture = captureOutput()
   clearWarnings()
   const startedAt = Date.now()
 
   const { value: settlement, unhandled } = await captureUnhandledRejections(async () => {
-    const attempt = integration
+    const attempt = entryPoint
       .invoke({ client, fault: instance, host: host.call })
       .then((returned) => ({ kind: 'returned' as const, returned }))
       .catch((thrown: unknown) => ({ kind: 'threw' as const, thrown }))

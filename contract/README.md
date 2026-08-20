@@ -104,13 +104,25 @@ Four more gaps worth naming:
 
 | Script | Status | Does |
 | --- | --- | --- |
-| `contract:check` | **shipped** | Validates `cronheart-contract.json`: every `anchors` pointer resolves, every stated `value` equals what it resolves to, ids are unique, and the validated count matches the entry count. Also compares anchors against the SDK's own constants, failing on any anchor that is neither held nor named in the deferral ledger. |
-| `contract:vectors` | **shipped** | Runs every case in `vectors/` through the adapter. Fails on an unknown predicate, an unknown non-optional subject, or an executed-case count that disagrees with the files. |
+| `contract:check` | **shipped** | Validates `cronheart-contract.json`: every `anchors` pointer resolves, every stated `value` equals what it resolves to, ids are unique, and the validated count matches the entry count. Also compares anchors against the SDK's own constants — read from a build-time module that is never published — and sweeps both that module and the published root for a wire literal no anchor states. Fails on any anchor that is neither held nor named in the deferral ledger. |
+| `contract:vectors` | **shipped** | Runs every case in `vectors/` through the adapter. Fails on an unknown predicate, an unknown non-optional subject, or an executed-case count that disagrees with the files. Reports the SDK-exercising cases apart from the server-model ones — see below. |
 | `contract:check` diff classification | planned | Classifying a diff against the previous version using `CLASSIFICATION.md` needs a previous version to diff against. |
 
 Both shipped scripts run in the local gate and in CI on every pull request.
 `contract:vectors` is the one that has to be impossible to make vacuously green, which is
 why the runner asserts its own case count against the files.
+
+## Not every case is a claim about the SDK
+
+`ping.classifyAction` models the **server's** action mapper. It is not a function an SDK
+calls on a hot path, so an SDK implements it in test scope — which means those cases would
+stay green if the SDK's own action module were deleted. They are a cross-language port
+model, which is a large part of what vectors are for, but they are not conformance.
+
+The Node runner therefore counts and reports the two halves separately, prefixes the
+model cases in its test names, and pins the split, so adding cases to a model group cannot
+quietly inflate a number that reads as "the SDK conforms". A port in another language
+should do the same.
 
 ## Adding a vector
 

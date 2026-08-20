@@ -5,38 +5,76 @@ import { parseRetryAfter } from '../src/transport/retry-after.js'
 import { InvalidActionError } from '../src/wiring/errors.js'
 import { assertEmittableAction } from '../src/wiring/validate.js'
 import { classifyAction, contract } from './support/server-model.js'
-import { type Adapter, encodeByteString, loadVectorFiles, runCase } from './support/vectors.js'
+import {
+  type Adapter,
+  type Subject,
+  type VectorCase,
+  type VectorFile,
+  encodeByteString,
+  loadVectorFiles,
+  runCase,
+} from './support/vectors.js'
+
+const SDK_SUBJECTS: Readonly<Record<string, Subject>> = {
+  'ping.assertEmittableAction': (input) => {
+    assertEmittableAction((input as { action: string | null }).action)
+  },
+  'body.truncate': (input) => {
+    const { body, mode } = input as { body: unknown; mode: 'head' | 'tail' }
+
+    return truncateBody(encodeByteString(body), mode)
+  },
+  'ping.classifyResponse': (input) => {
+    const { status, body } = input as { status: number; body: string }
+    const outcome = classifyStatus(status, body)
+
+    return { outcome, ok: isAccepted(outcome) }
+  },
+  'http.parseRetryAfter': (input) => {
+    const { header, now } = input as { header: string | null; now: string }
+
+    return { seconds: parseRetryAfter(header, Date.parse(now)) ?? null }
+  },
+}
+
+// A hand-written model of the server's action mapper, living only in test scope. No shipped
+// module imports it, so these cases are a cross-language port model rather than a statement
+// about this SDK, and they are counted and reported apart from the ones that are.
+const SERVER_MODEL_SUBJECTS: Readonly<Record<string, Subject>> = {
+  'ping.classifyAction': (input) => classifyAction((input as { action: string | null }).action),
+}
 
 const adapter: Adapter = {
-  subjects: {
-    'ping.classifyAction': (input) => classifyAction((input as { action: string | null }).action),
-    'ping.assertEmittableAction': (input) => {
-      assertEmittableAction((input as { action: string | null }).action)
-    },
-    'body.truncate': (input) => {
-      const { body, mode } = input as { body: unknown; mode: 'head' | 'tail' }
-
-      return truncateBody(encodeByteString(body), mode)
-    },
-    'ping.classifyResponse': (input) => {
-      const { status, body } = input as { status: number; body: string }
-      const outcome = classifyStatus(status, body)
-
-      return { outcome, ok: isAccepted(outcome) }
-    },
-    'http.parseRetryAfter': (input) => {
-      const { header, now } = input as { header: string | null; now: string }
-
-      return { seconds: parseRetryAfter(header, Date.parse(now)) ?? null }
-    },
-  },
+  subjects: { ...SDK_SUBJECTS, ...SERVER_MODEL_SUBJECTS },
   errorClasses: { InvalidAction: InvalidActionError },
+}
+
+type Side = 'sdk' | 'serverModel'
+
+function sideOf(vectorCase: VectorCase, file: VectorFile): Side {
+  const name = vectorCase.subject ?? file.default_subject
+
+  return name !== undefined && Object.hasOwn(SERVER_MODEL_SUBJECTS, name) ? 'serverModel' : 'sdk'
+}
+
+function label(vectorCase: VectorCase, file: VectorFile): string {
+  return sideOf(vectorCase, file) === 'serverModel'
+    ? `server model — ${vectorCase.id}`
+    : vectorCase.id
 }
 
 const files = loadVectorFiles(new URL('../contract/vectors/', import.meta.url))
 const declaredTotal = files.reduce((total, file) => total + file.case_count, 0)
 
-let executed = 0
+const declared: Record<Side, number> = { sdk: 0, serverModel: 0 }
+
+for (const file of files) {
+  for (const vectorCase of file.cases) {
+    declared[sideOf(vectorCase, file)] += 1
+  }
+}
+
+const executed: Record<Side, number> = { sdk: 0, serverModel: 0 }
 const skipped: string[] = []
 
 describe('conformance vectors', () => {
@@ -49,6 +87,10 @@ describe('conformance vectors', () => {
     ])
   })
 
+  it('counts the cases that exercise this SDK apart from the ones that only model the server', () => {
+    expect(declared).toEqual({ sdk: 63, serverModel: 35 })
+  })
+
   describe.each(files)('$group', (file) => {
     it('carries as many cases as it declares', () => {
       expect(file.cases.length).toBe(file.case_count)
@@ -58,13 +100,13 @@ describe('conformance vectors', () => {
       expect(file.contract_version).toBe(contract.contract_version)
     })
 
-    it.each(file.cases.map((vectorCase) => [vectorCase.id, vectorCase] as const))(
+    it.each(file.cases.map((vectorCase) => [label(vectorCase, file), vectorCase] as const))(
       '%s',
-      async (_id, vectorCase) => {
+      async (_label, vectorCase) => {
         const outcome = await runCase(vectorCase, file.default_subject, adapter)
 
         if (outcome.executed) {
-          executed += 1
+          executed[sideOf(vectorCase, file)] += 1
         } else {
           skipped.push(vectorCase.id)
         }
@@ -76,6 +118,11 @@ describe('conformance vectors', () => {
 })
 
 afterAll(() => {
-  expect(executed + skipped.length).toBe(declaredTotal)
+  process.stderr.write(
+    `conformance vectors — ${executed.sdk} case(s) against the SDK, ${executed.serverModel} against the test model of the server\n`,
+  )
+
+  expect(executed).toEqual(declared)
+  expect(executed.sdk + executed.serverModel + skipped.length).toBe(declaredTotal)
   expect(skipped).toEqual([])
 })

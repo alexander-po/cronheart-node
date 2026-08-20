@@ -1,7 +1,4 @@
-import { PING_ROUTE_UUID_PATTERN } from '../constants.js'
 import type { EnvSource } from './env.js'
-
-const ROUTE_SHAPE = new RegExp(PING_ROUTE_UUID_PATTERN)
 
 const CANONICAL_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -19,7 +16,7 @@ export interface Resolution {
 }
 
 export function isMonitorId(value: unknown): value is string {
-  return typeof value === 'string' && CANONICAL_SHAPE.test(value) && ROUTE_SHAPE.test(value)
+  return typeof value === 'string' && CANONICAL_SHAPE.test(value)
 }
 
 export function opensLikeAnId(value: string): boolean {

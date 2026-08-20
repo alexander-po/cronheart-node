@@ -1,5 +1,6 @@
 import { BODY_RELEASE_BUDGET_MS, MAX_RETRIES, RETRY_FLOOR_DELAY_MS } from '../constants.js'
 import type { AbortSignalLike, FetchLike, PingHttpResponse } from '../ping/types.js'
+import { type Countdown, countdown, detachedCountdown } from '../timer.js'
 
 export type TransportReason = 'timeout' | 'aborted' | 'network-error' | 'unexpected'
 
@@ -18,7 +19,7 @@ export class TransportFailure extends Error {
 
   readonly attempts: number
 
-  constructor(reason: TransportReason, attempts: number, message: string, cause?: unknown) {
+  constructor(reason: TransportReason, message: string, cause?: unknown, attempts = 0) {
     super(message, cause === undefined ? undefined : { cause })
     this.reason = reason
     this.attempts = attempts
@@ -50,10 +51,10 @@ interface ReadResponse {
 }
 
 export function ambientFetch(): FetchLike | undefined {
-  const host = globalThis as { fetch?: unknown }
+  const globals = globalThis as { fetch?: unknown }
 
-  return typeof host.fetch === 'function'
-    ? ((host.fetch as (...args: never[]) => unknown).bind(globalThis) as FetchLike)
+  return typeof globals.fetch === 'function'
+    ? ((globals.fetch as (...args: never[]) => unknown).bind(globalThis) as FetchLike)
     : undefined
 }
 
@@ -67,20 +68,8 @@ function isAbortSignalLike(value: unknown): value is AbortSignalLike {
   )
 }
 
-function unrefIfPossible(timer: unknown): void {
-  if (typeof (timer as { unref?: () => void } | undefined)?.unref === 'function') {
-    ;(timer as { unref: () => void }).unref()
-  }
-}
-
-function pause(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
-
 async function releaseBody(response: PingHttpResponse): Promise<void> {
-  let handle: ReturnType<typeof setTimeout> | undefined
+  let gaveUp: Countdown | undefined
 
   try {
     const stream = response.body
@@ -94,20 +83,13 @@ async function releaseBody(response: PingHttpResponse): Promise<void> {
       return
     }
 
-    // Nothing waits on a release, so its deadline must not be able to hold the process
-    // open — and a stream that never finishes releasing must not hold the check-in.
-    const gaveUp = new Promise<typeof EXPIRED>((resolve) => {
-      handle = setTimeout(() => resolve(EXPIRED), BODY_RELEASE_BUDGET_MS)
-      unrefIfPossible(handle)
-    })
+    // A stream that never finishes releasing must not hold the check-in.
+    gaveUp = detachedCountdown(BODY_RELEASE_BUDGET_MS)
 
-    await Promise.race([stream.cancel(), gaveUp])
+    await Promise.race([stream.cancel(), gaveUp.reached])
   } catch {
-    // A body that refuses to be released is not a reason to fail a check-in.
   } finally {
-    if (handle !== undefined) {
-      clearTimeout(handle)
-    }
+    gaveUp?.cancel()
   }
 }
 
@@ -118,7 +100,6 @@ async function readResponse(response: PingHttpResponse): Promise<ReadResponse> {
     if (typeof status !== 'number' || !Number.isFinite(status)) {
       throw new TransportFailure(
         'unexpected',
-        1,
         'the transport resolved to something that is not an HTTP response',
       )
     }
@@ -169,14 +150,12 @@ function relayAbort(signal: unknown, relay: () => void): AbortSignalLike | undef
 function stopRelaying(caller: AbortSignalLike | undefined, relay: () => void): void {
   try {
     caller?.removeEventListener('abort', relay)
-  } catch {
-    // The check-in is already over; a signal that throws on the way out cannot change it.
-  }
+  } catch {}
 }
 
 async function attemptOnce(
   request: TransportRequest,
-  send: FetchLike,
+  transport: FetchLike,
   budgetMs: number,
 ): Promise<ReadResponse> {
   const controller = new AbortController()
@@ -193,18 +172,17 @@ async function attemptOnce(
   // it as one hides a clean cancellation inside a failure count.
   const gaveUp = (cause?: unknown): TransportFailure =>
     stoppedBy === 'caller'
-      ? new TransportFailure('aborted', 1, CANCELLED, cause)
-      : new TransportFailure('timeout', 1, OUT_OF_BUDGET, cause)
-  let handle: ReturnType<typeof setTimeout> | undefined
+      ? new TransportFailure('aborted', CANCELLED, cause, 1)
+      : new TransportFailure('timeout', OUT_OF_BUDGET, cause, 1)
+  const deadline = countdown(budgetMs)
   let listening: AbortSignalLike | undefined
 
   try {
-    const reached = new Promise<typeof EXPIRED>((resolve) => {
-      handle = setTimeout(() => {
-        expired = true
-        stop('deadline')
-        resolve(EXPIRED)
-      }, budgetMs)
+    const reached: Promise<typeof EXPIRED> = deadline.reached.then(() => {
+      expired = true
+      stop('deadline')
+
+      return EXPIRED
     })
 
     listening = relayAbort(request.signal, relay)
@@ -213,7 +191,7 @@ async function attemptOnce(
     let dispatched: Promise<PingHttpResponse> | undefined
 
     try {
-      dispatched = send(request.url, {
+      dispatched = transport(request.url, {
         method: request.method,
         headers: request.headers,
         body: request.body,
@@ -245,7 +223,7 @@ async function attemptOnce(
 
       throw expired || controller.signal.aborted
         ? gaveUp(cause)
-        : new TransportFailure('network-error', 1, UNREACHABLE, cause)
+        : new TransportFailure('network-error', UNREACHABLE, cause, 1)
     }
 
     try {
@@ -263,24 +241,20 @@ async function attemptOnce(
     } catch (cause) {
       throw cause instanceof TransportFailure
         ? cause
-        : new TransportFailure('unexpected', 1, 'the transport response could not be read', cause)
+        : new TransportFailure('unexpected', 'the transport response could not be read', cause, 1)
     }
   } finally {
-    if (handle !== undefined) {
-      clearTimeout(handle)
-    }
-
+    deadline.cancel()
     stopRelaying(listening, relay)
   }
 }
 
 export async function send(request: TransportRequest): Promise<TransportResult> {
-  const dispatch = request.fetch ?? ambientFetch()
+  const transport = request.fetch ?? ambientFetch()
 
-  if (dispatch === undefined) {
+  if (transport === undefined) {
     throw new TransportFailure(
       'unexpected',
-      0,
       'this runtime has no fetch — pass one to createPingClient',
     )
   }
@@ -293,7 +267,7 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
 
   while (attempt < maxAttempts) {
     if (attempt > 0) {
-      await pause(Math.min(RETRY_FLOOR_DELAY_MS, Math.max(0, deadline - Date.now())))
+      await countdown(Math.min(RETRY_FLOOR_DELAY_MS, Math.max(0, deadline - Date.now()))).reached
     }
 
     attempt += 1
@@ -306,11 +280,11 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
         return { ...answered, attempts: attempt - 1 }
       }
 
-      throw new TransportFailure('timeout', attempt - 1, OUT_OF_BUDGET, last)
+      throw new TransportFailure('timeout', OUT_OF_BUDGET, last, attempt - 1)
     }
 
     try {
-      const outcome = await attemptOnce(request, dispatch, budget)
+      const outcome = await attemptOnce(request, transport, budget)
 
       if (outcome.status >= 500 && attempt < maxAttempts) {
         answered = outcome
@@ -322,8 +296,8 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
     } catch (error) {
       const failure =
         error instanceof TransportFailure
-          ? new TransportFailure(error.reason, attempt, error.message, error.cause)
-          : new TransportFailure('network-error', attempt, UNREACHABLE, error)
+          ? new TransportFailure(error.reason, error.message, error.cause, attempt)
+          : new TransportFailure('network-error', UNREACHABLE, error, attempt)
 
       if (failure.reason !== 'network-error' || attempt >= maxAttempts) {
         throw failure
@@ -333,5 +307,8 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
     }
   }
 
-  throw last ?? new TransportFailure('network-error', attempt, 'the check-in exhausted its attempts')
+  throw (
+    last ??
+    new TransportFailure('network-error', 'the check-in exhausted its attempts', undefined, attempt)
+  )
 }

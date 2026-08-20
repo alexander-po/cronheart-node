@@ -9,7 +9,7 @@ import {
   observe,
   violations,
 } from './support/fault-harness.js'
-import { type Integration, UNSAFE_INTEGRATION } from './support/integrations.js'
+import { type EntryPoint, UNSAFE_ENTRY_POINT } from './support/entry-points.js'
 
 const SCREAMED_ID = `CRONHEART_${MONITOR_ID.toUpperCase().replaceAll('-', '_')}_UUID`
 
@@ -36,30 +36,32 @@ const quietHost: Host = {
   call: () => undefined,
 }
 
-const LEAKY_INTEGRATION: Integration = {
+const LEAKY_ENTRY_POINT: EntryPoint = {
   id: '__selftest__/leaves-bodies-open',
   exports: [],
   pings: 1,
   unsafe: true,
   invoke: async ({ fault, host }) => {
-    const dispatch = fault.clientOptions.fetch
+    const transport = fault.clientOptions.fetch
 
-    if (dispatch !== undefined) {
-      await dispatch(`${BASE_URL}/ping/${MONITOR_ID}`, { method: 'GET', headers: {} }).catch(
-        () => undefined,
-      )
+    if (transport !== undefined) {
+      await transport(`${BASE_URL}/ping/${MONITOR_ID}`, {
+        method: 'GET',
+        headers: {},
+        signal: new AbortController().signal,
+      }).catch(() => undefined)
     }
 
     return host()
   },
 }
 
-async function breakages(integration: Integration): Promise<Map<Invariant, string>> {
+async function breakages(entryPoint: EntryPoint): Promise<Map<Invariant, string>> {
   const found = new Map<Invariant, string>()
 
   for (const fault of FAULTS) {
     for (const host of hosts()) {
-      const observation = await observe(integration, fault, host)
+      const observation = await observe(entryPoint, fault, host)
 
       for (const invariant of violations(observation, host, MONITOR_ID)) {
         if (!found.has(invariant)) {
@@ -116,8 +118,8 @@ describe('the identifier rule', () => {
 
 describe('the negative control', () => {
   it('breaks every fail-open invariant the matrix asserts', async () => {
-    const unsafe = await breakages(UNSAFE_INTEGRATION)
-    const leaky = await breakages(LEAKY_INTEGRATION)
+    const unsafe = await breakages(UNSAFE_ENTRY_POINT)
+    const leaky = await breakages(LEAKY_ENTRY_POINT)
     const broken = new Set([...unsafe.keys(), ...leaky.keys()])
 
     process.stderr.write(

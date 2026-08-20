@@ -13,8 +13,8 @@ export function userAgent(): string {
 }
 
 function runtimeSegment(): string | undefined {
-  const host = globalThis as { process?: { versions?: { node?: string } } }
-  const nodeVersion = host.process?.versions?.node
+  const globals = globalThis as { process?: { versions?: { node?: string } } }
+  const nodeVersion = globals.process?.versions?.node
 
   return typeof nodeVersion === 'string' ? `node/${nodeVersion}` : undefined
 }

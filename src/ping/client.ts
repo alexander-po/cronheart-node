@@ -14,6 +14,7 @@ import {
   pingPath,
   resolveOrThrow,
 } from '../wiring/validate.js'
+import { countdown } from '../timer.js'
 import { userAgent } from '../version.js'
 import { type PingAction, isTerminal } from './action.js'
 import { type TruncateMode, inAnyCase, redactSecrets, truncateBody } from './body.js'
@@ -43,11 +44,11 @@ interface CallShape {
   readonly bodyFallback?: (() => string | undefined) | undefined
 }
 
-function positive(value: number | undefined, fallback: number): number {
+function positiveOr(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
 }
 
-function nonNegative(value: number | undefined, fallback: number): number {
+function nonNegativeOr(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
     : fallback
@@ -165,8 +166,8 @@ function messageFor(outcome: string, resolution: Resolution): string | undefined
 export function createPingClient(options: PingClientOptions = {}): PingClient {
   const env = options.env ?? ambientEnv()
   const baseUrl = (options.baseUrl ?? readEnv(env, 'URL') ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
-  const timeoutMs = positive(options.timeoutMs ?? numberFrom(env, 'TIMEOUT_MS'), DEFAULT_TIMEOUT_MS)
-  const retries = nonNegative(options.retries ?? numberFrom(env, 'RETRIES'), DEFAULT_RETRIES)
+  const timeoutMs = positiveOr(options.timeoutMs ?? numberFrom(env, 'TIMEOUT_MS'), DEFAULT_TIMEOUT_MS)
+  const retries = nonNegativeOr(options.retries ?? numberFrom(env, 'RETRIES'), DEFAULT_RETRIES)
   const disabled = options.disabled ?? isDisabled(env)
   const truncate: TruncateMode = options.truncate ?? 'head'
   const includeStack = options.includeStack ?? false
@@ -209,9 +210,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
           warnOnce(result.outcome, resolution.envVar ?? resolution.label, message)
         }
       }
-    } catch {
-      // A reporting sink is an observer. It must not be able to change a check-in.
-    }
+    } catch {}
   }
 
   async function perform(
@@ -274,8 +273,8 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
         method: body === undefined ? 'GET' : 'POST',
         headers,
         body,
-        timeoutMs: positive(callOptions.timeoutMs, timeoutMs),
-        retries: nonNegative(callOptions.retries, retries),
+        timeoutMs: positiveOr(callOptions.timeoutMs, timeoutMs),
+        retries: nonNegativeOr(callOptions.retries, retries),
         signal: callOptions.signal ?? options.signal,
         fetch: options.fetch,
       })
@@ -345,7 +344,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
       return
     }
 
-    const deadline = timer(positive(timeoutMs, DEFAULT_FLUSH_TIMEOUT_MS))
+    const deadline = countdown(positiveOr(timeoutMs, DEFAULT_FLUSH_TIMEOUT_MS))
 
     try {
       await Promise.race([Promise.allSettled(pending), deadline.reached])
@@ -369,7 +368,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
     void dispatch(name, 'start', [runOptions], { transportOnly: true })
     let terminal: Promise<PingResult> | undefined
 
-    const settle = (
+    const sendTerminal = (
       action: PingAction,
       callOptions: PingOptions | undefined,
       bodyFallback?: () => string | undefined,
@@ -383,9 +382,9 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
     }
 
     return {
-      success: (successOptions) => settle('success', successOptions),
+      success: (successOptions) => sendTerminal('success', successOptions),
       fail: (error, failOptions) =>
-        settle('fail', failOptions, () =>
+        sendTerminal('fail', failOptions, () =>
           error === undefined ? undefined : describeError(error, includeStack),
         ),
     }
@@ -435,21 +434,5 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
     checkInWith,
     flush,
     monitors,
-  }
-}
-
-function timer(ms: number): { reached: Promise<void>; cancel: () => void } {
-  let handle: ReturnType<typeof setTimeout> | undefined
-  const reached = new Promise<void>((resolve) => {
-    handle = setTimeout(resolve, ms)
-  })
-
-  return {
-    reached,
-    cancel: () => {
-      if (handle !== undefined) {
-        clearTimeout(handle)
-      }
-    },
   }
 }

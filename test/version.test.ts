@@ -34,12 +34,14 @@ function literalCount(files: URL[], version: string): number {
 
 describe('version single-sourcing', () => {
   it('is absent from src, so the build is the only place it can come from', () => {
-    const offenders = filesUnder(new URL('src/', repoRoot), '.ts').filter((file) => {
+    const sources = filesUnder(new URL('src/', repoRoot), '.ts')
+    const offenders = sources.filter((file) => {
       const source = readFileSync(file, 'utf8')
 
       return injectedVersions.some((version) => source.includes(version))
     })
 
+    expect(sources.length).toBeGreaterThan(0)
     expect(offenders.map((file) => file.pathname.split('/src/')[1])).toEqual([])
   })
 

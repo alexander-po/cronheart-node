@@ -8,8 +8,7 @@ import type {
   PingOptions,
   PingResult,
 } from '../src/ping/types.js'
-import { clearWarnings } from '../src/ping/warn.js'
-import { createPingRecorder } from '../src/testing.js'
+import { clearWarnings, createPingRecorder } from '../src/testing.js'
 import { captureUnhandledRejections } from './support/unhandled.js'
 
 const MONITOR_ID = '00000000-0000-4000-8000-0000000000a1'

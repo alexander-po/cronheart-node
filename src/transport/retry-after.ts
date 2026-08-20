@@ -114,7 +114,7 @@ export function parseRetryAfter(
 
   const instant = parseHttpDate(value, now)
 
-  if (instant === undefined || Number.isNaN(instant)) {
+  if (instant === undefined) {
     return undefined
   }
 
