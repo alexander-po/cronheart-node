@@ -44,12 +44,12 @@ describe('the retry count', () => {
 
   it('leaves a floor of delay between attempts rather than retrying in a tight loop', async () => {
     recorder.respondWith({ status: 500, body: 'boom' })
-    const started = Date.now()
+    const started = performance.now()
 
     await client({ retries: 1, timeoutMs: 1000 }).ping('job')
 
     expect(recorder.pings).toHaveLength(2)
-    expect(Date.now() - started).toBeGreaterThanOrEqual(RETRY_FLOOR_DELAY_MS)
+    expect(performance.now() - started).toBeGreaterThanOrEqual(RETRY_FLOOR_DELAY_MS)
   })
 
   it('spends that delay inside the timeout budget rather than on top of it', async () => {
