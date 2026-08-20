@@ -62,6 +62,8 @@ describe('the ping request', () => {
 
   it('identifies itself and sends no authorization, because the ping route is anonymous', async () => {
     await client().ping('job')
+
+    expect(recorder.pings).toHaveLength(1)
     const headers = recorder.pings[0]?.headers ?? {}
 
     expect(headers['User-Agent']).toMatch(/^cronheart-node\/\S+ contract\/\S+/)
@@ -183,12 +185,14 @@ describe('the runtime header', () => {
   it('sends the maximum itself, so the omission below is a bound and not an off-by-one', async () => {
     await client().success('job', { runtimeMs: RUNTIME_HEADER_MAX_VALUE })
 
+    expect(recorder.pings).toHaveLength(1)
     expect(recorder.pings[0]?.headers[RUNTIME_HEADER_NAME]).toBe(String(RUNTIME_HEADER_MAX_VALUE))
   })
 
   it('omits a runtime past the maximum rather than clamping it into a duration that never happened', async () => {
     await client().success('job', { runtimeMs: RUNTIME_HEADER_MAX_VALUE + 5000 })
 
+    expect(recorder.pings).toHaveLength(1)
     expect(recorder.pings[0]?.headers[RUNTIME_HEADER_NAME]).toBeUndefined()
   })
 
@@ -197,6 +201,7 @@ describe('the runtime header', () => {
     async (runtimeMs) => {
       await client().success('job', { runtimeMs })
 
+      expect(recorder.pings).toHaveLength(1)
       expect(recorder.pings[0]?.headers[RUNTIME_HEADER_NAME]).toBeUndefined()
     },
   )
@@ -240,9 +245,11 @@ describe('the caller signal', () => {
     const add = signal.addEventListener.bind(signal)
     const remove = signal.removeEventListener.bind(signal)
     let live = 0
+    let peak = 0
     Object.assign(signal, {
       addEventListener: (...args: Parameters<typeof add>) => {
         live += 1
+        peak = Math.max(peak, live)
         add(...args)
       },
       removeEventListener: (...args: Parameters<typeof remove>) => {
@@ -256,6 +263,7 @@ describe('the caller signal', () => {
       await sdk.ping('job')
     }
 
+    expect(peak).toBeGreaterThan(0)
     expect(live).toBe(0)
   })
 

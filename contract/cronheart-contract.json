@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.1.0",
+  "contract_version": "1.2.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-20",
@@ -330,6 +330,21 @@
     ]
   },
 
+  "ping_retry": {
+    "layer": "client-convention",
+    "description": "How every official SDK retries a check-in. Nothing on the server enforces it; the ping rate limits above are what a wrong policy runs into.",
+    "retried": ["a transport failure that produced no response", "a 5xx response"],
+    "not_retried": ["2xx", "404", "410", "429", "every other 4xx"],
+    "max_retries": 5,
+    "floor_delay_ms": 50,
+    "budget": "One timeout budget covers every attempt and every delay between them. An attempt is not started once the budget is spent.",
+    "rules": [
+      "A 429 is never retried. Its Retry-After is reported to the caller instead.",
+      "The delay between attempts is a floor rather than a backoff, and is clamped to whatever remains of the budget.",
+      "max_retries is a ceiling on the configured value, not a default: the default is 2. A configured count above it is clamped silently, because a check-in must not fail for being configured ambitiously.",
+      "The ceiling exists because a single misconfigured job would otherwise spend its whole budget issuing requests into the per-monitor and per-IP limits above."
+    ]
+  },
   "retry_after": {
     "layer": "client-convention",
     "description": "Parsing of the Retry-After response header. The server only ever emits delta-seconds with a minimum of 1, but an intermediary may rewrite it into one of the date forms the HTTP specification also permits, so a conforming parser accepts all four forms.",

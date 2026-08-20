@@ -2,6 +2,10 @@ export class CronheartConfigurationError extends Error {
   override readonly name: string = 'CronheartConfigurationError'
 }
 
+export class InvalidBaseUrlError extends CronheartConfigurationError {
+  override readonly name: string = 'InvalidBaseUrlError'
+}
+
 export class InvalidActionError extends CronheartConfigurationError {
   override readonly name: string = 'InvalidActionError'
 }

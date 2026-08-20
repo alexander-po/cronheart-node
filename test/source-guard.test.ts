@@ -37,18 +37,20 @@ describe('the source guard', () => {
     expect(run.output).toContain('clean')
   })
 
-  it('ignores the words when they sit in a comment or a string', () => {
+  it('ignores the words when they sit in a comment or a string, nested ones included', () => {
     const run = guard('test/fixtures/source-guard/clean')
 
     expect(run.status).toBe(0)
   })
 
-  it('catches a network call and a throw on the ping path, and a transport reaching into wiring', () => {
+  it('catches the banned expressions on the ping path, a transport reaching into wiring, and an expression hidden in an interpolation', () => {
     const run = guard('test/fixtures/source-guard/dirty')
 
     expect(run.status).toBe(1)
     expect(rulesIn(run.output)).toEqual([
+      'fetch-outside-transport ping/hot.ts:10',
       'fetch-outside-transport ping/hot.ts:2',
+      'promise-reject-outside-guarded-layer ping/hot.ts:14',
       'throw-outside-guarded-layer ping/hot.ts:5',
       'transport-imports-wiring transport/net.ts:1',
     ])

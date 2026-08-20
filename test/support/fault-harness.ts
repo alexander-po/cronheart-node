@@ -1,5 +1,6 @@
 import { createPingClient } from '../../src/ping/client.js'
-import { BUDGET_MS, type Fault, RETRIES } from './faults.js'
+import { clearWarnings } from '../../src/ping/warn.js'
+import { BUDGET_MS, type Fault } from './faults.js'
 import type { Integration } from './integrations.js'
 import { captureUnhandledRejections } from './unhandled.js'
 
@@ -131,9 +132,12 @@ export async function observe(
 ): Promise<Observation> {
   const instance = fault.create()
   const client = createPingClient(instance.clientOptions)
-  const boundMs = integration.pings * BUDGET_MS * (RETRIES + 1) + OVERHEAD_ALLOWANCE_MS
+  // The timeout is one budget across attempts, so a bound that multiplied by the
+  // retry count would sit wide enough to hide a regression back to a per-attempt one.
+  const boundMs = integration.pings * BUDGET_MS + OVERHEAD_ALLOWANCE_MS
   const cap = delay(boundMs + HARD_CAP_ALLOWANCE_MS)
   const capture = captureOutput()
+  clearWarnings()
   const startedAt = Date.now()
 
   const { value: settlement, unhandled } = await captureUnhandledRejections(async () => {
@@ -163,8 +167,50 @@ export async function observe(
     unhandled,
     output: capture.lines.join('\n'),
     undrainedBodies: instance.undrainedBodies(),
-    stack: thrown instanceof Error ? thrown.stack : undefined,
+    stack: stackOf(thrown),
   }
+}
+
+function stackOf(value: unknown): string | undefined {
+  try {
+    return value instanceof Error ? value.stack : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function describeQuietly(value: unknown): string {
+  const parts: string[] = []
+
+  for (const read of [
+    () => String(value),
+    () => (value instanceof Error ? value.message : ''),
+    () => stackOf(value) ?? '',
+  ]) {
+    try {
+      parts.push(read())
+    } catch {
+      parts.push('')
+    }
+  }
+
+  return parts.join('\n')
+}
+
+// Case-folded, and with the underscore of a screamed environment-variable name
+// folded back to a hyphen: an id that reaches a log line mangled has still reached it.
+function mentions(text: string, monitorId: string): boolean {
+  return text.toLowerCase().replaceAll('_', '-').includes(monitorId.toLowerCase())
+}
+
+function sdkAuthoredText(observation: Observation, host: Host): string {
+  const written = [observation.output]
+
+  if (observation.threw && observation.thrown !== host.expected) {
+    written.push(describeQuietly(observation.thrown))
+  }
+
+  return written.join('\n')
 }
 
 const TOKEN_SHAPED = /cmk_[A-Za-z0-9]/
@@ -183,8 +229,7 @@ export function violations(
   if (observation.settled) {
     if (host.throws) {
       const sameError = observation.threw && observation.thrown === host.expected
-      const sameStack =
-        observation.stack !== undefined && observation.stack === (host.expected as Error).stack
+      const sameStack = observation.stack === stackOf(host.expected)
 
       if (!sameError || !sameStack) {
         found.push('the-host-error-arrives-unchanged')
@@ -200,7 +245,9 @@ export function violations(
     found.push('no-unhandled-rejection')
   }
 
-  if (observation.output.includes(monitorId) || TOKEN_SHAPED.test(observation.output)) {
+  const written = sdkAuthoredText(observation, host)
+
+  if (mentions(written, monitorId) || TOKEN_SHAPED.test(written)) {
     found.push('no-identifier-in-the-output')
   }
 

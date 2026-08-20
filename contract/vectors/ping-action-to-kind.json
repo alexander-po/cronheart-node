@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.1.0",
+  "contract_version": "1.2.0",
   "group": "ping.action_to_kind",
   "default_subject": "ping.classifyAction",
   "description": "Two layers guard the ping action segment and they disagree about what is legal. The route pattern is an ASCII character class of 1 to 16 characters; anything outside it 404s at routing and never reaches the mapper. The mapper then lowercases, matches a handful of literals, and falls back to an ASCII-only digit test — with heartbeat, the kind that marks a monitor UP, as the default arm. Both layers are ASCII-only, and reproducing them with a Unicode-aware digit or word class is the single most likely way for a port to drift.",

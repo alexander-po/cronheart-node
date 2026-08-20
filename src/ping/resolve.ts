@@ -12,7 +12,9 @@ export type ResolutionReason = 'ok' | 'unset' | 'malformed'
 export interface Resolution {
   readonly id: string | undefined
   readonly reason: ResolutionReason
-  readonly envVar: string
+  // Undefined when the caller passed an id rather than a name: there is no variable to
+  // name, and naming one would print a screamed copy of the id the route is secured by.
+  readonly envVar: string | undefined
   readonly label: string
 }
 
@@ -48,7 +50,8 @@ export function resolveMonitor(
   defined: Readonly<Record<string, string>>,
   env: EnvSource,
 ): Resolution {
-  const envVar = envVarFor(name)
+  const named = !opensLikeAnId(name)
+  const envVar = named ? envVarFor(name) : undefined
   const label = labelFor(name)
   const settle = (candidate: string | undefined): Resolution => {
     if (candidate === undefined) {
@@ -60,7 +63,7 @@ export function resolveMonitor(
       : { id: undefined, reason: 'malformed', envVar, label }
   }
 
-  if (opensLikeAnId(name)) {
+  if (!named) {
     return settle(name)
   }
 

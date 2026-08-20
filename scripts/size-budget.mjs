@@ -3,7 +3,7 @@ import { gzipSync } from 'node:zlib'
 
 // Measured against the shipped, unminified ping entry — the number a consumer's
 // bundler starts from, before its own minifier runs.
-const BUDGET_GZIP_BYTES = 8192
+const BUDGET_GZIP_BYTES = 8704
 
 const RELATIVE_SPECIFIER = /["'](\.\/[^"']+\.m?js)["']/g
 

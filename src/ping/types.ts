@@ -20,6 +20,7 @@ export interface PingRequestInit {
   readonly method: string
   readonly headers: Readonly<Record<string, string>>
   readonly body?: string | undefined
+  readonly redirect?: 'manual' | undefined
   readonly signal?: unknown
 }
 

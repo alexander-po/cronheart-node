@@ -5,6 +5,7 @@ export interface RecordedPing {
   readonly method: string
   readonly headers: Readonly<Record<string, string>>
   readonly body: string | undefined
+  readonly redirect: string | undefined
   readonly monitorId: string
   readonly action: string | null
 }
@@ -38,6 +39,7 @@ function describeRequest(url: string, init: PingRequestInit): RecordedPing {
     method: init.method,
     headers: { ...init.headers },
     body: init.body,
+    redirect: init.redirect,
     monitorId: match?.[1] ?? '',
     action: match?.[2] ?? null,
   }

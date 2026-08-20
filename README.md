@@ -76,13 +76,17 @@ validated at wiring time: `createPingClient`, `monitors.define`,
 typo fails the deploy rather than going quiet at 3am.
 
 The guarantee is mechanical, not aspirational. One `safely()` chokepoint covers
-name resolution, URL construction and body encoding as well as the request; a
-source guard fails the build on a network call or a `throw` outside the layer
-that owns them; and a fault matrix runs every entry point against every way a
-transport can misbehave, asserting that the job's return value comes back by
-identity, that its exception propagates unchanged, that overhead stays bounded
-and that no identifier reaches a log line. A deliberately unsafe control proves
-the matrix can go red.
+name resolution, URL construction, option reading and body encoding as well as
+the request; a source guard fails the build on a network call, a `throw` or a
+rejected promise outside the layer that owns them; and a fault matrix runs every
+entry point against every way a transport can misbehave, every way a deployment
+can be misconfigured, and every way the calling program can hand in something
+hostile — an options object whose getter throws, an error whose `stack` accessor
+throws, a result sink that rejects, a response whose body never arrives. Each
+case asserts that the job's return value comes back by identity, that its
+exception propagates unchanged, that overhead stays bounded, that no promise is
+left unhandled and that no identifier reaches a log line. A deliberately unsafe
+control proves the matrix can go red.
 
 ## Configuration
 
@@ -91,11 +95,21 @@ the matrix can go red.
 | `CRONHEART_<NAME>_UUID` | — | the id for the monitor called `<name>` |
 | `CRONHEART_URL` | `https://cronheart.com` | base URL |
 | `CRONHEART_TIMEOUT_MS` | `5000` | total budget for one check-in, across retries |
-| `CRONHEART_RETRIES` | `2` | retries after the first attempt; server errors only |
+| `CRONHEART_RETRIES` | `2` | retries after the first attempt, capped at 5; server errors and network failures |
 | `CRONHEART_DISABLED` | unset | `1` stops every check-in, loudly |
 
 `CRON_MONITOR_*` is accepted for all of these, permanently and without a
 deprecation warning.
+
+A check-in retries a failed connection and a 5xx, never a 4xx — `404`, `410`
+and `429` are answers rather than failures. The count is capped at 5 however it
+is configured, attempts are spaced by at least 50 ms, and the whole sequence,
+delays included, is spent inside `CRONHEART_TIMEOUT_MS`. The base URL is
+validated when the client is built: a query string, a fragment or a scheme that
+is not http(s) is refused there, because the ping path is appended to it and a
+check-in would otherwise land on the site root and be recorded as accepted. A
+redirect is never followed either: the specification turns a redirected POST
+into a GET without a body, which would drop the job's output on the way.
 
 ## Schedulers
 
@@ -134,8 +148,8 @@ _Not implemented yet._
 Node 22 or newer, zero runtime dependencies. The root entry imports nothing
 from `node:`, which is what keeps non-Node runtimes on the table; the CLI is
 the only entry point that reaches for Node built-ins, and a test enforces the
-split. The ping entry is 7.5 KB gzipped before your bundler's minifier sees
-it, and CI fails on a regression past 8 KB.
+split. The ping entry is 8.1 KB gzipped before your bundler's minifier sees
+it, and CI fails on a regression past 8.5 KB.
 
 ## Development
 

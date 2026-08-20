@@ -16,14 +16,17 @@ function warned(): Set<string> {
   return created
 }
 
-export function warnOnce(outcome: PingOutcome, message: string): void {
+// Keyed by monitor as well as outcome: one warning per process for a whole fleet of
+// misconfigured monitors would name the first and leave the rest silent forever.
+export function warnOnce(outcome: PingOutcome, monitor: string, message: string): void {
   const seen = warned()
+  const key = `${outcome}\u0000${monitor}`
 
-  if (seen.has(outcome)) {
+  if (seen.has(key)) {
     return
   }
 
-  seen.add(outcome)
+  seen.add(key)
 
   const sink = (globalThis as { console?: { warn?: (message: string) => void } }).console
 

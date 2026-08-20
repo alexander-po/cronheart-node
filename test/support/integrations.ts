@@ -20,7 +20,7 @@ export interface Integration {
 export const INTEGRATIONS: readonly Integration[] = [
   {
     id: 'checkIn',
-    exports: ['checkIn'],
+    exports: ['checkIn', 'ping'],
     pings: 1,
     unsafe: false,
     invoke: async ({ client, fault, host }) => {

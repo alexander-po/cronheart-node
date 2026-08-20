@@ -58,13 +58,20 @@ mechanical rather than aspirational:
   region covering name resolution, URL construction and body encoding — not
   just the network call. The sibling PHP SDK left exactly those three outside
   its `try` and shipped green through its whole suite.
-- A lint rule banning `await fetch` and `throw` outside the transport layer.
+- A lint rule banning `await fetch`, `throw` and `Promise.reject` outside the
+  transport layer, over a lexer that follows template interpolations back into
+  code rather than treating everything between backticks as string content.
 - An unhandled-rejection assertion across the test suite.
-- A fault matrix with a deliberately-unsafe negative control, so the harness is
-  proven able to fail.
+- A fault matrix over three axes — how the transport misbehaves, how the
+  deployment is misconfigured, and what the host program hands in — with a
+  deliberately-unsafe negative control, so the harness is proven able to fail.
+  The host axis exists because the first two prove nothing about a throwing
+  option getter, an error whose `stack` accessor throws, or an async `onResult`.
 
-Any new integration that takes a callback must enter the fault matrix in the
-same change.
+Any new callable on the published surface must enter the fault matrix in the
+same change, or the matrix's ledger must record why it needs no case: the
+registry is derived by reflecting over the built entry points, so a const
+arrow, a default export and a class method are all visible to it.
 
 ## Packaging rules
 

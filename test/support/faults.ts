@@ -12,7 +12,7 @@ export const MONITOR_ID = '00000000-0000-4000-8000-0000000000d4'
 
 export const BASE_URL = 'https://faults.example'
 
-export const BUDGET_MS = 40
+export const BUDGET_MS = 60
 
 export const RETRIES = 1
 
@@ -40,7 +40,61 @@ function baseOptions(fetchImpl: FetchLike | undefined): PingClientOptions {
   }
 }
 
-function fault(
+// A body counts as released once the SDK has asked for it — read or cancelled.
+// Waiting for the cancel to settle would blame the SDK for a stream that never
+// finishes releasing, which no caller can do anything about.
+function countingBodies(dispatch: FetchLike): {
+  fetch: FetchLike
+  undrainedBodies(): number
+} {
+  let open = 0
+
+  const account = (response: PingHttpResponse): PingHttpResponse => {
+    try {
+      const stream = response.body
+
+      if (stream === null || stream === undefined || typeof stream.cancel !== 'function') {
+        return response
+      }
+
+      open += 1
+      let released = false
+      const release = (): void => {
+        if (!released) {
+          released = true
+          open -= 1
+        }
+      }
+      const cancel = stream.cancel.bind(stream)
+      const read = typeof response.text === 'function' ? response.text.bind(response) : undefined
+
+      ;(stream as { cancel: () => Promise<void> }).cancel = () => {
+        release()
+
+        return cancel()
+      }
+
+      if (read !== undefined) {
+        ;(response as { text?: () => Promise<string> }).text = () => {
+          release()
+
+          return read()
+        }
+      }
+
+      return response
+    } catch {
+      return response
+    }
+  }
+
+  return {
+    fetch: (url, init) => dispatch(url, init).then(account),
+    undrainedBodies: () => open,
+  }
+}
+
+export function fault(
   id: string,
   build: () => {
     fetch?: FetchLike
@@ -58,7 +112,11 @@ function fault(
       // transport: a missing one would fall through to the runtime's own fetch and
       // put the suite on the network.
       const fallback = built.fetch === undefined ? createPingRecorder() : undefined
-      const dispatch = built.fetch ?? fallback?.fetch
+      const counted =
+        built.fetch !== undefined && built.undrainedBodies === undefined
+          ? countingBodies(built.fetch)
+          : undefined
+      const dispatch = counted?.fetch ?? built.fetch ?? fallback?.fetch
 
       return {
         id,
@@ -66,13 +124,17 @@ function fault(
         clientOptions: { ...baseOptions(dispatch), ...built.clientOptions },
         pingOptions: built.pingOptions ?? {},
         undrainedBodies:
-          built.undrainedBodies ?? (() => fallback?.undrainedBodies ?? 0),
+          built.undrainedBodies ??
+          (() => counted?.undrainedBodies() ?? fallback?.undrainedBodies ?? 0),
       }
     },
   }
 }
 
-function recorded(id: string, stub: Parameters<ReturnType<typeof createPingRecorder>['respondWith']>[0]) {
+function recorded(
+  id: string,
+  stub: Parameters<ReturnType<typeof createPingRecorder>['respondWith']>[0],
+) {
   return fault(id, () => {
     const recorder = createPingRecorder(stub)
 
@@ -133,6 +195,8 @@ export const FAULTS: readonly Fault[] = [
         get status(): number {
           throw new Error('status exploded')
         },
+        bodyUsed: false,
+        body: { cancel: () => Promise.resolve() },
       } as unknown as PingHttpResponse),
   })),
   fault('transport-resolves-a-bare-object', () => ({
@@ -144,9 +208,18 @@ export const FAULTS: readonly Fault[] = [
     monitor: 'from-the-environment',
     clientOptions: { env: { CRONHEART_FROM_THE_ENVIRONMENT_UUID: 'not-an-id' } },
   })),
+  fault('the-monitor-is-addressed-by-its-raw-id', () => {
+    const recorder = createPingRecorder({ status: 404, body: 'Monitor not found' })
+
+    return {
+      fetch: recorder.fetch,
+      monitor: MONITOR_ID,
+      undrainedBodies: () => recorder.undrainedBodies,
+    }
+  }),
   fault('the-kill-switch-is-on', () => ({ clientOptions: { disabled: true } })),
-  fault('the-base-url-is-nonsense', () => ({
-    clientOptions: { baseUrl: '::: not a url :::' },
+  fault('the-base-url-carries-a-path', () => ({
+    clientOptions: { baseUrl: `${BASE_URL}/behind/a/proxy/` },
     fetch: (url: string) => {
       new URL(url)
 

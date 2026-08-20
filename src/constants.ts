@@ -15,3 +15,9 @@ export const DEFAULT_BASE_URL = 'https://cronheart.com'
 export const DEFAULT_TIMEOUT_MS = 5000
 
 export const DEFAULT_RETRIES = 2
+
+export const MAX_RETRIES = 5
+
+export const RETRY_FLOOR_DELAY_MS = 50
+
+export const BODY_RELEASE_BUDGET_MS = 250

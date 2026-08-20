@@ -103,13 +103,16 @@ Pointer patterns use `*` for one path segment and `**` for any number.
 | 36 | `/ping/responses/table/*/retryable` | — | — | `breaking-both` | — |
 | 37 | `/body_truncation/marker`, `/body_truncation/cap_bytes`, `/body_truncation/budget_bytes`, `/body_truncation/modes/*` | `additive` (a new mode) | `breaking-writers` | `breaking-writers` | `additive` |
 | 38 | `/retry_after/accepted_forms/*` | `additive` | `breaking-readers` | `breaking-readers` | `additive` |
-| 39 | `/retry_after/rules/*` | `undecidable` — the rules are prose; a change must be restated as vectors before it can be classified | `undecidable` | `undecidable` | `additive` |
+| 39 | `/retry_after/rules/*`, `/ping_retry/rules/*` | `undecidable` — the rules are prose; a change must be restated as vectors before it can be classified | `undecidable` | `undecidable` | `additive` |
 | 40 | `/anchors/*` | `additive` | `breaking-both` — an SDK's constant test loses its anchor and silently stops asserting | `breaking-both` when `value` changes; `additive` when only `pointer` is retargeted at an identical value | `additive` |
 | 41 | `/api/rate_limits/by_plan/*`, `/ping/rate_limits/*/limit` — raised | — | — | `additive` | — |
 | 42 | the same — lowered | — | — | `breaking-writers` | — |
 | 43 | `/api/rate_limits/headers/*`, `/api/rate_limits/headers_absent_on` | `breaking-readers` | `breaking-readers` | `breaking-readers` | `additive` |
 | 44 | `/api/entitlement/required_plans`, `/api/entitlement/denied_plans` | `breaking-writers` on `denied_plans`; `additive` on `required_plans` | inverse of the above | `breaking-writers` | `additive` |
 | 45 | `/non_goals/*` | `breaking-both` — a new non-goal means something the SDK relied on is now disclaimed | `additive` — a non-goal removed means a gap was filled | `breaking-both` | `additive` |
+| 46 | `/ping_retry/retried`, `/ping_retry/not_retried` | `breaking-writers` — the fleet starts issuing requests it did not issue before, into the ping rate limits | `additive` | `breaking-writers` | `additive` |
+| 47 | `/ping_retry/max_retries` raised, or `/ping_retry/floor_delay_ms` lowered | — | — | `breaking-writers` — more traffic per job than the fleet was sized for | — |
+| 48 | the same, in the direction of less traffic | — | — | `additive` | — |
 
 ### Editorial: never a version-bumping verdict on its own
 

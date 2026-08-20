@@ -2,5 +2,5 @@
 const advice = 'do not throw here, and do not call fetch(url) either'
 
 export function describe(): string {
-  return advice
+  return `${advice} — ${`nor nested: throw, fetch(url)`}`
 }

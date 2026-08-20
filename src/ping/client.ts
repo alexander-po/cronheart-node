@@ -7,14 +7,19 @@ import {
 } from '../constants.js'
 import { TransportFailure, send as transportSend } from '../transport/send.js'
 import { parseRetryAfter } from '../transport/retry-after.js'
-import { assertEmittableAction, defineMonitors, resolveOrThrow } from '../wiring/validate.js'
+import {
+  assertEmittableAction,
+  assertPingBaseUrl,
+  defineMonitors,
+  resolveOrThrow,
+} from '../wiring/validate.js'
 import { userAgent } from '../version.js'
 import { type PingAction, isTerminal, segmentFor } from './action.js'
-import { type TruncateMode, redactSecrets, truncateBody } from './body.js'
+import { type TruncateMode, inAnyCase, redactSecrets, truncateBody } from './body.js'
 import { ambientEnv, isDisabled, numberFrom, readEnv } from './env.js'
 import { classifyStatus, isAccepted, isConfigurationOutcome } from './outcome.js'
 import { type Resolution, labelFor, resolveMonitor } from './resolve.js'
-import { safely, toError } from './safely.js'
+import { rethrow, safely, toError } from './safely.js'
 import type {
   CheckInThunk,
   CheckInWithOptions,
@@ -29,6 +34,14 @@ import { warnOnce } from './warn.js'
 
 const DEFAULT_FLUSH_TIMEOUT_MS = 5000
 
+// What the entry points hand to dispatch instead of a merged options object: every read
+// of the caller's own object then happens inside the guard rather than on the job's frame.
+interface CallShape {
+  readonly transportOnly?: boolean | undefined
+  readonly runtimeMs?: number | undefined
+  readonly body?: (() => string | undefined) | undefined
+}
+
 function positive(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
 }
@@ -37,6 +50,16 @@ function nonNegative(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
     : fallback
+}
+
+function ignore(): void {}
+
+// onResult is typed as returning void, which permits an async one — and an async sink
+// that rejects would otherwise leave an unhandled rejection behind every check-in.
+function settleQuietly(returned: unknown): void {
+  if (typeof (returned as { then?: unknown } | null | undefined)?.then === 'function') {
+    void Promise.resolve(returned as PromiseLike<unknown>).then(ignore, ignore)
+  }
 }
 
 function runtimeHeaderValue(runtimeMs: number | undefined): string | undefined {
@@ -50,38 +73,73 @@ function runtimeHeaderValue(runtimeMs: number | undefined): string | undefined {
   return whole > RUNTIME_HEADER_MAX_VALUE ? undefined : String(whole)
 }
 
+// Total by construction: the accessors it reads belong to the host's error, and in V8
+// reading a stack runs whatever the host installed as Error.prepareStackTrace.
 function describeError(error: unknown, includeStack: boolean): string {
-  const failure = toError(error)
-  const stack = failure.stack
+  try {
+    const failure = toError(error)
 
-  return includeStack && typeof stack === 'string' ? stack : `${failure.name}: ${failure.message}`
+    if (includeStack) {
+      const stack = failure.stack
+
+      if (typeof stack === 'string') {
+        return stack
+      }
+    }
+
+    return `${failure.name}: ${failure.message}`
+  } catch {
+    return 'the job failed with an error that cannot be described'
+  }
 }
 
-function transportOptionsOf(options: PingOptions | undefined): PingOptions {
-  if (options === undefined) {
-    return {}
+function callOptionsFrom(
+  options: PingOptions | undefined,
+  shape: CallShape | undefined,
+): PingOptions {
+  const given = options ?? {}
+
+  if (shape === undefined) {
+    return given
   }
 
-  const { body: _body, runtimeMs: _runtimeMs, ...rest } = options
+  const { body: givenBody, runtimeMs: givenRuntime, ...rest } = given
+  const carried = shape.transportOnly === true
+  const body = shape.body === undefined ? (carried ? undefined : givenBody) : shape.body()
+  const runtimeMs = shape.runtimeMs ?? (carried ? undefined : givenRuntime)
+  const next: Record<string, unknown> = { ...rest }
 
-  return rest
+  if (body !== undefined) {
+    next['body'] = body
+  }
+
+  if (runtimeMs !== undefined) {
+    next['runtimeMs'] = runtimeMs
+  }
+
+  return next as PingOptions
 }
 
 function messageFor(outcome: string, resolution: Resolution): string | undefined {
   const monitor = JSON.stringify(resolution.label)
+  const envVar = resolution.envVar
 
   if (outcome === 'disabled') {
     return `cronheart: CRONHEART_DISABLED is set, so no check-in was sent for ${monitor}. Unset it to resume monitoring.`
   }
 
   if (outcome === 'suppressed') {
-    return resolution.reason === 'malformed'
-      ? `cronheart: the value ${resolution.envVar} holds is not a monitor id, so nothing was sent for ${monitor}.`
-      : `cronheart: no monitor id for ${monitor}, so nothing was sent. Set ${resolution.envVar}, or pass monitors: { … } to createPingClient.`
+    if (envVar === undefined || resolution.reason === 'malformed') {
+      const source = envVar === undefined ? 'the id passed for it' : `the value ${envVar} holds`
+      return `cronheart: ${source} is not a monitor id, so nothing was sent for ${monitor}.`
+    }
+
+    return `cronheart: no monitor id for ${monitor}, so nothing was sent. Set ${envVar}, or pass monitors: { … } to createPingClient.`
   }
 
   if (outcome === 'not-found') {
-    return `cronheart: the server does not recognise the monitor for ${monitor} (HTTP 404). Check the id in ${resolution.envVar}.`
+    const where = envVar === undefined ? 'the id it was given' : envVar
+    return `cronheart: the server does not recognise the monitor for ${monitor} (HTTP 404). Check ${where}.`
   }
 
   if (outcome === 'paused') {
@@ -103,6 +161,8 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
   const defined: Record<string, string> = {}
   const inFlight = new Set<Promise<PingResult>>()
 
+  assertPingBaseUrl(baseUrl)
+
   if (options.monitors !== undefined) {
     defineMonitors(defined, options.monitors)
   }
@@ -120,11 +180,11 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
     resolution: Resolution,
     callOptions: PingOptions | undefined,
   ): void {
-    const sink = callOptions?.onResult ?? options.onResult
-
     try {
+      const sink = callOptions?.onResult ?? options.onResult
+
       if (sink !== undefined) {
-        sink(result)
+        settleQuietly(sink(result))
 
         return
       }
@@ -133,7 +193,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
         const message = messageFor(result.outcome, resolution)
 
         if (message !== undefined) {
-          warnOnce(result.outcome, message)
+          warnOnce(result.outcome, resolution.envVar ?? resolution.label, message)
         }
       }
     } catch {
@@ -176,7 +236,9 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
       rawBody === undefined
         ? undefined
         : truncateBody(
-            redactSecrets(String(rawBody), [resolution.id, ...redact]),
+            // The id is matched in either case: it is configured in one and echoed by the
+            // server in the other, and a failure body is where a job's own ping line lands.
+            redactSecrets(String(rawBody), [inAnyCase(resolution.id), ...redact]),
             callOptions.truncate ?? truncate,
           )
     const runtime = isTerminal(action) ? runtimeHeaderValue(callOptions.runtimeMs) : undefined
@@ -240,7 +302,8 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
   function dispatch(
     name: string,
     action: PingAction,
-    callOptions: PingOptions = {},
+    callOptions?: PingOptions,
+    shape?: CallShape,
   ): Promise<PingResult> {
     const startedAt = Date.now()
     const fallback: PingResult = {
@@ -257,7 +320,9 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
     }
 
     return track(
-      safely(fallback, () => perform(name, action, callOptions ?? {}, fallback, startedAt)),
+      safely(fallback, () =>
+        perform(name, action, callOptionsFrom(callOptions, shape), fallback, startedAt),
+      ),
     )
   }
 
@@ -292,37 +357,32 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
     run: () => T | PromiseLike<T>,
     runOptions?: PingOptions,
   ): Promise<Awaited<T>> {
-    await dispatch(name, 'start', transportOptionsOf(runOptions))
+    await dispatch(name, 'start', runOptions, { transportOnly: true })
     const startedAt = Date.now()
     const settled = await settleHost(run)
     const runtimeMs = Date.now() - startedAt
 
     if (settled.ok) {
-      await dispatch(name, 'success', { ...runOptions, runtimeMs })
+      await dispatch(name, 'success', runOptions, { runtimeMs })
 
       return settled.value
     }
 
-    await dispatch(name, 'fail', {
-      ...runOptions,
+    await dispatch(name, 'fail', runOptions, {
       runtimeMs,
-      body: runOptions?.body ?? describeError(settled.error, includeStack),
+      body: () => runOptions?.body ?? describeError(settled.error, includeStack),
     })
 
-    // Rethrowing with `throw` is banned outside the transport and wiring layers, so
-    // the host's error is handed back through the promise instead. Identity and
-    // stack are preserved either way.
-    return Promise.reject<Awaited<T>>(settled.error)
+    return rethrow<Awaited<T>>(settled.error)
   }
 
   function startRun(name: string, runOptions?: PingOptions): MonitorRun {
     const startedAt = Date.now()
-    void dispatch(name, 'start', transportOptionsOf(runOptions))
+    void dispatch(name, 'start', runOptions, { transportOnly: true })
     let terminal: Promise<PingResult> | undefined
 
-    const settle = (action: PingAction, body: string | undefined): Promise<PingResult> => {
-      terminal ??= dispatch(name, action, {
-        ...runOptions,
+    const settle = (action: PingAction, body: () => string | undefined): Promise<PingResult> => {
+      terminal ??= dispatch(name, action, runOptions, {
         runtimeMs: Date.now() - startedAt,
         body,
       })
@@ -331,11 +391,12 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
     }
 
     return {
-      success: (successOptions) => settle('success', successOptions?.body),
+      success: (successOptions) => settle('success', () => successOptions?.body),
       fail: (error, failOptions) =>
         settle(
           'fail',
-          failOptions?.body ??
+          () =>
+            failOptions?.body ??
             (error === undefined ? undefined : describeError(error, includeStack)),
         ),
     }
@@ -347,7 +408,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
     resolveOrThrow(name, defined, env)
 
     const thunk = (): void => {
-      void dispatch(name, action, transportOptionsOf(thunkOptions))
+      void dispatch(name, action, thunkOptions, { transportOnly: true })
     }
 
     return Object.assign(thunk, { flush })
@@ -370,10 +431,6 @@ function timer(ms: number): { reached: Promise<void>; cancel: () => void } {
   let handle: ReturnType<typeof setTimeout> | undefined
   const reached = new Promise<void>((resolve) => {
     handle = setTimeout(resolve, ms)
-
-    if (typeof (handle as { unref?: () => void }).unref === 'function') {
-      ;(handle as { unref: () => void }).unref()
-    }
   })
 
   return {

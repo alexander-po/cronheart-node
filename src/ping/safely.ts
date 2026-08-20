@@ -30,3 +30,7 @@ export function safely(
     return Promise.resolve(rescue(error))
   }
 }
+
+export function rethrow<T>(error: unknown): Promise<T> {
+  return Promise.reject(error)
+}

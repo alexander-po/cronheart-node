@@ -84,6 +84,10 @@ function escapeLiteral(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+export function inAnyCase(value: string): RegExp {
+  return new RegExp(escapeLiteral(value), 'gi')
+}
+
 function globalised(pattern: string | RegExp): RegExp {
   if (typeof pattern === 'string') {
     return new RegExp(escapeLiteral(pattern), 'g')

@@ -22,6 +22,7 @@ export { CONTRACT_VERSION, SDK_VERSION, userAgent } from './version.js'
 export {
   CronheartConfigurationError,
   InvalidActionError,
+  InvalidBaseUrlError,
   InvalidMonitorIdError,
   UnknownMonitorError,
 } from './wiring/errors.js'

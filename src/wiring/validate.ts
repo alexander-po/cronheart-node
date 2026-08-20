@@ -1,7 +1,38 @@
 import type { PingAction } from '../ping/action.js'
 import type { EnvSource } from '../ping/env.js'
 import { isMonitorId, resolveMonitor } from '../ping/resolve.js'
-import { InvalidActionError, InvalidMonitorIdError, UnknownMonitorError } from './errors.js'
+import {
+  InvalidActionError,
+  InvalidBaseUrlError,
+  InvalidMonitorIdError,
+  UnknownMonitorError,
+} from './errors.js'
+
+// A base URL is not merely concatenated onto: a query string or a fragment moves the
+// ping path out of the URL entirely, and the request then lands on the site root, which
+// answers 200 and classifies as an accepted check-in for as long as nobody looks.
+export function assertPingBaseUrl(baseUrl: string): void {
+  const refuse = (why: string): never => {
+    throw new InvalidBaseUrlError(
+      `cronheart: ${JSON.stringify(baseUrl)} cannot be a base URL — ${why}. The ping path is appended to it, so a check-in would land somewhere else and be recorded as accepted.`,
+    )
+  }
+  let parsed: URL
+
+  try {
+    parsed = new URL(baseUrl)
+  } catch {
+    return refuse('it is not a URL')
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    refuse('it is not http or https')
+  }
+
+  if (parsed.search !== '' || parsed.hash !== '') {
+    refuse('it carries a query string or a fragment')
+  }
+}
 
 export function assertEmittableAction(action: string | null): asserts action is PingAction | null {
   if (action === null || action === 'start' || action === 'success' || action === 'fail') {
@@ -39,13 +70,21 @@ export function resolveOrThrow(
     return resolution.id
   }
 
+  const monitor = JSON.stringify(resolution.label)
+
+  if (resolution.envVar === undefined) {
+    throw new InvalidMonitorIdError(
+      `cronheart: the id passed for ${monitor} is not a monitor id. Copy the 36-character identifier from the monitor's page.`,
+    )
+  }
+
   if (resolution.reason === 'malformed') {
     throw new InvalidMonitorIdError(
-      `cronheart: the value ${resolution.envVar} holds is not a monitor id, so ${JSON.stringify(name)} cannot be monitored.`,
+      `cronheart: the value ${resolution.envVar} holds is not a monitor id, so ${monitor} cannot be monitored.`,
     )
   }
 
   throw new UnknownMonitorError(
-    `cronheart: no monitor id for ${JSON.stringify(name)}. Set ${resolution.envVar}, or pass monitors: { ${JSON.stringify(name)}: '<id>' } to createPingClient.`,
+    `cronheart: no monitor id for ${monitor}. Set ${resolution.envVar}, or pass monitors: { ${monitor}: '<id>' } to createPingClient.`,
   )
 }

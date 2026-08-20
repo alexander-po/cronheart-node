@@ -1,6 +1,14 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+// Files whose whole job is to produce a rejection: the one chokepoint that hands a host
+// error back, the stand-in transport, and the control that breaks the axiom on purpose.
+const REJECTS_BY_DESIGN = new Set([
+  'ping/safely.ts',
+  'testing.ts',
+  'integrations/__selftest__.ts',
+])
+
 const RULES = [
   {
     id: 'fetch-outside-transport',
@@ -17,6 +25,13 @@ const RULES = [
       'a check-in must never reject; wiring-time validation throws, the ping path returns an outcome',
   },
   {
+    id: 'promise-reject-outside-guarded-layer',
+    test: (line) => /\bPromise\s*\.\s*reject\s*\(/.test(line),
+    allows: (relative) => relative.startsWith('transport/') || REJECTS_BY_DESIGN.has(relative),
+    explains:
+      'a rejected promise is a throw from an async function; rethrow() is the one place a host error is handed back',
+  },
+  {
     id: 'transport-imports-wiring',
     test: (line) => /from '[^']*wiring\//.test(line),
     allows: (relative) => !relative.startsWith('transport/'),
@@ -25,44 +40,58 @@ const RULES = [
   },
 ]
 
+// The lexer follows template interpolations back into code. Treating everything
+// between backticks as string content lets any banned expression hide inside a ${…}.
 function stripped(source, keepLiterals) {
   const out = []
-  let mode = 'code'
+  const stack = [{ kind: 'code', braces: 0, interpolation: false }]
   let index = 0
 
   while (index < source.length) {
+    const frame = stack[stack.length - 1]
     const char = source[index]
     const next = source[index + 1]
 
-    if (mode === 'code') {
+    if (frame.kind === 'code') {
       if (char === '/' && next === '/') {
-        mode = 'line-comment'
+        stack.push({ kind: 'line-comment' })
         index += 2
         continue
       }
 
       if (char === '/' && next === '*') {
-        mode = 'block-comment'
+        stack.push({ kind: 'block-comment' })
         index += 2
         continue
       }
 
       if (char === "'" || char === '"' || char === '`') {
-        mode = char
+        stack.push({ kind: 'string', quote: char })
         out.push(char)
         index += 1
         continue
       }
 
+      if (char === '{') {
+        frame.braces += 1
+      } else if (char === '}') {
+        if (frame.braces === 0 && frame.interpolation) {
+          stack.pop()
+          index += 1
+          continue
+        }
+
+        frame.braces -= 1
+      }
 
       out.push(char)
       index += 1
       continue
     }
 
-    if (mode === 'line-comment') {
+    if (frame.kind === 'line-comment') {
       if (char === '\n') {
-        mode = 'code'
+        stack.pop()
         out.push(char)
       }
 
@@ -70,9 +99,9 @@ function stripped(source, keepLiterals) {
       continue
     }
 
-    if (mode === 'block-comment') {
+    if (frame.kind === 'block-comment') {
       if (char === '*' && next === '/') {
-        mode = 'code'
+        stack.pop()
         index += 2
         continue
       }
@@ -90,10 +119,20 @@ function stripped(source, keepLiterals) {
       continue
     }
 
-    if (char === mode) {
-      mode = 'code'
+    if (frame.quote === '`' && char === '$' && next === '{') {
+      stack.push({ kind: 'code', braces: 0, interpolation: true })
+      index += 2
+      continue
+    }
+
+    if (char === frame.quote) {
+      stack.pop()
       out.push(char)
-    } else if (char === '\n' || keepLiterals) {
+      index += 1
+      continue
+    }
+
+    if (char === '\n' || keepLiterals) {
       out.push(char)
     }
 
