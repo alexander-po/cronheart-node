@@ -1,1 +1,1 @@
-export { SDK_VERSION, userAgent } from './version.js'
+export { CONTRACT_VERSION, SDK_VERSION, userAgent } from './version.js'

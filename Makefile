@@ -1,7 +1,7 @@
 COMPOSE ?= docker compose
 RUN := $(COMPOSE) run --rm node
 
-.PHONY: help image install build test lint check smoke shell changeset clean
+.PHONY: help image install build test lint contract check smoke shell changeset clean
 
 help:
 	@echo "Targets (everything runs inside the container — no host Node or pnpm):"
@@ -10,8 +10,9 @@ help:
 	@echo "  build      Bundle dist/ (ESM + CJS + .d.ts)"
 	@echo "  test       Build, then run the Vitest suite"
 	@echo "  lint       Build, then tsc + fixture tsc + publint + attw + size budget"
+	@echo "  contract   Validate the wire contract file against its own anchors"
 	@echo "  smoke      Pack the tarball and consume it from a scratch ESM and CJS project"
-	@echo "  check      The full gate: build + lint + test + smoke"
+	@echo "  check      The full gate: contract + build + lint + test + smoke"
 	@echo "  shell      Interactive shell in the container"
 	@echo "  changeset  Record a changeset for the next release"
 	@echo "  clean      Remove the containers and the node_modules / store volumes"
@@ -33,6 +34,9 @@ lint: build
 
 smoke: build
 	$(RUN) pnpm run smoke
+
+contract:
+	$(RUN) pnpm run contract:check
 
 check:
 	$(RUN) pnpm run check

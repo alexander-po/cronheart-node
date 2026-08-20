@@ -74,9 +74,11 @@ same change.
 - The management client is not at the root. The ping path ships into production
   bundles and function zips; the management path ships into CLIs. Splitting on
   the entry point makes the size guarantee structural.
-- The version is injected at build time from `package.json` and appears in
-  exactly one place per build format. Never hardcode it in source — a test
-  fails if the literal appears under `src/`.
+- The SDK version and the contract version are injected at build time — from
+  `package.json` and `contract/cronheart-contract.json` — and each appears in
+  exactly one place per build format. Never hardcode either in source: a test
+  fails if a literal appears under `src/`. Both ride in the User-Agent, so a
+  support request names the contract the client was built against.
 - No `enum` anywhere, and `export type` on every type re-export:
   `verbatimModuleSyntax`, `isolatedModules` and `erasableSyntaxOnly` all reject
   the alternatives, and consumers using Node type-stripping would break.

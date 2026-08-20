@@ -176,10 +176,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "pnpm run typecheck && pnpm run typecheck:fixture && pnpm run publint && pnpm run attw && pnpm run size",
-    "check": "pnpm run build && pnpm run lint && pnpm run test && pnpm run smoke",
+    "check": "pnpm run contract:check && pnpm run build && pnpm run lint && pnpm run test && pnpm run smoke",
     "audit": "pnpm audit --audit-level high",
     "contract:check": "node contract/check.mjs",
-    "contract:vectors": "node contract/vectors.mjs",
     "changeset": "changeset",
     "release": "changeset publish"
   },
