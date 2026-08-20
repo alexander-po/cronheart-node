@@ -24,6 +24,11 @@ beforeEach(() => {
   recorder = createPingRecorder()
 })
 
+// The floor is clamped against a whole-millisecond wall clock while this measures a
+// monotonic one, so the two disagree by a fraction of a millisecond. The slack is two
+// orders of magnitude below the tight loop this distinguishes the floor from.
+const CLOCK_SLACK_MS = 5
+
 describe('the retry count', () => {
   it('is capped, so a mistyped configuration cannot flood the service it monitors', async () => {
     recorder.respondWith({ status: 500, body: 'boom' })
@@ -49,7 +54,7 @@ describe('the retry count', () => {
     await client({ retries: 1, timeoutMs: 1000 }).ping('job')
 
     expect(recorder.pings).toHaveLength(2)
-    expect(performance.now() - started).toBeGreaterThanOrEqual(RETRY_FLOOR_DELAY_MS)
+    expect(performance.now() - started).toBeGreaterThanOrEqual(RETRY_FLOOR_DELAY_MS - CLOCK_SLACK_MS)
   })
 
   it('spends that delay inside the timeout budget rather than on top of it', async () => {
