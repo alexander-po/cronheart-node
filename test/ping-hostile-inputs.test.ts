@@ -9,6 +9,7 @@ import type {
   PingResult,
 } from '../src/ping/types.js'
 import { clearWarnings, createPingRecorder } from '../src/testing.js'
+import { CronheartConfigurationError } from '../src/wiring/errors.js'
 import { captureUnhandledRejections } from './support/unhandled.js'
 
 const MONITOR_ID = '00000000-0000-4000-8000-0000000000a1'
@@ -343,5 +344,83 @@ describe('redaction of the monitor id', () => {
     expect(bodies[0]).not.toContain(MONITOR_ID.toLowerCase())
     expect(bodies[1]).not.toContain(upper)
     expect(bodies.join('\n')).toContain('[redacted]')
+  })
+})
+
+// Every member of the options object the caller hands createPingClient, so that a member
+// added later has to be added here too rather than reaching the host unguarded.
+const CLIENT_OPTIONS = [
+  'baseUrl',
+  'monitors',
+  'timeoutMs',
+  'retries',
+  'disabled',
+  'fetch',
+  'env',
+  'onResult',
+  'truncate',
+  'redact',
+  'includeStack',
+  'signal',
+  'userAgent',
+] as const
+
+// The ones read while the client is being built, which is the only moment this factory is
+// allowed to throw at all.
+const READ_AT_WIRING_TIME = [
+  'baseUrl',
+  'monitors',
+  'timeoutMs',
+  'retries',
+  'disabled',
+  'env',
+  'truncate',
+  'redact',
+  'includeStack',
+] as const
+
+function buildingWith(member: string): string {
+  const options: Record<string, unknown> = { baseUrl: BASE, env: {}, monitors: { job: MONITOR_ID } }
+
+  Object.defineProperty(options, member, {
+    enumerable: true,
+    get: () => {
+      throw new TypeError(`the ${member} the caller passed in exploded`)
+    },
+  })
+
+  try {
+    createPingClient(options as PingClientOptions)
+
+    return 'built'
+  } catch (error) {
+    return error instanceof CronheartConfigurationError
+      ? 'refused'
+      : `escaped: ${String(error)}`
+  }
+}
+
+describe('the options the check-in client is built from', () => {
+  it.each(CLIENT_OPTIONS)('lets nothing but a refusal out when %s cannot be read', (member) => {
+    expect(buildingWith(member)).toMatch(/^(built|refused)$/)
+  })
+
+  it.each(READ_AT_WIRING_TIME)('refuses to build at all when %s cannot be read', (member) => {
+    expect(buildingWith(member)).toBe('refused')
+  })
+
+  it('says which option it refused, rather than reporting a method the value does not have', () => {
+    const refusal = (() => {
+      try {
+        createPingClient({ baseUrl: 42 as unknown as string, env: {} })
+
+        return 'built'
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    })()
+
+    expect(refusal).toContain('cronheart:')
+    expect(refusal).toContain('baseUrl')
   })
 })

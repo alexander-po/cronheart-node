@@ -8,12 +8,12 @@ import { API_KEY, MONITOR_UUID } from './support/api-recorder.js'
 // A secret the caller parked in the URL, assembled at runtime so no line here looks like one.
 const PARKED = `hunter2-${'x'.repeat(12)}-not-real`
 
-function buildPingClient(baseUrl: string): void {
-  createPingClient({ baseUrl, env: {}, monitors: { job: MONITOR_UUID } })
+function buildPingClient(baseUrl: unknown): void {
+  createPingClient({ baseUrl: baseUrl as string, env: {}, monitors: { job: MONITOR_UUID } })
 }
 
-function buildApiClient(baseUrl: string): void {
-  createCronheartApi({ apiKey: API_KEY, baseUrl, env: {} })
+function buildApiClient(baseUrl: unknown): void {
+  createCronheartApi({ apiKey: API_KEY, baseUrl: baseUrl as string, env: {} })
 }
 
 const CLIENTS = [
@@ -77,5 +77,16 @@ describe.each(CLIENTS)('$id refuses a base URL without quoting what was parked i
     } catch (error) {
       expect((error as Error).message).toContain('api.example')
     }
+  })
+})
+
+describe.each(CLIENTS)('$id refuses a base URL that is not a string at all', (client) => {
+  it.each([
+    ['a number', 42],
+    ['a boolean', true],
+    ['an array', ['https://api.example']],
+    ['an object that stringifies to one', { toString: () => 'https://api.example' }],
+  ])('%s', (_id, baseUrl) => {
+    expect(() => client.build(baseUrl)).toThrow(client.refusal)
   })
 })

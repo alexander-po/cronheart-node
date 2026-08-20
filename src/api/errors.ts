@@ -15,6 +15,33 @@ export type ApiErrorKind =
   | 'channel-delivery'
   | 'unexpected'
 
+// The coarser of the two discriminants: "the server refused this" is one class, reachable
+// without an instanceof against the base of that family.
+export type ApiErrorGroup =
+  | 'configuration'
+  | 'invalid-request'
+  | 'transport'
+  | 'hydration'
+  | 'response'
+
+export type ApiResponseKind = Exclude<
+  ApiErrorKind,
+  'configuration' | 'invalid-request' | 'transport' | 'hydration'
+>
+
+function groupFor(kind: ApiErrorKind): ApiErrorGroup {
+  if (
+    kind === 'configuration' ||
+    kind === 'invalid-request' ||
+    kind === 'transport' ||
+    kind === 'hydration'
+  ) {
+    return kind
+  }
+
+  return 'response'
+}
+
 export type ApiTransportReason =
   | 'timeout'
   | 'aborted'
@@ -49,6 +76,8 @@ export class CronheartApiError extends Error {
 
   readonly kind: ApiErrorKind
 
+  readonly group: ApiErrorGroup
+
   readonly status: number | undefined
 
   readonly problem: ProblemDetails | undefined
@@ -60,6 +89,7 @@ export class CronheartApiError extends Error {
   constructor(kind: ApiErrorKind, message: string, details: ApiErrorDetails = {}) {
     super(message, 'cause' in details ? { cause: details.cause } : undefined)
     this.kind = kind
+    this.group = groupFor(kind)
     this.status = details.status
     this.problem = details.problem
     this.request = details.request
@@ -67,12 +97,12 @@ export class CronheartApiError extends Error {
     Object.defineProperty(this, BRAND, { value: true, enumerable: false })
   }
 
-  static isCronheartApiError(value: unknown): value is CronheartApiError {
+  static isCronheartApiError(value: unknown): value is AnyCronheartApiError {
     return isCronheartApiError(value)
   }
 }
 
-export function isCronheartApiError(value: unknown): value is CronheartApiError {
+export function isCronheartApiError(value: unknown): value is AnyCronheartApiError {
   if (typeof value !== 'object' || value === null) {
     return false
   }
@@ -87,6 +117,10 @@ export function isCronheartApiError(value: unknown): value is CronheartApiError 
 export class ApiConfigurationError extends CronheartApiError {
   override readonly name: string = 'ApiConfigurationError'
 
+  declare readonly kind: 'configuration'
+
+  declare readonly group: 'configuration'
+
   constructor(message: string) {
     super('configuration', message)
   }
@@ -95,6 +129,10 @@ export class ApiConfigurationError extends CronheartApiError {
 export class ApiInvalidRequestError extends CronheartApiError {
   override readonly name: string = 'ApiInvalidRequestError'
 
+  declare readonly kind: 'invalid-request'
+
+  declare readonly group: 'invalid-request'
+
   constructor(message: string) {
     super('invalid-request', message)
   }
@@ -102,6 +140,10 @@ export class ApiInvalidRequestError extends CronheartApiError {
 
 export class ApiTransportError extends CronheartApiError {
   override readonly name: string = 'ApiTransportError'
+
+  declare readonly kind: 'transport'
+
+  declare readonly group: 'transport'
 
   readonly reason: ApiTransportReason
 
@@ -114,6 +156,10 @@ export class ApiTransportError extends CronheartApiError {
 export class ApiHydrationError extends CronheartApiError {
   override readonly name: string = 'ApiHydrationError'
 
+  declare readonly kind: 'hydration'
+
+  declare readonly group: 'hydration'
+
   constructor(message: string, details: ApiErrorDetails = {}) {
     super('hydration', message, details)
   }
@@ -121,10 +167,16 @@ export class ApiHydrationError extends CronheartApiError {
 
 export class ApiResponseError extends CronheartApiError {
   override readonly name: string = 'ApiResponseError'
+
+  declare readonly kind: ApiResponseKind
+
+  declare readonly group: 'response'
 }
 
 export class ApiAuthenticationError extends ApiResponseError {
   override readonly name: string = 'ApiAuthenticationError'
+
+  declare readonly kind: 'authentication'
 
   constructor(message: string, details: ApiErrorDetails) {
     super('authentication', message, details)
@@ -133,6 +185,8 @@ export class ApiAuthenticationError extends ApiResponseError {
 
 export class ApiPlanRestrictionError extends ApiResponseError {
   override readonly name: string = 'ApiPlanRestrictionError'
+
+  declare readonly kind: 'plan-restriction'
 
   readonly upgradeUrl: string | undefined
 
@@ -145,6 +199,8 @@ export class ApiPlanRestrictionError extends ApiResponseError {
 export class ApiForbiddenError extends ApiResponseError {
   override readonly name: string = 'ApiForbiddenError'
 
+  declare readonly kind: 'forbidden'
+
   constructor(message: string, details: ApiErrorDetails) {
     super('forbidden', message, details)
   }
@@ -152,6 +208,8 @@ export class ApiForbiddenError extends ApiResponseError {
 
 export class ApiNotFoundError extends ApiResponseError {
   override readonly name: string = 'ApiNotFoundError'
+
+  declare readonly kind: 'not-found'
 
   constructor(message: string, details: ApiErrorDetails) {
     super('not-found', message, details)
@@ -161,6 +219,8 @@ export class ApiNotFoundError extends ApiResponseError {
 export class ApiConflictError extends ApiResponseError {
   override readonly name: string = 'ApiConflictError'
 
+  declare readonly kind: 'conflict'
+
   constructor(message: string, details: ApiErrorDetails) {
     super('conflict', message, details)
   }
@@ -168,6 +228,8 @@ export class ApiConflictError extends ApiResponseError {
 
 export class ApiValidationError extends ApiResponseError {
   override readonly name: string = 'ApiValidationError'
+
+  declare readonly kind: 'validation'
 
   readonly errors: Readonly<Record<string, string>>
 
@@ -180,6 +242,8 @@ export class ApiValidationError extends ApiResponseError {
 export class ApiRateLimitError extends ApiResponseError {
   override readonly name: string = 'ApiRateLimitError'
 
+  declare readonly kind: 'rate-limit'
+
   readonly retryAfterSeconds: number | undefined
 
   constructor(message: string, details: ApiErrorDetails) {
@@ -191,6 +255,8 @@ export class ApiRateLimitError extends ApiResponseError {
 export class ApiChannelDeliveryError extends ApiResponseError {
   override readonly name: string = 'ApiChannelDeliveryError'
 
+  declare readonly kind: 'channel-delivery'
+
   constructor(message: string, request: RequestDescriptor, problem: ProblemDetails) {
     super('channel-delivery', message, { status: 502, request, problem })
   }
@@ -199,7 +265,26 @@ export class ApiChannelDeliveryError extends ApiResponseError {
 export class ApiUnexpectedResponseError extends ApiResponseError {
   override readonly name: string = 'ApiUnexpectedResponseError'
 
+  declare readonly kind: 'unexpected'
+
   constructor(message: string, details: ApiErrorDetails) {
     super('unexpected', message, details)
   }
 }
+
+// What the brand check narrows to. Each member declares its own discriminant, so the check
+// the README documents — read error.kind, then read the field that kind carries — compiles.
+export type AnyCronheartApiError =
+  | ApiAuthenticationError
+  | ApiChannelDeliveryError
+  | ApiConfigurationError
+  | ApiConflictError
+  | ApiForbiddenError
+  | ApiHydrationError
+  | ApiInvalidRequestError
+  | ApiNotFoundError
+  | ApiPlanRestrictionError
+  | ApiRateLimitError
+  | ApiTransportError
+  | ApiUnexpectedResponseError
+  | ApiValidationError

@@ -19,6 +19,7 @@ import {
   type RecordedRequest,
   apiWith,
 } from './support/api-recorder.js'
+import { ofKind } from './support/errors.js'
 
 function bodyOf(request: RecordedRequest | undefined): Record<string, unknown> {
   return JSON.parse(String(request?.body)) as Record<string, unknown>
@@ -278,8 +279,9 @@ describe('rate-limit reporting', () => {
 
     const failure = await api.account.get().catch((error: unknown) => error)
 
+    ofKind(failure, 'rate-limit')
     expect(failure).toBeInstanceOf(ApiRateLimitError)
-    expect((failure as ApiRateLimitError).retryAfterSeconds).toBe(45)
+    expect(failure.retryAfterSeconds).toBe(45)
   })
 })
 

@@ -9,7 +9,7 @@ import {
   ApiRateLimitError,
   ApiUnexpectedResponseError,
   ApiValidationError,
-  type CronheartApiError,
+  type AnyCronheartApiError,
   type RequestDescriptor,
 } from './errors.js'
 import { PAID_ONLY_NOTICE } from './tier.js'
@@ -40,7 +40,7 @@ export function errorForStatus(
   problem: ProblemDetails,
   request: RequestDescriptor,
   rateLimit: RateLimitSnapshot | undefined,
-): CronheartApiError {
+): AnyCronheartApiError {
   const details = { status, problem, request, rateLimit }
   const at = where(request)
 

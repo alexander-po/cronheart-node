@@ -14,6 +14,7 @@ import {
   defineMonitors,
   pingPath,
   resolveOrThrow,
+  sealed,
 } from '../wiring/validate.js'
 import { countdown } from '../timer.js'
 import { userAgent } from '../version.js'
@@ -170,8 +171,16 @@ function messageFor(outcome: PingOutcome, resolution: Resolution): string | unde
 }
 
 export function createPingClient(options: PingClientOptions = {}): PingClient {
+  return sealed('createPingClient', () => build(options))
+}
+
+function build(options: PingClientOptions): PingClient {
   const env = options.env ?? ambientEnv()
-  const baseUrl = (options.baseUrl ?? readEnv(env, 'URL') ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
+  const configuredUrl = options.baseUrl ?? readEnv(env, 'URL') ?? DEFAULT_BASE_URL
+
+  assertPingBaseUrl(configuredUrl)
+
+  const baseUrl = configuredUrl.replace(/\/+$/, '')
   const timeoutMs = positiveOr(options.timeoutMs ?? numberFrom(env, 'TIMEOUT_MS'), DEFAULT_TIMEOUT_MS)
   const retries = nonNegativeOr(options.retries ?? numberFrom(env, 'RETRIES'), DEFAULT_RETRIES)
   const disabled = options.disabled ?? isDisabled(env)
@@ -180,8 +189,6 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
   const redact = options.redact ?? []
   const defined: Record<string, string> = {}
   const inFlight = new Set<Promise<PingResult>>()
-
-  assertPingBaseUrl(baseUrl)
 
   if (options.monitors !== undefined) {
     defineMonitors(defined, options.monitors)

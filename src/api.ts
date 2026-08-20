@@ -34,7 +34,14 @@ export {
   isCronheartApiError,
 } from './api/errors.js'
 export { CONTRACT_VERSION, SDK_VERSION, userAgent } from './version.js'
-export type { ApiErrorKind, ApiTransportReason, RequestDescriptor } from './api/errors.js'
+export type {
+  AnyCronheartApiError,
+  ApiErrorGroup,
+  ApiErrorKind,
+  ApiResponseKind,
+  ApiTransportReason,
+  RequestDescriptor,
+} from './api/errors.js'
 export type {
   AbortSignalLike,
   Account,

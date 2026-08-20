@@ -289,7 +289,10 @@ for await (const one of api.monitors.iterate()) {
 ```
 
 `api.monitors.*`, `api.channels.*` and `api.account.get()`. The key is read
-from `CRONHEART_API_KEY` when you pass none.
+from `CRONHEART_API_KEY` when you pass none. Vocabularies — schedule kinds,
+channel kinds — are typed open in both directions, so a value read off a
+monitor can be written straight back; a member the service does not have is
+refused by name before a request exists rather than at compile time.
 
 **It always throws.** The check-in client never does; this one runs in CLIs and
 admin scripts, where a silent failure is worse than a loud one. Every failure —
@@ -300,7 +303,28 @@ response this client cannot read — arrives as a `CronheartApiError`, so one
 'rate-limit' | 'conflict' | 'transport' | …`) rather than on `instanceof`:
 two copies of this package in one dependency tree have different classes, and
 `instanceof` answers false across them without saying so. `isCronheartApiError`
-is a brand check that survives that.
+is a brand check that survives that, and it narrows to `AnyCronheartApiError`,
+a union whose members each declare their own `kind` — so the field that kind
+carries is reachable straight after the check:
+
+```ts
+try {
+  await api.monitors.create(request)
+} catch (error) {
+  if (!isCronheartApiError(error)) throw error
+
+  if (error.kind === 'validation') console.error(Object.keys(error.errors))
+  else if (error.kind === 'rate-limit') console.error(error.retryAfterSeconds)
+  else if (error.kind === 'plan-restriction') console.error(error.upgradeUrl)
+  else if (error.kind === 'transport') console.error(error.reason)
+  else throw error
+}
+```
+
+`error.reason` is the only way to tell a timeout from a dead socket.
+`error.group` is the coarser cut: `'response'` is everything the server
+refused, and `'configuration'`, `'invalid-request'`, `'transport'` and
+`'hydration'` are the four ways a request failed without one.
 
 The key is validated when the client is built, so a value read out of a file
 with its newline still attached fails at process start rather than inside a
@@ -376,8 +400,11 @@ _`cronheart/sync` is not implemented yet._
 Node 22 or newer, zero runtime dependencies. The root entry imports nothing
 from `node:`, which is what keeps non-Node runtimes on the table; the CLI is
 the only entry point that reaches for Node built-ins, and a test enforces the
-split. The ping entry is 8.4 KB gzipped before your bundler's minifier sees
-it, and CI fails on a regression past 8.5 KB. The CLI is bundled apart from the
+split. The ping entry is about 6 KB gzipped once your bundler has minified it
+— that is what your users download, so it is what the budget is measured on —
+and CI fails on a regression past 7,168 bytes. The unminified figure, about
+8.7 KB gzipped, is reported alongside it so a regression in either is
+visible. The CLI is bundled apart from the
 library entries so that it cannot pull the ping path into a shared chunk and
 charge every consumer for import glue it has no use for. The management client
 is bundled apart for the same reason, and for the same measured reason: sharing

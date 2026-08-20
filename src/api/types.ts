@@ -182,9 +182,12 @@ export type ListOptions = ListParams & RequestOptions
 
 export type CursorOptions = CursorParams & RequestOptions
 
+// Open on the write side too, and not because the service accepts more: a closed write
+// type against an open read one makes read-modify-write uncompilable, while validation
+// still refuses an unknown member by name before a request exists.
 export interface CreateMonitorRequest {
   readonly name: string
-  readonly scheduleKind: ScheduleKind
+  readonly scheduleKind: Open<ScheduleKind>
   readonly scheduleExpr: string
   readonly tz?: string | undefined
   readonly graceSeconds?: number | undefined
@@ -193,7 +196,7 @@ export interface CreateMonitorRequest {
 
 export interface UpdateMonitorRequest {
   readonly name?: string | undefined
-  readonly scheduleKind?: ScheduleKind | undefined
+  readonly scheduleKind?: Open<ScheduleKind> | undefined
   readonly scheduleExpr?: string | undefined
   readonly tz?: string | undefined
   readonly graceSeconds?: number | undefined
@@ -202,7 +205,7 @@ export interface UpdateMonitorRequest {
 }
 
 export interface CreateChannelRequest {
-  readonly kind: ChannelKind
+  readonly kind: Open<ChannelKind>
   readonly label: string
   readonly address?: string | undefined
   readonly chatId?: string | undefined

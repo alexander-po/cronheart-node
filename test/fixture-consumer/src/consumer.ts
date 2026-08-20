@@ -79,7 +79,6 @@ export async function exercise(): Promise<string[]> {
 }
 
 import {
-  ApiValidationError,
   CronheartApiError,
   SNOOZE_DURATIONS,
   createCronheartApi,
@@ -87,6 +86,7 @@ import {
 } from 'cronheart/api'
 import type {
   Channel,
+  CreateChannelRequest,
   CreateMonitorRequest,
   CronheartApi,
   Monitor,
@@ -128,13 +128,32 @@ export async function reconcile(apiKey: string | undefined): Promise<string[]> {
     await management.monitors.snooze(made.uuid, nap)
   } catch (error) {
     if (isCronheartApiError(error) && error.kind === 'validation') {
-      names.push(Object.keys((error as ApiValidationError).errors).join(','))
+      names.push(Object.keys(error.errors).join(','))
     } else if (CronheartApiError.isCronheartApiError(error)) {
-      names.push(error.kind)
+      names.push(error.group === 'response' ? `refused ${String(error.status)}` : error.kind)
     }
   }
 
   const seen: RateLimitSnapshot | undefined = management.rateLimit
 
   return [...names, String(first.total), String(seen?.resetAt ?? 'unknown')]
+}
+
+// Read one, change one field, write it back — the most ordinary management operation there
+// is, and the one a closed write vocabulary against an open read one makes uncompilable.
+export async function retune(management: CronheartApi, uuid: string): Promise<string> {
+  const current: Monitor = await management.monitors.get(uuid)
+  const updated: Monitor = await management.monitors.update(uuid, {
+    scheduleKind: current.scheduleKind,
+    scheduleExpr: current.scheduleExpr,
+    tz: current.tz,
+    graceSeconds: current.graceSeconds + 60,
+    channelIds: current.channels.map((one) => one.id),
+  })
+
+  return `${updated.name} ${updated.scheduleKind}`
+}
+
+export function mirrored(channel: Channel): CreateChannelRequest {
+  return { kind: channel.kind, label: `${channel.label} (copy)` }
 }

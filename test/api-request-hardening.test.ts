@@ -8,7 +8,7 @@ import {
 import { createSession } from '../src/api/http.js'
 import { MAX_RETRIES } from '../src/constants.js'
 import { attemptsFor } from '../src/transport/attempts.js'
-import type { CronheartApiOptions } from '../src/api/types.js'
+import type { CronheartApi, CronheartApiOptions } from '../src/api/types.js'
 import {
   API_KEY,
   BASE_URL,
@@ -135,6 +135,17 @@ describe('what the caller hands the client', () => {
     await expect(
       api.channels.create(request as unknown as Parameters<typeof api.channels.create>[0]),
     ).rejects.toBeInstanceOf(ApiInvalidRequestError)
+    expect(recorder.requests).toHaveLength(0)
+  })
+
+  it.each([
+    ['a schedule kind on a create', (api: CronheartApi) => api.monitors.create({ ...CREATE, scheduleKind: 'crontab' })],
+    ['a schedule kind on an update', (api: CronheartApi) => api.monitors.update(MONITOR_UUID, { scheduleKind: 'crontab' })],
+    ['a channel kind', (api: CronheartApi) => api.channels.create({ kind: 'carrier-pigeon', label: 'ops inbox' })],
+  ])('refuses %s the service does not have, before a request exists', async (_id, call) => {
+    const { api, recorder } = apiWith({ status: 201, json: MONITOR_JSON })
+
+    await expect(call(api)).rejects.toBeInstanceOf(ApiInvalidRequestError)
     expect(recorder.requests).toHaveLength(0)
   })
 

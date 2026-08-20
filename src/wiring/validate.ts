@@ -3,16 +3,36 @@ import { type PingAction, isEmittableAction, segmentFor } from '../ping/action.j
 import type { EnvSource } from '../ping/env.js'
 import { isMonitorId, resolveMonitor } from '../ping/resolve.js'
 import {
+  CronheartConfigurationError,
   InvalidActionError,
   InvalidBaseUrlError,
   InvalidMonitorIdError,
   UnknownMonitorError,
 } from './errors.js'
 
+// Every option a client is built from is read off the host's own object, and a getter on
+// one of those can throw. What leaves the factory this wraps has to be the type the caller
+// was told to catch, whatever the host handed in.
+export function sealed<T>(what: string, build: () => T): T {
+  try {
+    return build()
+  } catch (error) {
+    throw error instanceof CronheartConfigurationError
+      ? error
+      : new CronheartConfigurationError(`cronheart: the options passed to ${what} could not be read.`)
+  }
+}
+
 // A base URL is not merely concatenated onto: a query string or a fragment moves the
 // ping path out of the URL entirely, and the request then lands on the site root, which
 // answers 200 and classifies as an accepted check-in for as long as nobody looks.
-export function assertPingBaseUrl(baseUrl: string): void {
+export function assertPingBaseUrl(baseUrl: unknown): asserts baseUrl is string {
+  if (typeof baseUrl !== 'string') {
+    throw new InvalidBaseUrlError(
+      'cronheart: the baseUrl option is not a string. The ping path is appended to it, and a value of another shape is refused rather than coerced into an address nobody chose.',
+    )
+  }
+
   const refusal = baseUrlRefusal(baseUrl)
 
   if (refusal !== undefined) {
