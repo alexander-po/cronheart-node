@@ -19,13 +19,17 @@ const MODULE_SPECIFIER = new RegExp(`${SPECIFIER_LEAD}["'](\\.[^"']*)["']`, 'g')
 
 const MANAGEMENT_ROOT = 'api/'
 
+// The reconciler is the management client's other consumer: it reads and writes monitors,
+// so it inherits both halves of that surface — a client that throws, and a bundle of its own.
 function mayReachManagement(relative) {
   return (
     relative === 'api.ts' ||
     relative === 'cli.ts' ||
+    relative === 'sync.ts' ||
     relative === 'contract-anchors.ts' ||
     relative.startsWith(MANAGEMENT_ROOT) ||
-    relative.startsWith('cli/')
+    relative.startsWith('cli/') ||
+    relative.startsWith('sync/')
   )
 }
 
@@ -42,9 +46,10 @@ const RULES = [
     allows: (relative) =>
       relative.startsWith('transport/') ||
       relative.startsWith('wiring/') ||
-      relative.startsWith('api/'),
+      relative.startsWith('api/') ||
+      relative.startsWith('sync/'),
     explains:
-      'a check-in must never reject; wiring-time validation and the management client throw, the ping path returns an outcome',
+      'a check-in must never reject; wiring-time validation, the management client and the reconciler throw, the ping path returns an outcome',
   },
   {
     id: 'promise-reject-outside-guarded-layer',
@@ -52,6 +57,7 @@ const RULES = [
     allows: (relative) =>
       relative.startsWith('transport/') ||
       relative.startsWith('api/') ||
+      relative.startsWith('sync/') ||
       REJECTS_BY_DESIGN.has(relative),
     explains:
       'a rejected promise is a throw from an async function; rethrow() is the one place a host error is handed back',

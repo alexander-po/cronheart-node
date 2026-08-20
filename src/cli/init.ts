@@ -12,6 +12,10 @@ import process from 'node:process'
 import { createInterface } from 'node:readline'
 import { escapeLiteral } from '../ping/body.js'
 import { envVarFor, isMonitorId } from '../ping/resolve.js'
+import { isSyncConfigurationError } from '../sync/errors.js'
+import { idempotencyKeyFor } from '../sync/key.js'
+import { describeApiRefusal } from '../sync/refusal.js'
+import { normaliseSchedule } from '../sync/schedule.js'
 import { type ParsedArgs, readFlag, readText, unknownFlags } from './args.js'
 import {
   describeResult,
@@ -23,9 +27,13 @@ import {
 } from './client.js'
 import { EXIT_OK, EXIT_PROBLEM, EXIT_USAGE } from './exit.js'
 import type { Io } from './io.js'
-import { MANAGEMENT_CLIENT_PENDING, paidOnly } from './tier.js'
+import { openManagementClient } from './managed.js'
 
-const FLAGS = ['name', 'uuid', 'env-path', 'print-env']
+const FLAGS = ['name', 'uuid', 'schedule', 'env-path', 'print-env']
+
+const NOBODY_TO_ALERT =
+  'this account has no verified notification channel, so a monitor created now would alert nobody when a run goes missing. Add one and verify it first — the REST surface attaches no channel by itself, unlike the form in the dashboard'
+
 
 const DASHBOARD = 'https://cronheart.com/dashboard'
 
@@ -72,7 +80,13 @@ export function muteEchoWhile(session: Echoing, hidden: () => boolean): void {
 }
 
 function questionFor(field: string): string {
-  return field === 'name' ? 'Monitor name: ' : 'Monitor id (paste it): '
+  if (field === 'name') {
+    return 'Monitor name: '
+  }
+
+  return field === 'schedule'
+    ? 'Schedule (0 3 * * *, @daily, every_5_minutes or 5m): '
+    : 'Monitor id (paste it): '
 }
 
 // Read as a stream of lines rather than question by question: an input that ends without
@@ -205,12 +219,92 @@ function nextSteps(variable: string, name: string): string {
     '  Next: that file is read by your application, not by cron. To run this job from a',
     '  crontab, put the variable there too:',
     '',
-    `    ${variable}=<the id you just pasted>`,
+    `    ${variable}=<the id for this monitor>`,
     `    */5 * * * * ${EXAMPLE_BINARY} run --name=${name} -- /path/to/your-job`,
     '',
     '  cronheart init --print-env prints that first line with the id filled in.',
     '',
   ].join('\n')
+}
+
+
+type Created =
+  | { readonly kind: 'created'; readonly name: string; readonly uuid: string; readonly alerts: string }
+  | { readonly kind: 'refused'; readonly problem: string }
+  | { readonly kind: 'usage'; readonly problem: string }
+  | { readonly kind: 'degraded'; readonly notice: string }
+
+// Everything the dashboard's own form does that this surface does not do by itself: the
+// account's verified channels are read and attached, because a monitor with none of them
+// alerts nobody when a run goes missing, and nothing about the create would say so.
+async function createThroughTheApi(
+  ask: (missing: readonly string[]) => Promise<Record<string, string>>,
+  given: { readonly name: string | undefined; readonly schedule: string | undefined },
+  io: Io,
+): Promise<Created> {
+  const opened = openManagementClient()
+
+  if (!opened.ok) {
+    return { kind: 'degraded', notice: opened.problem }
+  }
+
+  let verified: readonly { id: string; kind: string; label: string }[]
+
+  try {
+    verified = (await opened.api.channels.list()).data.filter((channel) => channel.verified)
+  } catch (error) {
+    return { kind: 'degraded', notice: describeApiRefusal(error, 'creating a monitor here') }
+  }
+
+  if (verified.length === 0) {
+    return { kind: 'refused', problem: NOBODY_TO_ALERT }
+  }
+
+  const answered = await ask([
+    ...(given.name === undefined ? ['name'] : []),
+    ...(given.schedule === undefined ? ['schedule'] : []),
+  ])
+  const name = given.name ?? answered['name'] ?? ''
+  const written = given.schedule ?? answered['schedule'] ?? ''
+
+  if (name === '') {
+    return { kind: 'usage', problem: 'init needs a monitor name — pass --name=<name> or answer the prompt' }
+  }
+
+  let request
+
+  try {
+    const schedule = normaliseSchedule(written, name)
+
+    request = {
+      name,
+      scheduleKind: schedule.kind,
+      scheduleExpr: schedule.expr,
+      channelIds: verified.map((channel) => channel.id),
+    }
+  } catch (error) {
+    return {
+      kind: 'usage',
+      problem: isSyncConfigurationError(error) ? error.message : String(error),
+    }
+  }
+
+  try {
+    const made = await opened.api.monitors.create(request, {
+      idempotencyKey: await idempotencyKeyFor(request),
+    })
+
+    io.out(`  created ${JSON.stringify(made.name)}\n`)
+
+    return {
+      kind: 'created',
+      name,
+      uuid: made.uuid,
+      alerts: verified.map((channel) => `${channel.label} (${channel.kind})`).join(', '),
+    }
+  } catch (error) {
+    return { kind: 'degraded', notice: describeApiRefusal(error, 'creating a monitor here') }
+  }
 }
 
 export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
@@ -235,27 +329,62 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
   }
 
   const env = environment()
+  const schedule = readText(args, 'schedule')
 
-  const missing = [
-    ...(name.ok && name.value === undefined ? ['name'] : []),
-    ...(uuid.ok && uuid.value === undefined ? ['uuid'] : []),
-  ]
+  if (!schedule.ok) {
+    io.err(`cronheart: ${schedule.problem}\n`)
+
+    return EXIT_USAGE
+  }
+
+  const named = name.ok ? name.value : undefined
+  const pasted = uuid.ok ? uuid.value : undefined
 
   io.out('cronheart init\n')
-  io.out(`  Create a monitor in your dashboard: ${DASHBOARD}\n`)
 
-  if (hasApiKey(env)) {
-    io.out(`  ${paidOnly(MANAGEMENT_CLIENT_PENDING)}\n`)
+  // A pasted id is a monitor that already exists, whatever the account can do, so the key is
+  // not consulted for one. Without an id and with a key, the monitor is made here.
+  const made =
+    pasted === undefined && hasApiKey(env)
+      ? await createThroughTheApi(askFor, { name: named, schedule: schedule.value }, io)
+      : undefined
+
+  if (made?.kind === 'usage') {
+    io.err(`cronheart: ${made.problem}\n`)
+
+    return EXIT_USAGE
   }
 
-  if (missing.includes('uuid')) {
-    io.out('  Then paste its id below — that id is all a check-in needs.\n')
+  if (made?.kind === 'refused') {
+    io.err(`cronheart: ${made.problem}\n`)
+
+    return EXIT_PROBLEM
   }
 
-  const answered = await askFor(missing)
+  if (made?.kind === 'created') {
+    io.out(`  alerts: ${made.alerts}\n`)
+  } else {
+    if (made?.kind === 'degraded') {
+      io.out(`  ${made.notice}\n`)
+    }
+
+    io.out(`  Create a monitor in your dashboard: ${DASHBOARD}\n`)
+
+    if (pasted === undefined) {
+      io.out('  Then paste its id below — that id is all a check-in needs.\n')
+    }
+  }
+
+  const answered =
+    made?.kind === 'created'
+      ? {}
+      : await askFor([
+          ...(named === undefined ? ['name'] : []),
+          ...(pasted === undefined ? ['uuid'] : []),
+        ])
   const given: Answers = {
-    name: (name.ok ? name.value : undefined) ?? answered['name'],
-    id: (uuid.ok ? uuid.value : undefined) ?? answered['uuid'],
+    name: made?.kind === 'created' ? made.name : (named ?? answered['name']),
+    id: made?.kind === 'created' ? made.uuid : (pasted ?? answered['uuid']),
   }
 
   if (given.name === undefined || given.name === '') {

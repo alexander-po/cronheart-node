@@ -139,9 +139,10 @@ _Not implemented yet._
 ## CLI
 
 ```bash
-cronheart init                                    # paste a monitor id, write the env var, verify it
+cronheart init                                    # create or paste a monitor, write the env var, verify it
 cronheart run --name=nightly-backup -- ./backup.sh
 cronheart ping nightly-backup --action=fail --body=-
+cronheart sync --check                            # does the account match the configuration file?
 cronheart doctor
 cronheart run --help                              # options and examples for one command
 ```
@@ -404,11 +405,105 @@ check-in transport, which neither client can raise. An idempotency key that is
 blank counts as no key at all, because that is what the service does with one:
 a blank key would otherwise turn retries on and create a second monitor.
 
-`cronheart/sync` will reconcile a declared set of monitors against the server.
-Both are separate entry points so the ping path stays small in production
-bundles.
+`cronheart/sync` reconciles a declared set of monitors against the service —
+see below. Each is a separate entry point so the ping path stays small in
+production bundles.
 
-_`cronheart/sync` is not implemented yet._
+## Declarative sync
+
+`cronheart/sync` and `cronheart sync` reconcile the monitors of one project
+against a file. `defineMonitors` is where the wire's sharp edges get absorbed:
+a five-field string is a cron expression, one of the twelve fixed tokens is a
+preset, and `{ every: '5m' }` becomes the whole number of seconds *written as a
+string* that the service actually wants — a detail nobody should have to find
+out from a 422.
+
+```ts
+// cronheart.config.ts
+import { defineMonitors } from 'cronheart/sync'
+
+export default defineMonitors([
+  { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['ops inbox'] },
+  { name: 'sweep',          schedule: { every: '5m' }, channels: 'none' },
+  { name: 'legacy-import',  schedule: '@daily' },
+])
+```
+
+```bash
+cronheart sync            # print the plan; change nothing
+cronheart sync --check    # exit 2 while anything differs — this is the CI gate
+cronheart sync --apply    # make the changes
+cronheart sync --apply --print-env >> .env
+```
+
+A `.json` file carrying the same monitors under a `monitors` key works too,
+for a project that is not TypeScript. There is no YAML, and there will not be:
+it costs a runtime dependency, and the zero-dependency promise is worth more.
+
+**How a `.ts` config is loaded, plainly:** it is `import()`ed, and *the runtime*
+strips the types. Node does that by itself from 22.18 onward and needs
+`--experimental-strip-types` before that. Nothing here compiles anything, and
+no compiler is bundled to close the gap — a `.mjs` or `.json` file needs
+neither. The file is only ever read; sync never writes to it.
+
+### Identity is the whole problem, and it is fragile
+
+There is no server-side upsert, no exact-name filter and **no uniqueness
+constraint on monitor names**. So a monitor is identified by its name,
+client-side, and every consequence of that is deliberate:
+
+- Two monitors of one name **in the file** is an error at parse time, before a
+  credential is read or a request exists.
+- Two monitors of one name **on the service** is a conflict: reported and
+  skipped. There is no way to know which one was meant.
+- The listing is offset-paged, ordered by creation time with **no tiebreaker**,
+  so a deep walk can repeat a row or skip one. Repeats are dropped by
+  identifier; the listing is treated as advisory, not as truth.
+- Every create carries a deterministic `sync-<sha256>` idempotency key derived
+  from the request, so a repeated run cannot mint a duplicate even when the
+  listing failed to report the monitor. Web Crypto derives it — this entry
+  imports nothing from `node:`. No Web Crypto means the create is refused, not
+  sent unguarded.
+
+The monitor payload carries **no project identity**, and reads and creates are
+confined to whichever project the API token is scoped to. Sync says so in its
+output rather than implying it considered the whole account.
+
+### Two ways a reconciler can silently switch off your alerting
+
+Both are made structurally impossible rather than documented:
+
+**The routing field replaces wholesale when present — even when empty — and is
+left alone when absent.** So `channels` has three states, written down rather
+than inferred: a list, the word `'none'`, or *absent*, which means sync does
+not manage the routing at all and sends no such field. Emptying a monitor's
+routing takes the literal `'none'`; an empty list is refused, because that is
+what a defaulted value (`channels: ids ?? []`) looks like and it would silence
+the monitor. One function decides that field, and a test enumerates every mode
+of the union against it.
+
+**A monitor with no attached, verified channel alerts nobody.** The dashboard's
+form pre-selects the account's verified channels; the REST surface attaches
+none. So a create whose channels are empty — or all unverified — is **refused**
+unless the file wrote `'none'`, and every plan row prints what it will alert,
+so `nightly-backup → alerts: (nobody)` is visible before `--apply`, not after
+an incident. Sync cannot diff a channel's destination — the service redacts
+`webhook_url`, `url` and `secret` — only its ownership and label, and it does
+not pretend otherwise.
+
+### Pruning
+
+`--prune` covers monitors on the service that the file does not describe.
+Deleting a monitor destroys its check-in history irreversibly, so an orphan is
+**reported by default and never deleted**; deleting takes `--apply --prune`
+*and* a confirmation (`--yes`, or typing `delete` at a terminal). Under
+`--check`, orphans only count as a difference when `--prune` says the file is
+meant to be the whole of the account.
+
+`--print-env` emits the `CRONHEART_<NAME>_UUID` lines — the thing that closes
+the gap between "sync created these" and "my jobs can address them". It is the
+only output that carries identifiers; the plan table never prints one, because
+a monitor's identifier is the entire credential on its check-in route.
 
 ## Runtime support
 

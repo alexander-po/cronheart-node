@@ -4,6 +4,11 @@ import { createCronheartApi } from '../../src/api/client.js'
 import { isCronheartApiError } from '../../src/api/errors.js'
 import type { CronheartApi, CronheartApiOptions } from '../../src/api/types.js'
 import type { CheckInThunk, PingClient } from '../../src/ping/types.js'
+import { applySync } from '../../src/sync/apply.js'
+import { planSync } from '../../src/sync/plan.js'
+import { isSyncConfigurationError } from '../../src/sync/errors.js'
+import { renderPlan, renderResult } from '../../src/sync/render.js'
+import type { SyncPlan } from '../../src/sync/types.js'
 import { CronheartConfigurationError } from '../../src/wiring/errors.js'
 import { API_KEY, BASE_URL, BUDGET_MS, type FaultInstance, MONITOR_ID } from './faults.js'
 
@@ -67,7 +72,7 @@ async function managed(
   }
 }
 
-export const ENTRY_POINTS: readonly EntryPoint[] = [
+export const CHECK_IN_ENTRY_POINTS: readonly EntryPoint[] = [
   {
     id: 'checkIn',
     exports: ['checkIn', 'ping'],
@@ -170,6 +175,100 @@ export const ENTRY_POINTS: readonly EntryPoint[] = [
   },
 ]
 
+// A plan built by hand rather than read back, so the write half of the reconciler is
+// reachable under a transport that never answers — which is where a rejection nobody models
+// or an identifier in a failure message would otherwise escape unseen.
+const PLAN_TO_APPLY: SyncPlan = {
+  rows: [
+    {
+      action: 'create',
+      name: 'nightly-backup',
+      alerts: [{ id: '7', kind: 'email', label: 'ops inbox' }],
+      alertsNobody: false,
+      request: { name: 'nightly-backup', scheduleKind: 'cron', scheduleExpr: '0 3 * * *', channelIds: ['7'] },
+      idempotencyKey: `sync-${'0'.repeat(64)}`,
+    },
+    {
+      action: 'orphan',
+      name: 'retired',
+      uuid: MONITOR_ID,
+      alerts: [],
+      alertsNobody: true,
+    },
+  ],
+  counts: { create: 1, update: 0, unchanged: 0, orphan: 1, conflict: 0, refused: 0 },
+  drift: true,
+  faults: false,
+  scopeNotice: 'a notice',
+}
+
+// The reconciler is the management client's other consumer, so it inherits the same
+// contract: everything it raises is branded, and nothing it hands back names the credential
+// or the identifier. Everything it produces is recorded so the leak rules read it too.
+async function reconciled(
+  context: InvocationContext,
+  run: (api: CronheartApi) => Promise<unknown>,
+): Promise<void> {
+  let api: CronheartApi
+
+  try {
+    api = createCronheartApi(managementOptions(context.fault))
+  } catch (error) {
+    context.record(error)
+
+    if (!isCronheartApiError(error) && !isSyncConfigurationError(error)) {
+      throw error
+    }
+
+    return
+  }
+
+  try {
+    context.record(await run(api))
+  } catch (error) {
+    context.record(error)
+
+    if (!isCronheartApiError(error) && !isSyncConfigurationError(error)) {
+      throw error
+    }
+  }
+}
+
+export const SYNC_ENTRY_POINTS: readonly EntryPoint[] = [
+  {
+    id: 'sync.planSync',
+    exports: ['planSync'],
+    pings: 1,
+    unsafe: false,
+    invoke: async (context) => {
+      await reconciled(context, async (api) =>
+        renderPlan(
+          await planSync(api, [
+            { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['ops inbox'] },
+          ]),
+        ),
+      )
+
+      return context.host()
+    },
+  },
+  {
+    id: 'sync.applySync',
+    exports: ['applySync'],
+    pings: 1,
+    unsafe: false,
+    invoke: async (context) => {
+      await reconciled(context, async (api) =>
+        renderResult(
+          await applySync(api, PLAN_TO_APPLY, { prune: { confirm: () => true } }),
+        ),
+      )
+
+      return context.host()
+    },
+  },
+]
+
 export const UNSAFE_MANAGEMENT_ENTRY_POINT: EntryPoint = {
   id: '__selftest__/management',
   exports: [],
@@ -194,6 +293,11 @@ export const UNSAFE_ENTRY_POINT: EntryPoint = {
       host,
     ),
 }
+
+export const ENTRY_POINTS: readonly EntryPoint[] = [
+  ...CHECK_IN_ENTRY_POINTS,
+  ...SYNC_ENTRY_POINTS,
+]
 
 export const REGISTRY: readonly EntryPoint[] = [
   ...ENTRY_POINTS,

@@ -12,7 +12,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { muteEchoWhile, upsertEnvLine } from '../src/cli/init.js'
+import { type ApiServer, startApiServer } from './support/api-server.js'
 import { MONITOR_ID, type PingServer, runCli, startPingServer } from './support/cli.js'
+import { type MonitorStore, channelRow, createMonitorStore } from './support/monitor-store.js'
 
 function modeOf(path: string): string {
   return (statSync(path).mode & 0o777).toString(8)
@@ -140,17 +142,114 @@ describe('cronheart init on the free path', () => {
 })
 
 describe('cronheart init and the paid path', () => {
-  it('states the boundary rather than pretending to create the monitor when a key is configured', async () => {
+  let store: MonitorStore
+  let api: ApiServer
+
+  const KEY = `cmk_${'0'.repeat(28)}synthetic`
+
+  beforeEach(async () => {
+    store = createMonitorStore([], [channelRow({ id: '7', label: 'ops inbox', verified: true })])
+    api = await startApiServer(store)
+  })
+
+  afterEach(async () => {
+    await api.close()
+  })
+
+  function paidEnv(extra: Readonly<Record<string, string>> = {}): Record<string, string> {
+    return {
+      CRONHEART_URL: api.url,
+      CRONHEART_API_KEY: KEY,
+      CRONHEART_TIMEOUT_MS: '4000',
+      CRONHEART_RETRIES: '0',
+      ...extra,
+    }
+  }
+
+  it('creates the monitor, writes the variable and checks in, all in one command', async () => {
     const ran = await runCli(
-      ['init', '--name=job', `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`],
-      { env: envFor({ CRONHEART_API_KEY: 'cmk_notarealkey' }) },
+      ['init', '--name=nightly-backup', '--schedule=0 3 * * *', `--env-path=${envFile()}`],
+      { env: paidEnv() },
     )
 
     expect(ran.status).toBe(0)
+    expect(store.monitors.map((monitor) => monitor.name)).toEqual(['nightly-backup'])
+    expect(store.monitors[0]?.schedule_expr).toBe('0 3 * * *')
+    expect(readFileSync(envFile(), 'utf8')).toMatch(/^CRONHEART_NIGHTLY_BACKUP_UUID=/m)
+    expect(store.requests.filter((request) => request.path.startsWith('/ping/'))).toHaveLength(1)
+  })
+
+  // The web form pre-selects the account's verified channels and the REST surface does not,
+  // so a monitor created here without them would be one nothing ever alerts about.
+  it('attaches the account’s verified channels and says which', async () => {
+    const ran = await runCli(
+      ['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`],
+      { env: paidEnv() },
+    )
+
+    expect(store.monitors[0]?.channel_ids).toEqual(['7'])
+    expect(ran.stdout).toContain('ops inbox')
+  })
+
+  it('refuses to create a monitor that would alert nobody, and creates nothing', async () => {
+    store.channels.splice(0, store.channels.length)
+
+    const ran = await runCli(
+      ['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`],
+      { env: paidEnv() },
+    )
+
+    expect(ran.status).toBe(1)
+    expect(store.monitors).toEqual([])
+    expect(`${ran.stdout}${ran.stderr}`).toContain('nobody')
+    expect(() => readFileSync(envFile(), 'utf8')).toThrow()
+  })
+
+  it('refuses a schedule the service would refuse, before it creates anything', async () => {
+    const ran = await runCli(
+      ['init', '--name=job', '--schedule=*/5 * * * * *', `--env-path=${envFile()}`],
+      { env: paidEnv() },
+    )
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain('seconds')
+    expect(store.monitors).toEqual([])
+  })
+
+  it('takes the id it was handed instead of creating a second monitor for it', async () => {
+    const ran = await runCli(
+      ['init', '--name=job', `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`],
+      { env: paidEnv() },
+    )
+
+    expect(ran.status).toBe(0)
+    expect(store.monitors).toEqual([])
+    expect(readFileSync(envFile(), 'utf8')).toContain(MONITOR_ID)
+  })
+
+  it('says the plan a REST token needs in its own words, and falls back to pasting an id', async () => {
+    store.denyWithPlanRestriction = true
+
+    const ran = await runCli(['init', `--env-path=${envFile()}`, '--name=job'], {
+      env: paidEnv(),
+      input: `${MONITOR_ID}\n`,
+    })
+
     expect(ran.stdout).toContain('Starter')
     expect(ran.stdout).toContain('every plan')
-    expect(`${ran.stdout}${ran.stderr}`).not.toContain('cmk_notarealkey')
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(KEY)
     expect(readFileSync(envFile(), 'utf8')).toContain(MONITOR_ID)
+    expect(store.monitors).toEqual([])
+  })
+
+  it('never puts the key it authenticated with anywhere a reader can see it', async () => {
+    const ran = await runCli(
+      ['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`],
+      { env: paidEnv() },
+    )
+
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(KEY)
+    expect(readFileSync(envFile(), 'utf8')).not.toContain(KEY)
   })
 })
 

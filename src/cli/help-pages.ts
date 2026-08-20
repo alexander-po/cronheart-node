@@ -129,11 +129,82 @@ Examples
 
 ${ENVIRONMENT}`
 
+const SYNC_HELP = `cronheart sync — reconcile a project's monitors against a configuration file
+
+Usage
+  cronheart sync [--config=<path>] [--apply | --check] [--prune] [--print-env] [--yes]
+
+  Reads a file describing the monitors a project should have, compares it against the ones
+  the API token's project actually has, and prints what differs. Nothing is changed without
+  --apply. Monitors are matched by name, which is the whole of the identity available: the
+  service enforces no uniqueness on a name and offers no exact-name filter, so a name written
+  twice in the file is refused before anything is read, and a name carried by two monitors on
+  the service is reported and skipped rather than guessed at.
+
+Options
+  --config=<path>   the file to read. Left off, the first of cronheart.config.ts,
+                    cronheart.config.mts, cronheart.config.mjs, cronheart.config.js or
+                    cronheart.config.json in the working directory is used. Nothing here
+                    compiles TypeScript: Node strips the types itself from 22.18 onward, and
+                    before that needs --experimental-strip-types. A .mjs or .json file needs
+                    neither.
+  --apply           make the changes. Without it the run is a report.
+  --check           report only, and exit 2 while anything differs, 0 once nothing does.
+                    This is what turns the file into something a build can test.
+  --prune           include monitors the file does not describe. Reported either way; deleted
+                    only with --apply --prune and a confirmation, because deleting a monitor
+                    destroys its check-in history and nothing can bring it back. With --check
+                    it also makes those monitors count as a difference.
+  --print-env       print CRONHEART_<NAME>_UUID for every monitor reconciled, which is what a
+                    job needs to address one. This is the only output carrying identifiers.
+  --yes             answer the deletion confirmation in advance.
+
+  The configuration file is only ever read. Nothing writes to it.
+
+  Reads and creates are confined to the one project the API token is scoped to, and no
+  response says which project that is — so a monitor in another project of the same account
+  is invisible to this command rather than absent.
+
+Configuration
+  A TypeScript or JavaScript file default-exports defineMonitors(...):
+
+    import { defineMonitors } from 'cronheart/sync'
+
+    export default defineMonitors([
+      { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['ops inbox'] },
+      { name: 'sweep',          schedule: { every: '5m' }, channels: 'none' },
+    ])
+
+  A JSON file carries the same monitors under a "monitors" key.
+
+  schedule    a five-field cron expression, one of the seven @ aliases, one of the twelve
+              named schedules (daily, hourly, every_5_minutes, …), a duration such as 5m or
+              90s, or { every: '5m' } / { cron: '…' } / { simple: 'daily' } to be explicit.
+              A six-field expression is refused here: croner and node-cron accept a leading
+              seconds field and this service does not.
+  channels    a list of channel labels or identifiers, or 'none' to say in as many words that
+              this monitor alerts nobody. Left out, the routing is not managed at all and
+              nothing this command sends can change it. An empty list is refused, because it
+              is what a defaulted value looks like and it would silence the monitor.
+  tz          a zone name. Left out, it is not managed.
+  graceSeconds  Left out, it is not managed.
+
+  A monitor whose attached channels include none that is verified alerts nobody, and creating
+  one is refused unless the file wrote 'none'. Every plan row prints what it alerts.
+
+Examples
+  cronheart sync
+  cronheart sync --check
+  cronheart sync --apply --print-env >> .env
+
+${ENVIRONMENT}`
+
 const PAGES: Readonly<Record<string, string>> = {
   run: RUN_HELP,
   ping: PING_HELP,
   doctor: DOCTOR_HELP,
   init: INIT_HELP,
+  sync: SYNC_HELP,
 }
 
 export function helpFor(command: string | undefined): string {

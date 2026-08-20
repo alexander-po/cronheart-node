@@ -23,6 +23,7 @@ export interface RunOptions {
   readonly timeoutMs?: number | undefined
   readonly detached?: boolean | undefined
   readonly holdStderr?: boolean | undefined
+  readonly cwd?: string | undefined
 }
 
 function childEnv(given: Readonly<Record<string, string>> | undefined): Record<string, string> {
@@ -46,6 +47,7 @@ export function startCli(args: readonly string[], options: RunOptions = {}): Liv
     env: childEnv(options.env),
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: options.detached ?? false,
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
   })
   let stdout = ''
   let stderr = ''

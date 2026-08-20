@@ -49,6 +49,13 @@ const NEEDS_NO_CASE: Readonly<Record<string, string>> = {
   ApiTransportError: 'an error class',
   ApiUnexpectedResponseError: 'an error class',
   ApiValidationError: 'an error class',
+  SyncConfigurationError: 'an error class',
+  isSyncConfigurationError: 'a brand check over a value the caller already holds',
+  defineMonitors: 'wiring-time validation — it reads a configuration, before any transport exists',
+  renderPlan: 'formats a value the caller already holds',
+  renderResult: 'formats a value the caller already holds',
+  envLinesFor:
+    'the one output that carries monitor identifiers, which is the whole of what it is for',
 }
 
 const SECRETS = { monitorId: MONITOR_ID, apiKey: API_KEY }

@@ -5,6 +5,10 @@ export const EXIT_OK = 0
 
 export const EXIT_PROBLEM = 1
 
+// What --check answers with when the configuration and the account disagree. Distinct from
+// a problem, so a build step can tell "there are changes to make" from "this run broke".
+export const EXIT_DRIFT = 2
+
 export const EXIT_USAGE = 64
 
 export const EXIT_INTERNAL = 70

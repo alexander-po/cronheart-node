@@ -47,6 +47,10 @@ async function dispatch(args: ParsedArgs, io: Io): Promise<number> {
     return (await import('./cli/init.js')).initCommand(args, io)
   }
 
+  if (command === 'sync') {
+    return (await import('./cli/sync.js')).syncCommand(args, io)
+  }
+
   io.err(`cronheart: ${JSON.stringify(command)} is not a cronheart command\n${HELP}`)
 
   return EXIT_USAGE
