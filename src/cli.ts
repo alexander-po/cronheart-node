@@ -4,7 +4,7 @@ import { CONTRACT_VERSION, SDK_VERSION } from './version.js'
 import { type ParsedArgs, parseArgv, readFlag } from './cli/args.js'
 import { EXIT_INTERNAL, EXIT_OK, EXIT_USAGE, finish } from './cli/exit.js'
 import { HELP } from './cli/help.js'
-import { type Io, processIo } from './cli/io.js'
+import { type Io, processIo, silenceStreamErrors } from './cli/io.js'
 import { pingCommand } from './cli/ping.js'
 import { runCommand } from './cli/run.js'
 
@@ -51,6 +51,8 @@ async function dispatch(args: ParsedArgs, io: Io): Promise<number> {
 
   return EXIT_USAGE
 }
+
+silenceStreamErrors()
 
 void dispatch(parseArgv(process.argv.slice(2)), processIo).then(finish, (error: unknown) => {
   processIo.err(`cronheart: ${error instanceof Error ? error.message : String(error)}\n`)

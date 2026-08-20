@@ -14,9 +14,11 @@ matched by its prefix alone.
 
 Redaction is now reachable from the command line: `--redact=<pattern>`
 (repeatable, on `run` and `ping`) and `CRONHEART_REDACT` (one regular expression
-per line) are threaded into the client, and a pattern that does not compile is a
-usage error rather than a control that quietly protects nothing.
-`--stderr-bytes=0` sends no excerpt at all. The built-in patterns now also cover
+per line) are threaded into the client, and a pattern that does not compile is
+never a control that quietly protects nothing. On the command line it is a usage
+error; in `CRONHEART_REDACT`, where one typo would otherwise stop every wrapped
+job on a machine, the command runs and no excerpt is sent at all, said so on
+stderr. `--stderr-bytes=0` sends no excerpt at all. The built-in patterns now also cover
 `Authorization: Basic`, credentials inside a URL's userinfo, and
 `*_PASSWORD` / `*_TOKEN` / `*_KEY` assignments, and each keeps its anchor
 visible so a redacted line stays a diagnostic.

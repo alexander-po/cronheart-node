@@ -21,6 +21,8 @@ export interface RunOptions {
   readonly env?: Readonly<Record<string, string>> | undefined
   readonly input?: string | undefined
   readonly timeoutMs?: number | undefined
+  readonly detached?: boolean | undefined
+  readonly holdStderr?: boolean | undefined
 }
 
 function childEnv(given: Readonly<Record<string, string>> | undefined): Record<string, string> {
@@ -31,6 +33,9 @@ export interface LiveCli {
   readonly child: ChildProcess
   readonly settled: Promise<Ran>
   stderrSoFar(): string
+  stdoutSoFar(): string
+  releaseStderr(): void
+  dropStderr(): void
 }
 
 // spawnSync would block this worker's event loop, and the stand-in server answering the
@@ -40,6 +45,7 @@ export function startCli(args: readonly string[], options: RunOptions = {}): Liv
   const child = spawn(process.execPath, [CLI, ...args], {
     env: childEnv(options.env),
     stdio: ['pipe', 'pipe', 'pipe'],
+    detached: options.detached ?? false,
   })
   let stdout = ''
   let stderr = ''
@@ -49,9 +55,18 @@ export function startCli(args: readonly string[], options: RunOptions = {}): Liv
   child.stdout?.on('data', (chunk: string) => {
     stdout += chunk
   })
-  child.stderr?.on('data', (chunk: string) => {
+
+  const collectStderr = (chunk: string): void => {
     stderr += chunk
-  })
+  }
+
+  if (options.holdStderr === true) {
+    child.stderr?.pause()
+  } else {
+    child.stderr?.on('data', collectStderr)
+  }
+
+  child.stderr?.on('error', () => {})
   child.stdin?.on('error', () => {})
   child.stdin?.end(options.input ?? '')
 
@@ -61,7 +76,19 @@ export function startCli(args: readonly string[], options: RunOptions = {}): Liv
     })
   })
 
-  return { child, settled, stderrSoFar: () => stderr }
+  return {
+    child,
+    settled,
+    stderrSoFar: () => stderr,
+    stdoutSoFar: () => stdout,
+    releaseStderr: () => {
+      child.stderr?.on('data', collectStderr)
+      child.stderr?.resume()
+    },
+    dropStderr: () => {
+      child.stderr?.destroy()
+    },
+  }
 }
 
 export function runCli(args: readonly string[], options: RunOptions = {}): Promise<Ran> {

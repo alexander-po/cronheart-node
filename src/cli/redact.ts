@@ -6,45 +6,69 @@ export const REDACT_FLAG = 'redact'
 
 const REDACT_ENV = 'CRONHEART_REDACT'
 
-function compile(source: string, where: string): Read<RegExp> {
+export interface RedactionPlan {
+  readonly patterns: readonly RegExp[]
+  readonly refusal: string | undefined
+}
+
+function compile(source: string): RegExp | undefined {
   try {
-    return { ok: true, value: new RegExp(source, 'g') }
+    return new RegExp(source, 'g')
   } catch {
-    return {
-      ok: false,
-      problem: `${where} is not a regular expression, so it would redact nothing: ${source}`,
-    }
+    return undefined
   }
 }
 
-// A pattern that cannot compile is refused, not skipped: a control that silently does nothing
-// is worse than none, because whoever wrote it believes the excerpt is safe.
-export function planRedaction(args: ParsedArgs, env: EnvSource): Read<readonly RegExp[]> {
+function configuredIn(env: EnvSource): readonly string[] {
+  return (readEnv(env, 'REDACT') ?? '')
+    .split('\n')
+    .map((one) => one.replace(/\r$/, ''))
+    .filter((one) => one.trim() !== '')
+}
+
+// A pattern that cannot compile never silently does nothing, because whoever wrote it
+// believes the excerpt is safe. On the command line the author is present, so it is a usage
+// error; in an account-wide variable it would stop every wrapped job on the machine, so the
+// job runs and the excerpt is withheld instead.
+export function planRedaction(args: ParsedArgs, env: EnvSource): Read<RedactionPlan> {
   const given = readAllText(args, REDACT_FLAG)
 
   if (!given.ok) {
     return given
   }
 
-  const configured = (readEnv(env, 'REDACT') ?? '')
-    .split('\n')
-    .map((one) => one.replace(/\r$/, ''))
-    .filter((one) => one.trim() !== '')
-    .map((one) => [one, REDACT_ENV] as const)
-  const patterns: RegExp[] = []
+  const fromFlags: RegExp[] = []
 
-  for (const [source, where] of [
-    ...configured,
-    ...given.value.map((one) => [one, `--${REDACT_FLAG}`] as const),
-  ]) {
-    const compiled = compile(source, where)
+  for (const source of given.value) {
+    const compiled = compile(source)
 
-    if (!compiled.ok) {
-      return compiled
+    if (compiled === undefined) {
+      return {
+        ok: false,
+        problem: `--${REDACT_FLAG} is not a regular expression, so it would redact nothing: ${source}`,
+      }
     }
 
-    patterns.push(compiled.value)
+    fromFlags.push(compiled)
   }
 
-  return { ok: true, value: patterns }
+  const fromEnv: RegExp[] = []
+
+  for (const source of configuredIn(env)) {
+    const compiled = compile(source)
+
+    if (compiled === undefined) {
+      return {
+        ok: true,
+        value: {
+          patterns: [],
+          refusal: `${REDACT_ENV} is not a regular expression, so nothing will be excerpted at all — the command runs unchanged and the check-in carries only its one-line summary: ${source}`,
+        },
+      }
+    }
+
+    fromEnv.push(compiled)
+  }
+
+  return { ok: true, value: { patterns: [...fromEnv, ...fromFlags], refusal: undefined } }
 }

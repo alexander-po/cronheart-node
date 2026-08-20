@@ -21,6 +21,7 @@ interface PingSpec {
   readonly body: string | undefined
   readonly strict: boolean
   readonly redact: readonly RegExp[]
+  readonly excerptRefusal: string | undefined
 }
 
 // Validated here, against a closed list of literals, because the far side does not reject an
@@ -87,7 +88,8 @@ export function planPing(args: ParsedArgs, env: EnvSource): Read<PingSpec> {
       fromStdin: body.value === '-',
       body: body.value === '-' ? undefined : body.value,
       strict: readFlag(args, 'strict'),
-      redact: redact.value,
+      redact: redact.value.patterns,
+      excerptRefusal: redact.value.refusal,
     },
   }
 }
@@ -119,6 +121,10 @@ async function readStdin(): Promise<string> {
   return new TextDecoder().decode(joined)
 }
 
+function bodyFor(spec: PingSpec): Promise<string | undefined> {
+  return spec.fromStdin ? readStdin() : Promise.resolve(spec.body)
+}
+
 function send(client: PingClient, spec: PingSpec, options: PingOptions): Promise<PingResult> {
   if (spec.action === 'start') {
     return client.start(spec.monitor, options)
@@ -145,6 +151,11 @@ export async function pingCommand(args: ParsedArgs, io: Io): Promise<number> {
   }
 
   const spec = plan.value
+
+  if (spec.excerptRefusal !== undefined) {
+    io.err(`cronheart: ${spec.excerptRefusal}\n`)
+  }
+
   const opened = openClient({ onResult: () => {}, redact: spec.redact })
 
   if (!opened.ok) {
@@ -153,7 +164,7 @@ export async function pingCommand(args: ParsedArgs, io: Io): Promise<number> {
     return spec.strict ? EXIT_PROBLEM : EXIT_OK
   }
 
-  const body = spec.fromStdin ? await readStdin() : spec.body
+  const body = spec.excerptRefusal !== undefined ? undefined : await bodyFor(spec)
   const result = await send(opened.client, spec, { body })
   const line = `cronheart: ${describeResult(result)}\n`
 

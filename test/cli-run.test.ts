@@ -26,7 +26,7 @@ function ping(index: number): {
   const request = server.requests[index]
 
   if (request === undefined) {
-    return { action: '<no request>', method: '<no request>', body: '<no request>', headers: {} }
+    throw new Error(`no check-in was sent at index ${String(index)}`)
   }
 
   return {
@@ -88,12 +88,15 @@ describe('cronheart run hands back the child’s exit code', () => {
     expect(ran.stderr).toContain('cronheart:')
   })
 
+  // Both check-ins have to reach the server and fail there, or one line is what a single
+  // check-in would produce as well and the de-duplication under test is never exercised.
   it('writes one line, not one per check-in, when both check-ins fail the same way', async () => {
-    const ran = await runCli(['run', '--name=absent', ...node('process.exit(0)')], {
-      env: { CRONHEART_URL: server.url },
-    })
+    server.replyWith(() => ({ status: 500, body: 'nope' }))
+
+    const ran = await runCli(['run', '--name=job', ...node('process.exit(0)')], { env: envFor() })
 
     expect(ran.status).toBe(0)
+    expect(server.requests.map((request) => request.action)).toEqual(['start', 'success'])
     expect(ran.stderr.split('\n').filter((line) => line.startsWith('cronheart:'))).toHaveLength(1)
   })
 })
@@ -305,6 +308,8 @@ describe('cronheart run process lifetime', () => {
     expect(ran.elapsedMs).toBeLessThan(1200)
   })
 
+  // 10 s would pass in exactly the world this forbids. The budget here is one 500 ms check-in
+  // that is never answered, so anything past a second means the stall was waited out.
   it('does not wait out a stalled check-in beyond the configured budget', async () => {
     server.replyWith(() => ({ delayMs: 5000 }))
 
@@ -313,6 +318,6 @@ describe('cronheart run process lifetime', () => {
     })
 
     expect(ran.status).toBe(2)
-    expect(ran.elapsedMs).toBeLessThan(10_000)
+    expect(ran.elapsedMs).toBeLessThan(1500)
   })
 })

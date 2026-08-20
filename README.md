@@ -154,7 +154,9 @@ never turn a working job into a failing one.
 stderr is teed rather than captured — every byte still reaches the parent, so a
 crontab's `2>> log` keeps working while the last `--stderr-bytes` of it ride
 along with the check-in. The excerpt is cut on a character boundary even when
-the operating system split a character across two reads.
+the operating system split a character across two reads. The tee honours the
+parent's backpressure, so a command writing faster than the parent reads is
+paced exactly as it would be writing to that parent directly.
 
 A job's stderr is the most credential-dense stream it produces, so the excerpt
 is redacted **before** any of it is cut — the wrapper's byte budget, the ring
@@ -163,18 +165,34 @@ only ever split a `[redacted]` marker in half rather than strip the anchor off
 a secret and leave the secret behind. Tokens, `Authorization` values,
 credentials inside a URL and `*_PASSWORD` / `*_TOKEN` / `*_KEY` assignments are
 recognised out of the box; `--redact=<pattern>` (repeatable) and
-`CRONHEART_REDACT` add more, and `--stderr-bytes=0` sends no excerpt at all. A
-pattern that does not compile is a usage error, not a control that quietly
-protects nothing. The command being wrapped is not given `CRONHEART_API_KEY`:
+`CRONHEART_REDACT` add more, and `--stderr-bytes=0` sends no excerpt at all —
+and inserts no pipe either, so anything the command leaves running keeps the
+caller's own stderr. A pattern that does not compile is never a control that
+quietly protects nothing: on the command line it is a usage error, while in
+`CRONHEART_REDACT` — one typo in which would otherwise stop every wrapped job
+on the machine — the command runs and the excerpt is withheld entirely, said
+so on stderr. The command being wrapped is not given `CRONHEART_API_KEY`:
 check-ins need no key, so there is nothing to trade away.
 
 Three exit statuses are the wrapper's own rather than the command's, and each
 is a case where there is no command status to report: `64` for a usage error,
 which happens before anything is spawned; `124` when `--timeout` expires,
 matching `timeout(1)`; and `127` / `126` when the command cannot be started at
-all. `SIGINT` and `SIGTERM` are forwarded to the command and escalate to
-`SIGKILL` after `--kill-after` (5s by default); the check-in body says the run
-was signalled.
+all. A command that has already exited can no longer time out, whatever is
+still holding its stderr open.
+
+The command leads its own process group, so a terminal interrupt reaches it
+once — through the wrapper — rather than once from the group and once
+forwarded, which many tools read as *abort now*. `SIGINT`, `SIGTERM` and the
+`--timeout` deadline are delivered to that whole group, so a shell script's
+children go with it; escalation to `SIGKILL` follows after `--kill-after`
+(5s by default, and never when it is longer than a timer can hold). The
+check-in body says the run was signalled.
+
+A server that never answers cannot hold the command up: the terminal check-in
+and its flush share one 2 s budget, after which the status already in hand is
+returned and whatever is in flight is abandoned. An interrupt arriving during
+that budget does the same rather than replacing the status with `130`.
 
 `ping` sends one check-in and exits `0` even when the check-in fails, for the
 same reason `run` does; `--strict` turns a failed check-in into exit `1`.

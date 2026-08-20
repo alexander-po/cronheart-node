@@ -4,23 +4,21 @@ import { parseDuration } from '../src/cli/duration.js'
 import { runCli } from './support/cli.js'
 
 // Node reads some long options as its own wherever they appear on the line, script
-// arguments included, so a flag name that collides never reaches this CLI at all.
-const DECLARED_FLAGS = [
-  '--name=x',
-  '--uuid=x',
-  '--timeout=1s',
-  '--kill-after=1s',
-  '--stderr-bytes=1',
-  '--action=start',
-  '--body=x',
-  '--strict',
-  '--redact=x',
-  '--env-path=/tmp/nowhere',
-  '--print-env',
-  '--help',
-  '--version',
-  '-h',
-  '-V',
+// arguments included, so a flag name that collides never reaches this CLI at all. Each flag
+// is handed to a command that does not declare it, so the answer names the flag back: a
+// message the CLI can only produce from a flag it actually parsed.
+const DECLARED_FLAGS: readonly (readonly [readonly string[], string])[] = [
+  [['ping', 'job', '--name=x'], 'ping does not take --name'],
+  [['ping', 'job', '--uuid=x'], 'ping does not take --uuid'],
+  [['ping', 'job', '--timeout=1s'], 'ping does not take --timeout'],
+  [['ping', 'job', '--kill-after=1s'], 'ping does not take --kill-after'],
+  [['ping', 'job', '--stderr-bytes=1'], 'ping does not take --stderr-bytes'],
+  [['run', '--name=job', '--action=start', '--', 'true'], 'run does not take --action'],
+  [['run', '--name=job', '--body=x', '--', 'true'], 'run does not take --body'],
+  [['run', '--name=job', '--strict', '--', 'true'], 'run does not take --strict'],
+  [['doctor', '--redact=x'], 'doctor does not take --redact'],
+  [['run', '--name=job', '--env-path=/tmp/nowhere', '--', 'true'], 'run does not take --env-path'],
+  [['run', '--name=job', '--print-env', '--', 'true'], 'run does not take --print-env'],
 ]
 
 describe('the argument parser', () => {
@@ -108,11 +106,23 @@ describe('duration parsing', () => {
 })
 
 describe('every declared flag reaches the CLI rather than the runtime that launched it', () => {
-  it.each(DECLARED_FLAGS)('passes %s through', async (flag) => {
-    const ran = await runCli(['nope', flag])
+  it.each(DECLARED_FLAGS)('passes %s through', async (args, named) => {
+    const ran = await runCli(args)
 
-    expect(`${ran.stdout}${ran.stderr}`).toContain('cronheart')
-    expect([0, 64]).toContain(ran.status)
+    expect(ran.stderr).toContain(named)
+    expect(ran.status).toBe(64)
+  })
+
+  it.each([
+    [['--help'], 'Usage'],
+    [['-h'], 'Usage'],
+    [['--version'], 'cronheart-node '],
+    [['-V'], 'cronheart-node '],
+  ] as const)('answers %s itself', async (args, shown) => {
+    const ran = await runCli([...args])
+
+    expect(ran.stdout).toContain(shown)
+    expect(ran.status).toBe(0)
   })
 
   it('shows what the collision looks like, so the rule above is not folklore', async () => {

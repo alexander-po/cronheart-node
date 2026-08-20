@@ -12,25 +12,29 @@ run
   exit status and the tail of stderr as the body. stderr is passed through to the parent
   as well as excerpted, so a redirect in a crontab keeps working.
 
-  --timeout=<duration>      kill the command after this long. Exit status is then 124,
+  --timeout=<duration>      terminate the command after this long. Exit status is then 124,
                             matching timeout(1) — the one case where the exit status is
                             not the command's own, because there is no command status to
                             report. Off unless asked for.
-  --kill-after=<duration>   how long a terminated command gets before SIGKILL (default 5s)
+  --kill-after=<duration>   how long a terminated command gets before SIGKILL (default 5s).
+                            Longer than a timer can hold means never escalate.
   --stderr-bytes=<n>        how many bytes of the stderr tail to send (default fills the body).
-                            0 sends no excerpt at all, only the one-line summary.
+                            0 sends no excerpt at all and inserts no pipe either, so work the
+                            command leaves running keeps the stderr it was started with.
   --redact=<pattern>        a JavaScript regular expression whose every match is replaced
                             with [redacted] before the excerpt is sent. Repeatable, and
                             applied on top of the built-in ones. A pattern that does not
                             compile is a usage error rather than a silently absent control.
 
-  SIGINT and SIGTERM are forwarded to the command and escalate to SIGKILL after
-  --kill-after; the check-in body says the run was signalled.
+  The command leads its own process group. SIGINT, SIGTERM and the --timeout deadline are
+  delivered to that group, so a shell script's children go with it and a terminal interrupt
+  reaches the command once rather than twice; the check-in body says the run was signalled.
 
   Exit status is the command's own. A check-in that fails writes one line to stderr and
-  changes nothing else. The exceptions are 64 for a usage error, which happens before
-  anything is spawned; 124 for --timeout; and 127 or 126 when the command cannot be
-  started at all.
+  changes nothing else, and a server that never answers costs the command at most 2s: the
+  terminal check-in and its flush share that budget, after which whatever is in flight is
+  abandoned. The exceptions are 64 for a usage error, which happens before anything is
+  spawned; 124 for --timeout; and 127 or 126 when the command cannot be started at all.
 
 ping
   Sends one check-in. --body=- reads the body from standard input. The exit status is 0
@@ -54,5 +58,7 @@ Environment
   CRONHEART_TIMEOUT_MS      per-check-in budget
   CRONHEART_RETRIES         attempts beyond the first
   CRONHEART_DISABLED        set to stop every check-in
-  CRONHEART_REDACT          redaction patterns, one per line, applied like --redact
+  CRONHEART_REDACT          redaction patterns, one per line, applied like --redact. One
+                            that does not compile withholds the excerpt rather than
+                            stopping the command
 `

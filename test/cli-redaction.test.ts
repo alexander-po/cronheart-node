@@ -37,7 +37,11 @@ function emits(before: string, secret: string, after: number): string[] {
 function failBody(): string {
   const request = server.requests.find((one) => one.action === 'fail')
 
-  return request === undefined ? '<no fail check-in was sent>' : request.body
+  if (request === undefined) {
+    throw new Error('no fail check-in was sent')
+  }
+
+  return request.body
 }
 
 beforeEach(async () => {
@@ -194,14 +198,39 @@ describe('the redaction patterns a caller adds', () => {
     expect(server.requests).toHaveLength(0)
   })
 
-  it('refuses an unusable pattern in the environment rather than protecting nothing quietly', async () => {
-    const ran = await runCli(['run', '--name=job', ...emits('x', 'y', 1)], {
+  // A variable is set once for a whole machine, so refusing it would stop every wrapped job
+  // there rather than one command line. The command runs; the excerpt is what is withheld.
+  it('runs the command and withholds the excerpt on an unusable pattern in the environment', async () => {
+    const ran = await runCli(['run', '--name=job', ...emits('failed: ', KEY, 10)], {
       env: envFor({ CRONHEART_REDACT: '[unclosed' }),
     })
 
-    expect(ran.status).toBe(64)
+    expect(ran.status).toBe(3)
     expect(ran.stderr).toContain('CRONHEART_REDACT is not a regular expression')
+    expect(ran.stderr).toContain('[unclosed')
+    expect(failBody()).toBe('exited with status 3')
+    expect(failBody()).not.toContain(KEY_TAIL)
+  })
+
+  it('still refuses an unusable --redact, where the author of it is the one running it', async () => {
+    const ran = await runCli(
+      ['run', '--name=job', '--redact=(unclosed', ...emits('x', 'y', 1)],
+      { env: envFor({ CRONHEART_REDACT: '[unclosed' }) },
+    )
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain('--redact is not a regular expression')
     expect(server.requests).toHaveLength(0)
+  })
+
+  it('sends no body from ping either when the environment pattern cannot compile', async () => {
+    const ran = await runCli(['ping', 'job', '--action=fail', `--body=trace ${KEY}`], {
+      env: envFor({ CRONHEART_REDACT: '[unclosed' }),
+    })
+
+    expect(ran.status).toBe(0)
+    expect(ran.stderr).toContain('CRONHEART_REDACT is not a regular expression')
+    expect(failBody()).toBe('')
   })
 })
 
