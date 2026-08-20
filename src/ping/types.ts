@@ -39,6 +39,8 @@ export interface PingResult {
   readonly durationMs: number
   readonly retryAfterSeconds: number | undefined
   readonly error: Error | undefined
+  // Set only where the outcome has a cause worth a sentence; a surface printing the token loses it.
+  readonly message: string | undefined
 }
 
 export interface PingOptions {

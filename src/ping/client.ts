@@ -30,6 +30,7 @@ import type {
   PingClient,
   PingClientOptions,
   PingOptions,
+  PingOutcome,
   PingResult,
 } from './types.js'
 import { warnOnce } from './warn.js'
@@ -134,30 +135,34 @@ function callOptionsFrom(
   return next as PingOptions
 }
 
-function messageFor(outcome: string, resolution: Resolution): string | undefined {
+function messageFor(outcome: PingOutcome, resolution: Resolution): string | undefined {
+  if (!isConfigurationOutcome(outcome)) {
+    return undefined
+  }
+
   const monitor = JSON.stringify(resolution.label)
   const envVar = resolution.envVar
 
   if (outcome === 'disabled') {
-    return `cronheart: CRONHEART_DISABLED is set, so no check-in was sent for ${monitor}. Unset it to resume monitoring.`
+    return `CRONHEART_DISABLED is set, so no check-in was sent for ${monitor}. Unset it to resume monitoring.`
   }
 
   if (outcome === 'suppressed') {
     if (envVar === undefined || resolution.reason === 'malformed') {
       const source = envVar === undefined ? 'the id passed for it' : `the value ${envVar} holds`
-      return `cronheart: ${source} is not a monitor id, so nothing was sent for ${monitor}.`
+      return `${source} is not a monitor id, so nothing was sent for ${monitor}.`
     }
 
-    return `cronheart: no monitor id for ${monitor}, so nothing was sent. Set ${envVar}, or pass monitors: { … } to createPingClient.`
+    return `no monitor id for ${monitor}, so nothing was sent. Set ${envVar}, or pass monitors: { … } to createPingClient.`
   }
 
   if (outcome === 'not-found') {
     const where = envVar === undefined ? 'the id it was given' : envVar
-    return `cronheart: the server does not recognise the monitor for ${monitor} (HTTP 404). Check ${where}.`
+    return `the server does not recognise the monitor for ${monitor} (HTTP 404). Check ${where}.`
   }
 
   if (outcome === 'paused') {
-    return `cronheart: the monitor for ${monitor} is paused (HTTP 410). Check-ins are recorded, but no alert will fire.`
+    return `the monitor for ${monitor} is paused (HTTP 410). Check-ins are recorded, but no alert will fire.`
   }
 
   return undefined
@@ -203,12 +208,12 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
         return
       }
 
-      if (isConfigurationOutcome(result.outcome)) {
-        const message = messageFor(result.outcome, resolution)
-
-        if (message !== undefined) {
-          warnOnce(result.outcome, resolution.envVar ?? resolution.label, message)
-        }
+      if (result.message !== undefined) {
+        warnOnce(
+          result.outcome,
+          resolution.envVar ?? resolution.label,
+          `cronheart: ${result.message}`,
+        )
       }
     } catch {}
   }
@@ -227,6 +232,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
         ...partial,
         monitor: resolution.label,
         durationMs: Date.now() - startedAt,
+        message: messageFor(partial.outcome ?? fallback.outcome, resolution),
       }
 
       report(result, resolution, callOptions)
@@ -328,6 +334,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
       durationMs: 0,
       retryAfterSeconds: undefined,
       error: undefined,
+      message: undefined,
     }
 
     return track(

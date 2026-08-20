@@ -209,14 +209,18 @@ describe('the file cronheart init writes', () => {
     expect(readdirSync(workspace)).toEqual([])
   })
 
-  it('leaves no half-written file behind when the rename cannot happen', async () => {
+  it('reads a destination directory that does not exist as the typo it is', async () => {
     const ran = await runCli(
       ['init', '--name=job', `--uuid=${MONITOR_ID}`, `--env-path=${join(workspace, 'no-dir', '.env')}`],
       { env: envFor() },
     )
 
-    expect(ran.status).toBe(1)
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain('no-dir')
+    expect(ran.stderr).toContain('does not exist')
+    expect(ran.stderr).not.toContain('ENOENT')
     expect(readdirSync(workspace)).toEqual([])
+    expect(server.requests).toHaveLength(0)
   })
 })
 
@@ -248,5 +252,29 @@ describe('the prompt that asks for the monitor id', () => {
     session._writeToOutput?.('n')
 
     expect(written).toEqual(['n'])
+  })
+})
+
+describe('where cronheart init leaves the reader', () => {
+  it('closes with the crontab line, because the file it wrote is not what cron reads', async () => {
+    const ran = await runCli(
+      ['init', '--name=nightly-backup', `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`],
+      { env: envFor() },
+    )
+
+    expect(ran.status).toBe(0)
+    expect(ran.stdout).toContain('cron')
+    expect(ran.stdout).toMatch(/^\s*CRONHEART_NIGHTLY_BACKUP_UUID=/m)
+    expect(ran.stdout).toMatch(/\s\/\S*cronheart run --name=nightly-backup /)
+  })
+
+  it('does not put the id it was handed back on the terminal it was pasted into', async () => {
+    const ran = await runCli(
+      ['init', '--name=nightly-backup', `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`],
+      { env: envFor() },
+    )
+
+    expect(ran.status).toBe(0)
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(MONITOR_ID)
   })
 })

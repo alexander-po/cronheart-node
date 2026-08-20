@@ -108,11 +108,14 @@ describe('cronheart ping keeps a failed check-in out of the caller’s exit code
     expect(server.requests).toHaveLength(1)
   })
 
-  it('reports an accepted check-in on stdout and exits 0', async () => {
-    const ran = await runCli(['ping', 'job', '--strict'], { env: envFor() })
+  it('reports an accepted check-in on stdout only when asked, and exits 0 either way', async () => {
+    const quiet = await runCli(['ping', 'job', '--strict'], { env: envFor() })
+    const loud = await runCli(['ping', 'job', '--strict', '--verbose'], { env: envFor() })
 
-    expect(ran.status).toBe(0)
-    expect(ran.stdout).toContain('accepted')
+    expect(quiet.status).toBe(0)
+    expect(quiet.stdout).toBe('')
+    expect(loud.status).toBe(0)
+    expect(loud.stdout).toContain('accepted')
   })
 
   it('sends nothing and exits 0 when the name resolves to no monitor', async () => {

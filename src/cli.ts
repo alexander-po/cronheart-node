@@ -18,7 +18,7 @@ async function dispatch(args: ParsedArgs, io: Io): Promise<number> {
   }
 
   if (readFlag(args, 'help') || readFlag(args, 'h')) {
-    io.out(HELP)
+    io.out(command === undefined ? HELP : (await import('./cli/help-pages.js')).helpFor(command))
 
     return EXIT_OK
   }

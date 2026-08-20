@@ -10,6 +10,10 @@ coverage/
 .eslintcache
 *.tsbuildinfo
 
+# cronheart init writes CRONHEART_<NAME>_UUID here when run without --env-path,
+# and that id is the whole credential on the check-in route.
+.env
+
 # Local-only session working notes — this repo is public, so the rolling
 # feature-status handoff stays on the developer's machine (the durable
 # contributor docs are README.md / CLAUDE.md / CHANGELOG.md).

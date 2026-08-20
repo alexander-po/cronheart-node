@@ -143,6 +143,7 @@ cronheart init                                    # paste a monitor id, write th
 cronheart run --name=nightly-backup -- ./backup.sh
 cronheart ping nightly-backup --action=fail --body=-
 cronheart doctor
+cronheart run --help                              # options and examples for one command
 ```
 
 `run` wraps a command. It opens with a `start` check-in, then reports success
@@ -151,24 +152,35 @@ body — and **exits with the command's own exit status**. A check-in that fails
 writes one line to stderr and changes nothing else: a monitoring outage must
 never turn a working job into a failing one.
 
-stderr is teed rather than captured — every byte still reaches the parent, so a
-crontab's `2>> log` keeps working while the last `--stderr-bytes` of it ride
-along with the check-in. The excerpt is cut on a character boundary even when
-the operating system split a character across two reads. The tee honours the
-parent's backpressure, so a command writing faster than the parent reads is
-paced exactly as it would be writing to that parent directly.
+A run that ends in anything but `0` also writes its summary to **stderr**, so
+cron mails it the way it would have mailed the unwrapped command's own error; a
+run that succeeds writes nothing at all. A wrapper may be silent on success. It
+may not be silent on failure, because failure is the entire reason cron mails
+you.
 
-A job's stderr is the most credential-dense stream it produces, so the excerpt
+Both streams are teed rather than captured — every byte still reaches the
+parent, so a crontab's `2>> log` keeps working while the last `--output-bytes`
+of the combined output ride along with the check-in. stdout is in there because
+most Python, PHP and `make` output reports its failure there, and an excerpt
+that watched only stderr would send `exited with status 1` and nothing else.
+(`--stderr-bytes` is the former name of that flag and still works.) The excerpt
+is cut on a character boundary even when the operating system split a character
+across two reads. The tee honours the parent's backpressure, so a command
+writing faster than the parent reads is paced exactly as it would be writing to
+that parent directly.
+
+A job's output is the most credential-dense thing it produces, so the excerpt
 is redacted **before** any of it is cut — the wrapper's byte budget, the ring
 that bounds its memory and the body cap all run afterwards, and can therefore
 only ever split a `[redacted]` marker in half rather than strip the anchor off
 a secret and leave the secret behind. Tokens, `Authorization` values,
 credentials inside a URL and `*_PASSWORD` / `*_TOKEN` / `*_KEY` assignments are
 recognised out of the box; `--redact=<pattern>` (repeatable) and
-`CRONHEART_REDACT` add more, and `--stderr-bytes=0` sends no excerpt at all —
-and inserts no pipe either, so anything the command leaves running keeps the
-caller's own stderr. A pattern that does not compile is never a control that
-quietly protects nothing: on the command line it is a usage error, while in
+`CRONHEART_REDACT` add more, and `--output-bytes=0` sends no excerpt at all —
+and inserts no pipe on either stream, so anything the command leaves running
+keeps the caller's own stdout and stderr. A pattern that does not compile is
+never a control that quietly protects nothing: on the command line it is a
+usage error, while in
 `CRONHEART_REDACT` — one typo in which would otherwise stop every wrapped job
 on the machine — the command runs and the excerpt is withheld entirely, said
 so on stderr. The command being wrapped is not given `CRONHEART_API_KEY`:
@@ -179,15 +191,18 @@ is a case where there is no command status to report: `64` for a usage error,
 which happens before anything is spawned; `124` when `--timeout` expires,
 matching `timeout(1)`; and `127` / `126` when the command cannot be started at
 all. A command that has already exited can no longer time out, whatever is
-still holding its stderr open.
+still holding its output streams open.
 
-The command leads its own process group, so a terminal interrupt reaches it
-once — through the wrapper — rather than once from the group and once
-forwarded, which many tools read as *abort now*. `SIGINT`, `SIGTERM` and the
-`--timeout` deadline are delivered to that whole group, so a shell script's
-children go with it; escalation to `SIGKILL` follows after `--kill-after`
-(5s by default, and never when it is longer than a timer can hold). The
-check-in body says the run was signalled.
+Run with no terminal — from cron, a systemd timer, a supervisor — the command
+leads its own process group, so `SIGINT`, `SIGTERM` and the `--timeout`
+deadline are delivered to that whole group and a shell script's children go
+with it. Run **from a terminal** it does not: a process group of its own means
+`setsid`, which costs the command the controlling terminal that a `sudo` or
+`ssh` password prompt needs, and the terminal has already delivered the
+interrupt to the whole foreground group anyway — so the wrapper does not relay
+it a second time, which many tools read as *abort now*. Escalation to `SIGKILL`
+follows after `--kill-after` (5s by default, and never when it is longer than a
+timer can hold). The check-in body says the run was signalled.
 
 A server that never answers cannot hold the command up: the terminal check-in
 and its flush share one 2 s budget, after which the status already in hand is
@@ -195,15 +210,25 @@ returned and whatever is in flight is abandoned. An interrupt arriving during
 that budget does the same rather than replacing the status with `130`.
 
 `ping` sends one check-in and exits `0` even when the check-in fails, for the
-same reason `run` does; `--strict` turns a failed check-in into exit `1`.
-`--action` is validated against a closed set of literals before a URL exists,
-because the server maps an action it does not recognise to a plain heartbeat —
-which marks the monitor *up*.
+same reason `run` does; `--strict` turns a failed check-in into exit `1`. It is
+**silent on a check-in that worked** and writes to stderr on one that did not,
+the way `curl -fsS` behaves — one mail per run from a per-minute crontab is how
+a monitoring tool gets uninstalled. At a terminal, or under `--verbose`, the
+confirmation is printed. `--action` is validated against a closed set of
+literals before a URL exists, because the server maps an action it does not
+recognise to a plain heartbeat — which marks the monitor *up*.
+
+Whatever the outcome, what gets printed is the sentence the client wrote for
+it — *no monitor id for "cleanup", so nothing was sent. Set
+CRONHEART_CLEANUP_UUID…* — rather than the outcome token behind it.
 
 `doctor` reports the configuration it resolved, which environment variable
 answered for each monitor, the result of a real check-in and the clock skew
 against the server. It never prints a monitor id: that id is the whole
-credential for the check-in route.
+credential for the check-in route. It also names what it did **not** check —
+whether the monitor has a notification channel attached and whether that channel
+is verified — because a report with nothing wrong in it would otherwise read as
+reassurance about alerting that nothing here established.
 
 `init` writes `CRONHEART_<NAME>_UUID` for a monitor and verifies it with a
 check-in. Creating the monitor from the command line needs the REST API, which
@@ -218,7 +243,21 @@ The CLI wraps any command, so a crontab entry, a systemd timer or a shell
 script checks in without a Node codebase around it.
 
 ```cron
-*/5 * * * * cronheart run --name=cleanup -- /usr/local/bin/cleanup.sh
+*/5 * * * * /usr/local/bin/cronheart run --uuid=00000000-0000-4000-8000-000000000000 -- /usr/local/bin/cleanup.sh
+```
+
+Two things that line is deliberate about. The id is written **inline**, because
+`--name` resolves through an environment variable and cron sources no profile —
+a `--name` entry in a crontab runs the job, tells the monitor nothing and exits
+`0`. And both paths are absolute, because cron's `PATH` is typically
+`/usr/bin:/bin`, which a global install under a Node version manager is not on.
+
+To use a name instead, set the variable in the crontab itself, where cron will
+pass it to the job:
+
+```cron
+CRONHEART_CLEANUP_UUID=00000000-0000-4000-8000-000000000000
+*/5 * * * * /usr/local/bin/cronheart run --name=cleanup -- /usr/local/bin/cleanup.sh
 ```
 
 Install it globally and pin the version. `npx` re-resolves the package on

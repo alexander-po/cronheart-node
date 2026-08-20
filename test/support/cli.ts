@@ -95,6 +95,38 @@ export function runCli(args: readonly string[], options: RunOptions = {}): Promi
   return startCli(args, options).settled
 }
 
+// Node cannot allocate a pseudo-terminal of its own, and stdin being one is what run branches on.
+export function runCliUnderTerminal(
+  args: readonly string[],
+  options: RunOptions = {},
+): Promise<Ran> {
+  const startedAt = Date.now()
+  const command = [process.execPath, CLI, ...args].join(' ')
+  const child = spawn('script', ['-qec', command, '/dev/null'], {
+    env: childEnv(options.env),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  let stderr = ''
+
+  child.stdout?.setEncoding('utf8')
+  child.stderr?.setEncoding('utf8')
+  child.stdout?.on('data', (chunk: string) => {
+    stdout += chunk
+  })
+  child.stderr?.on('data', (chunk: string) => {
+    stderr += chunk
+  })
+  child.stdin?.on('error', () => {})
+  child.stdin?.end(options.input ?? '')
+
+  return new Promise<Ran>((resolve) => {
+    child.on('close', (status, signal) => {
+      resolve({ status, signal, stdout, stderr, elapsedMs: Date.now() - startedAt })
+    })
+  })
+}
+
 export interface PingRequest {
   readonly method: string
   readonly path: string

@@ -1,10 +1,26 @@
-import { chmodSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { dirname } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
 import { escapeLiteral } from '../ping/body.js'
 import { envVarFor, isMonitorId } from '../ping/resolve.js'
 import { type ParsedArgs, readFlag, readText, unknownFlags } from './args.js'
-import { describeResult, environment, hasApiKey, openClient } from './client.js'
+import {
+  describeResult,
+  environment,
+  hasApiKey,
+  openClient,
+  readMonitorId,
+  readMonitorName,
+} from './client.js'
 import { EXIT_OK, EXIT_PROBLEM, EXIT_USAGE } from './exit.js'
 import type { Io } from './io.js'
 import { MANAGEMENT_CLIENT_PENDING, paidOnly } from './tier.js'
@@ -14,6 +30,8 @@ const FLAGS = ['name', 'uuid', 'env-path', 'print-env']
 const DASHBOARD = 'https://cronheart.com/dashboard'
 
 const DEFAULT_ENV_FILE = '.env'
+
+const EXAMPLE_BINARY = '/usr/local/bin/cronheart'
 
 const OWNER_ONLY = 0o600
 
@@ -179,6 +197,22 @@ function writeSecretly(path: string, text: string, mode: number | undefined): st
   }
 }
 
+// An env file is read by an application at startup; cron reads none, and a crontab entry that
+// resolves a name through one gets no id, sends nothing, and exits 0.
+function nextSteps(variable: string, name: string): string {
+  return [
+    '',
+    '  Next: that file is read by your application, not by cron. To run this job from a',
+    '  crontab, put the variable there too:',
+    '',
+    `    ${variable}=<the id you just pasted>`,
+    `    */5 * * * * ${EXAMPLE_BINARY} run --name=${name} -- /path/to/your-job`,
+    '',
+    '  cronheart init --print-env prints that first line with the id filled in.',
+    '',
+  ].join('\n')
+}
+
 export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
   const unknown = unknownFlags(args, FLAGS)
 
@@ -188,8 +222,8 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
     return EXIT_USAGE
   }
 
-  const name = readText(args, 'name')
-  const uuid = readText(args, 'uuid')
+  const name = readMonitorName(args)
+  const uuid = readMonitorId(args)
   const envFile = readText(args, 'env-path')
 
   for (const read of [name, uuid, envFile]) {
@@ -244,6 +278,16 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
   if (readFlag(args, 'print-env')) {
     io.out(`${variable}=${given.id}\n`)
   } else {
+    const directory = dirname(path)
+
+    if (!existsSync(directory)) {
+      io.err(
+        `cronheart: ${path} cannot be written because ${directory} does not exist — create it first, or point --env-path at a file in a directory that does\n`,
+      )
+
+      return EXIT_USAGE
+    }
+
     const existing = inspect(path)
 
     if (!existing.ok) {
@@ -278,6 +322,7 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
   const result = await opened.client.ping(given.name)
 
   io.out(`  test ${describeResult(result)}\n`)
+  io.out(nextSteps(variable, given.name))
 
   return result.ok ? EXIT_OK : EXIT_PROBLEM
 }

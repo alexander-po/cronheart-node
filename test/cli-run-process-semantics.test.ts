@@ -1,8 +1,15 @@
-import { mkdtempSync, existsSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { MONITOR_ID, type PingServer, runCli, startCli, startPingServer } from './support/cli.js'
+import {
+  MONITOR_ID,
+  type PingServer,
+  runCli,
+  runCliUnderTerminal,
+  startCli,
+  startPingServer,
+} from './support/cli.js'
 
 let server: PingServer
 
@@ -272,4 +279,51 @@ describe('the delay a monitoring outage adds to the command it wraps', () => {
     expect(ran.status).toBe(2)
     expect(ran.elapsedMs).toBeLessThan(4000)
   }, 40_000)
+})
+
+// Reads its own process group out of /proc rather than shelling out, so the answer is the
+// kernel's rather than a tool's, and reports whether a controlling terminal is still reachable.
+const PROBE = [
+  'const fs = require("node:fs")',
+  'let terminal = "LOST"',
+  'try { fs.closeSync(fs.openSync("/dev/tty", "r")); terminal = "REACHABLE" } catch {}',
+  'const stat = fs.readFileSync("/proc/self/stat", "utf8")',
+  'const group = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[2]',
+  'process.stdout.write("TTY=" + terminal + " GROUP=" + (group === String(process.pid) ? "OWN" : "SHARED") + "\\n")',
+  'process.exit(3)',
+].join('; ')
+
+describe('the terminal the wrapped command is allowed to keep', () => {
+  let directory: string
+  let probe: string
+
+  beforeEach(() => {
+    directory = mkdtempSync(join(tmpdir(), 'cronheart-tty-'))
+    probe = join(directory, 'probe.cjs')
+    writeFileSync(probe, PROBE)
+  })
+
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true })
+  })
+
+  it('leaves a command run from a terminal able to prompt for a password', async () => {
+    const ran = await runCliUnderTerminal(
+      ['run', '--name=job', '--', process.execPath, probe],
+      { env: envFor() },
+    )
+
+    expect(ran.status).toBe(3)
+    expect(ran.stdout).toContain('TTY=REACHABLE')
+    expect(ran.stdout).toContain('GROUP=SHARED')
+  })
+
+  it('gives a command run without one its own group, which is what a deadline terminates', async () => {
+    const ran = await runCli(['run', '--name=job', '--', process.execPath, probe], {
+      env: envFor(),
+    })
+
+    expect(ran.status).toBe(3)
+    expect(ran.stdout).toContain('GROUP=OWN')
+  })
 })

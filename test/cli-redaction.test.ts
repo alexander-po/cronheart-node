@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { MAX_STDERR_TAIL_BYTES } from '../src/cli/run.js'
+import { MAX_OUTPUT_TAIL_BYTES } from '../src/cli/run.js'
 import { MONITOR_ID, type PingServer, runCli, startPingServer } from './support/cli.js'
 
 let server: PingServer
@@ -97,7 +97,7 @@ describe('what cronheart run puts on the wire when the child prints a secret', (
   })
 })
 
-// The window is the last MAX_STDERR_TAIL_BYTES bytes of stderr, so a secret placed this far
+// The window is the last MAX_OUTPUT_TAIL_BYTES bytes of stderr, so a secret placed this far
 // from the end is cut by the wrapper's own budget — the anchor every built-in pattern keys
 // on lands outside the excerpt while the secret material stays inside it.
 describe('a secret straddling the wrapper’s own stderr budget', () => {
@@ -107,7 +107,7 @@ describe('a secret straddling the wrapper’s own stderr budget', () => {
     ['exactly at the first byte of the token', 0],
     ['midway through the token', 20],
   ])('is still redacted when the cut falls %s', async (_where, into) => {
-    const after = MAX_STDERR_TAIL_BYTES - (KEY.length - into)
+    const after = MAX_OUTPUT_TAIL_BYTES - (KEY.length - into)
     const ran = await runCli(['run', '--name=job', ...emits('head '.repeat(40), KEY, after)], {
       env: envFor(),
     })
@@ -121,7 +121,7 @@ describe('a secret straddling the wrapper’s own stderr budget', () => {
 
   it('is still redacted when a Bearer header is cut after the scheme word', async () => {
     const header = `Authorization: Bearer ${BEARER_TAIL}`
-    const after = MAX_STDERR_TAIL_BYTES - BEARER_TAIL.length
+    const after = MAX_OUTPUT_TAIL_BYTES - BEARER_TAIL.length
     const ran = await runCli(['run', '--name=job', ...emits('head '.repeat(40), header, after)], {
       env: envFor(),
     })

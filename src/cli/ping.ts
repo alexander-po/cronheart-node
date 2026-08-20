@@ -3,12 +3,12 @@ import { PING_EMITTABLE_ACTIONS } from '../ping/action.js'
 import type { PingClient, PingOptions, PingResult } from '../ping/types.js'
 import type { EnvSource } from '../ping/env.js'
 import { type ParsedArgs, type Read, readFlag, readText, unknownFlags } from './args.js'
-import { describeResult, environment, openClient } from './client.js'
+import { environment, openClient, sentenceFor } from './client.js'
 import { EXIT_OK, EXIT_PROBLEM, EXIT_USAGE } from './exit.js'
 import type { Io } from './io.js'
 import { REDACT_FLAG, planRedaction } from './redact.js'
 
-const FLAGS = ['action', 'body', 'strict', REDACT_FLAG]
+const FLAGS = ['action', 'body', 'strict', 'verbose', REDACT_FLAG]
 
 const STDIN_CAP_BYTES = 65_536
 
@@ -20,6 +20,7 @@ interface PingSpec {
   readonly fromStdin: boolean
   readonly body: string | undefined
   readonly strict: boolean
+  readonly verbose: boolean
   readonly redact: readonly RegExp[]
   readonly excerptRefusal: string | undefined
 }
@@ -88,6 +89,7 @@ export function planPing(args: ParsedArgs, env: EnvSource): Read<PingSpec> {
       fromStdin: body.value === '-',
       body: body.value === '-' ? undefined : body.value,
       strict: readFlag(args, 'strict'),
+      verbose: readFlag(args, 'verbose') || process.stdout.isTTY === true,
       redact: redact.value.patterns,
       excerptRefusal: redact.value.refusal,
     },
@@ -166,10 +168,12 @@ export async function pingCommand(args: ParsedArgs, io: Io): Promise<number> {
 
   const body = spec.excerptRefusal !== undefined ? undefined : await bodyFor(spec)
   const result = await send(opened.client, spec, { body })
-  const line = `cronheart: ${describeResult(result)}\n`
+  const line = `cronheart: ${sentenceFor(result)}\n`
 
   if (result.ok) {
-    io.out(line)
+    if (spec.verbose) {
+      io.out(line)
+    }
 
     return EXIT_OK
   }

@@ -5,7 +5,14 @@ import { PING_BODY_BUDGET_BYTES } from '../ping/body.js'
 import type { EnvSource } from '../ping/env.js'
 import { countdown } from '../timer.js'
 import { type ParsedArgs, type Read, readText, unknownFlags } from './args.js'
-import { describeResult, environment, monitorSecrets, openClient } from './client.js'
+import {
+  environment,
+  monitorSecrets,
+  openClient,
+  readMonitorId,
+  readMonitorName,
+  sentenceFor,
+} from './client.js'
 import { MAX_TIMER_MS, describeDuration, parseDuration } from './duration.js'
 import {
   EXIT_NOT_EXECUTABLE,
@@ -19,7 +26,7 @@ import { type Io, writeQuietly } from './io.js'
 import { REDACT_FLAG, planRedaction } from './redact.js'
 import { createStderrTail } from './stderr-tail.js'
 
-const FLAGS = ['name', 'uuid', 'timeout', 'stderr-bytes', 'kill-after', REDACT_FLAG]
+const FLAGS = ['name', 'uuid', 'timeout', 'output-bytes', 'stderr-bytes', 'kill-after', REDACT_FLAG]
 
 // Check-ins need no key, so withholding an account-wide credential costs nothing.
 const WITHHELD_FROM_THE_CHILD = ['CRONHEART_API_KEY', 'CRON_MONITOR_API_KEY']
@@ -37,13 +44,24 @@ const LONGEST_HELD_TIMEOUT_MS = MAX_TIMER_MS - (MAX_TIMER_MS % 3_600_000)
 
 const SIGNALS_REACH_A_GROUP = process.platform !== 'win32'
 
-export const MAX_STDERR_TAIL_BYTES = PING_BODY_BUDGET_BYTES - 256
+// Detaching calls setsid, which costs the command its controlling terminal and with it any
+// /dev/tty prompt. Worth a whole process tree to signal only where there is no terminal to lose.
+function leadsItsOwnGroup(): boolean {
+  return SIGNALS_REACH_A_GROUP && process.stdin.isTTY !== true
+}
+
+const NOT_STARTED: Readonly<Record<string, string>> = {
+  ENOENT: 'not found on PATH',
+  EACCES: 'not executable',
+}
+
+export const MAX_OUTPUT_TAIL_BYTES = PING_BODY_BUDGET_BYTES - 256
 
 export interface RunSpec {
   readonly monitor: string
   readonly timeoutMs: number | undefined
   readonly killAfterMs: number | undefined
-  readonly stderrBytes: number
+  readonly outputBytes: number
   readonly redact: readonly RegExp[]
   readonly excerptRefusal: string | undefined
   readonly command: string
@@ -103,8 +121,8 @@ export function planRun(args: ParsedArgs, env: EnvSource): Read<RunSpec> {
     return refuse(`run does not take --${unknown.join(', --')}`)
   }
 
-  const name = readText(args, 'name')
-  const uuid = readText(args, 'uuid')
+  const name = readMonitorName(args)
+  const uuid = readMonitorId(args)
 
   if (!name.ok) {
     return name
@@ -142,21 +160,28 @@ export function planRun(args: ParsedArgs, env: EnvSource): Read<RunSpec> {
     return killAfter
   }
 
-  const budget = readText(args, 'stderr-bytes')
+  const asked = readText(args, 'output-bytes')
 
-  if (!budget.ok) {
-    return budget
+  if (!asked.ok) {
+    return asked
   }
 
-  const asked = budget.value === undefined ? MAX_STDERR_TAIL_BYTES : Number(budget.value)
+  const legacy = readText(args, 'stderr-bytes')
+
+  if (!legacy.ok) {
+    return legacy
+  }
+
+  const given = asked.value ?? legacy.value
+  const budget = given === undefined ? MAX_OUTPUT_TAIL_BYTES : Number(given)
 
   if (
-    !/^[0-9]+$/.test(budget.value ?? '0') ||
-    !Number.isSafeInteger(asked) ||
-    asked > MAX_STDERR_TAIL_BYTES
+    !/^[0-9]+$/.test(given ?? '0') ||
+    !Number.isSafeInteger(budget) ||
+    budget > MAX_OUTPUT_TAIL_BYTES
   ) {
     return refuse(
-      `--stderr-bytes must be a whole number of bytes, at most ${MAX_STDERR_TAIL_BYTES} — the rest of the check-in body has to fit alongside it`,
+      `--output-bytes must be a whole number of bytes, at most ${MAX_OUTPUT_TAIL_BYTES} — the rest of the check-in body has to fit alongside it`,
     )
   }
 
@@ -191,7 +216,7 @@ export function planRun(args: ParsedArgs, env: EnvSource): Read<RunSpec> {
           : killAfter.value.ms > MAX_TIMER_MS
             ? undefined
             : killAfter.value.ms,
-      stderrBytes: refusal === undefined ? asked : 0,
+      outputBytes: refusal === undefined ? budget : 0,
       redact: redact.value.patterns,
       excerptRefusal: refusal,
       command,
@@ -216,12 +241,12 @@ function childEnvironment(): Record<string, string | undefined> {
   return inherited
 }
 
-// The command leads its own process group, so a terminal interrupt reaches it once, here,
-// rather than once from the group and once forwarded — which many tools read as abort now.
-function signalTree(child: ChildProcess, name: NodeJS.Signals): void {
+// A negative pid signals the whole group, so a shell script's children go with the command —
+// but only where the command was given a group of its own to lead.
+function signalTree(child: ChildProcess, name: NodeJS.Signals, ownGroup: boolean): void {
   const pid = child.pid
 
-  if (pid !== undefined && SIGNALS_REACH_A_GROUP) {
+  if (pid !== undefined && ownGroup) {
     try {
       process.kill(-pid, name)
 
@@ -236,17 +261,19 @@ function signalTree(child: ChildProcess, name: NodeJS.Signals): void {
 
 function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise<Completed> {
   return new Promise<Completed>((resolve) => {
-    const tail = createStderrTail(spec.stderrBytes, patterns)
+    const tail = createStderrTail(spec.outputBytes, patterns)
     const startedAt = Date.now()
+    const ownGroup = leadsItsOwnGroup()
+    const excerpting = spec.outputBytes > 0
     let child: ChildProcess
 
     try {
       // With no excerpt to take, no pipe is inserted at all: anything the command leaves
-      // running keeps the caller's own stderr rather than one this wrapper later destroys.
+      // running keeps the caller's own streams rather than ones this wrapper later destroys.
       child = spawn(spec.command, [...spec.args], {
-        stdio: ['inherit', 'inherit', spec.stderrBytes > 0 ? 'pipe' : 'inherit'],
+        stdio: ['inherit', excerpting ? 'pipe' : 'inherit', excerpting ? 'pipe' : 'inherit'],
         env: childEnvironment(),
-        detached: SIGNALS_REACH_A_GROUP,
+        detached: ownGroup,
       })
     } catch (error) {
       resolve({
@@ -266,7 +293,7 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
 
     let settled = false
     let exited = false
-    let stalled = false
+    let stalls = 0
     let endedWith: { readonly code: number | null; readonly signal: string | null } | undefined
     let timedOut = false
     let forwarded: string | undefined
@@ -274,10 +301,15 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
     let deadline: ReturnType<typeof setTimeout> | undefined
     let drain: ReturnType<typeof setTimeout> | undefined
 
+    // A terminal has already delivered the interrupt to the whole foreground group, the command
+    // included, so relaying it there would be the second delivery many tools read as abort now.
     const listeners = FORWARDED_SIGNALS.map((name) => {
       const listener = (): void => {
-        forwarded ??= name
-        signalTree(child, name)
+        if (ownGroup || !SIGNALS_REACH_A_GROUP) {
+          forwarded ??= name
+          signalTree(child, name, ownGroup)
+        }
+
         escalate()
       }
 
@@ -304,7 +336,7 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
       }
 
       escalation ??= setTimeout(() => {
-        signalTree(child, 'SIGKILL')
+        signalTree(child, 'SIGKILL', ownGroup)
       }, spec.killAfterMs)
     }
 
@@ -315,6 +347,7 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
 
       settled = true
       cleanup()
+      child.stdout?.destroy()
       child.stderr?.destroy()
       resolve({
         ended: { code, signal, startFailure: undefined, timedOut, forwarded },
@@ -323,12 +356,10 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
       })
     }
 
-    const source = child.stderr
-
     // The budget below bounds a pipe nobody is writing to any more, so it must not run down
     // while this wrapper is the one not reading: that time is the caller's, not a grandchild's.
     function armDrain(): void {
-      if (settled || stalled || drain !== undefined) {
+      if (settled || stalls > 0 || drain !== undefined) {
         return
       }
 
@@ -343,36 +374,50 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
       }, STDERR_DRAIN_BUDGET_MS)
     }
 
-    function resumeTee(): void {
-      if (!stalled) {
-        return
-      }
-
-      stalled = false
-      process.stderr.off('drain', resumeTee)
-      process.stderr.off('close', resumeTee)
-      source?.resume()
-      armDrain()
-    }
-
     // Unwrapped, a command writing faster than the reader takes blocks on the pipe buffer;
     // draining it into memory instead would change its timing. A parent stream that has gone
     // away takes the tee with it rather than stalling a run whose status still has to arrive.
-    source?.on('data', (chunk: Uint8Array) => {
-      tail.push(chunk)
+    function tee(source: NodeJS.ReadableStream, sink: NodeJS.WriteStream): void {
+      let stalled = false
 
-      if (!process.stderr.writable || writeQuietly(process.stderr, chunk)) {
-        return
+      const resumeTee = (): void => {
+        if (!stalled) {
+          return
+        }
+
+        stalled = false
+        stalls -= 1
+        sink.off('drain', resumeTee)
+        sink.off('close', resumeTee)
+        source.resume()
+        armDrain()
       }
 
-      stalled = true
-      clearTimeout(drain)
-      drain = undefined
-      source.pause()
-      process.stderr.once('drain', resumeTee)
-      process.stderr.once('close', resumeTee)
-    })
-    source?.on('error', () => {})
+      source.on('data', (chunk: Uint8Array) => {
+        tail.push(chunk)
+
+        if (!sink.writable || writeQuietly(sink, chunk)) {
+          return
+        }
+
+        stalled = true
+        stalls += 1
+        clearTimeout(drain)
+        drain = undefined
+        source.pause()
+        sink.once('drain', resumeTee)
+        sink.once('close', resumeTee)
+      })
+      source.on('error', () => {})
+    }
+
+    if (child.stdout !== null) {
+      tee(child.stdout, process.stdout)
+    }
+
+    if (child.stderr !== null) {
+      tee(child.stderr, process.stderr)
+    }
 
     child.on('error', (error) => {
       if (settled) {
@@ -394,7 +439,7 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
       })
     })
 
-    // A grandchild inheriting the pipe can hold it open long after the command itself is
+    // A grandchild inheriting the pipes can hold them open long after the command itself is
     // gone, so the excerpt gets a bounded drain rather than the wrapper waiting on close.
     child.on('exit', (code, signal) => {
       exited = true
@@ -415,7 +460,7 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
         }
 
         timedOut = true
-        signalTree(child, 'SIGTERM')
+        signalTree(child, 'SIGTERM', ownGroup)
         escalate()
       }, spec.timeoutMs)
     }
@@ -442,7 +487,9 @@ function summaryFor(ended: Ended, spec: RunSpec): string {
   const relayed = ended.forwarded === undefined ? '' : ` (cronheart forwarded ${ended.forwarded})`
 
   if (ended.startFailure !== undefined) {
-    return `the command could not be started: ${ended.startFailure}`
+    const why = NOT_STARTED[ended.startFailure] ?? 'could not be started'
+
+    return `${spec.command}: ${why} (${ended.startFailure})`
   }
 
   if (ended.timedOut) {
@@ -513,7 +560,7 @@ export async function runCommand(args: ParsedArgs, io: Io): Promise<number> {
       }
 
       reported.add(result.outcome)
-      io.err(`cronheart: ${describeResult(result)} — the command's exit status is unchanged.\n`)
+      io.err(`cronheart: ${sentenceFor(result)} The command's exit status is unchanged.\n`)
     },
   })
 
@@ -528,6 +575,10 @@ export async function runCommand(args: ParsedArgs, io: Io): Promise<number> {
   const completed = await execute(spec, [...spec.redact, ...monitorSecrets(env, spec.monitor)])
   const code = exitCodeFor(completed.ended)
   const summary = summaryFor(completed.ended, spec)
+
+  if (code !== EXIT_OK) {
+    io.err(`cronheart: ${summary}\n`)
+  }
 
   if (client !== undefined) {
     const body = completed.tail === '' ? summary : `${summary}\n\n${completed.tail}`

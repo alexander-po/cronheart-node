@@ -12,6 +12,10 @@ function envFor(extra: Readonly<Record<string, string>> = {}): Record<string, st
   }
 }
 
+function lineFor(report: string, name: string): string {
+  return report.split('\n').find((line) => line.trim().startsWith(name)) ?? ''
+}
+
 function skewSeconds(report: string): number | undefined {
   const match = /this host is ([0-9]+) s (?:ahead of|behind) the server/.exec(report)
 
@@ -91,6 +95,8 @@ describe('cronheart doctor sends a real check-in', () => {
     expect(ran.status).toBe(1)
     expect(server.requests).toHaveLength(1)
     expect(ran.stdout).toContain('not-found')
+    expect(ran.stdout).toContain('does not recognise')
+    expect(ran.stdout).toContain('CRONHEART_JOB_UUID')
   })
 
   it('checks in for a monitor that resolves rather than the first one alphabetically', async () => {
@@ -141,12 +147,12 @@ describe('cronheart doctor reports the clock', () => {
 })
 
 describe('cronheart doctor says which tier you are on', () => {
-  it('states the free path when no API key is configured', async () => {
+  it('says nothing about plans when nothing is wrong and no key is configured', async () => {
     const ran = await runCli(['doctor'], { env: envFor({ CRONHEART_JOB_UUID: MONITOR_ID }) })
 
     expect(ran.status).toBe(0)
-    expect(ran.stdout).toContain('no API key')
-    expect(ran.stdout).toContain('every plan')
+    expect(ran.stdout).not.toContain('Starter')
+    expect(ran.stdout).not.toContain('pricing')
   })
 
   it('names the plan requirement in its own words when a key is configured', async () => {
@@ -185,5 +191,41 @@ describe('cronheart doctor and the base URL it reports', () => {
     expect(ran.stderr).toContain('cronheart:')
     expect(`${ran.stdout}${ran.stderr}`).not.toContain('hunter2-not-real')
     expect(server.requests).toHaveLength(0)
+  })
+})
+
+describe('what cronheart doctor cannot see, said where a reader looks for reassurance', () => {
+  it('states that neither routing nor channel verification was among its checks', async () => {
+    const ran = await runCli(['doctor'], { env: envFor({ CRONHEART_JOB_UUID: MONITOR_ID }) })
+    const caveat = lineFor(ran.stdout, 'not checked')
+
+    expect(ran.status).toBe(0)
+    expect(caveat).toContain('channel')
+    expect(caveat).toContain('verified')
+  })
+})
+
+describe('cronheart doctor and a name it cannot resolve', () => {
+  it('connects the name it was handed to the ones it listed two lines above', async () => {
+    const ran = await runCli(['doctor', 'typo'], {
+      env: envFor({
+        CRONHEART_JOB_UUID: MONITOR_ID,
+        CRONHEART_NIGHTLY_BACKUP_UUID: OTHER_MONITOR_ID,
+      }),
+    })
+    const line = lineFor(ran.stdout, 'check-in')
+
+    expect(ran.status).toBe(1)
+    expect(server.requests).toHaveLength(0)
+    expect(line).toContain('"typo"')
+    expect(line).toContain('job')
+    expect(line).toContain('nightly-backup')
+  })
+
+  it('still checks in for a name that resolves through a legacy variable', async () => {
+    const ran = await runCli(['doctor', 'job'], { env: envFor({ CRON_MONITOR_JOB_UUID: MONITOR_ID }) })
+
+    expect(ran.status).toBe(0)
+    expect(server.requests.map((request) => request.monitorId)).toEqual([MONITOR_ID])
   })
 })

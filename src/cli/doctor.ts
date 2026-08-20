@@ -1,6 +1,6 @@
 import process from 'node:process'
 import type { EnvSource } from '../ping/env.js'
-import { isMonitorId } from '../ping/resolve.js'
+import { isMonitorId, resolveMonitor } from '../ping/resolve.js'
 import type { FetchLike, PingHttpResponse } from '../ping/types.js'
 import { ambientFetch } from '../transport/send.js'
 import { CONTRACT_VERSION, SDK_VERSION } from '../version.js'
@@ -21,6 +21,9 @@ import { PAID_ONLY_NOTICE } from './tier.js'
 const CONFIGURED_MONITOR = /^(CRONHEART|CRON_MONITOR)_(.+)_UUID$/
 
 const IN_STEP_MS = 5000
+
+const NOT_CHECKED =
+  'whether this monitor has a notification channel attached, and whether that channel is verified — either gap leaves a missed run alerting nobody. Both are on the monitor’s page at https://cronheart.com/dashboard'
 
 interface Configured {
   readonly name: string
@@ -147,14 +150,10 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
   io.out(label('package', `cronheart-node ${SDK_VERSION} (contract ${CONTRACT_VERSION})`))
   io.out(label('runtime', `node ${process.versions.node} on ${process.platform}`))
   io.out(label('base url', `${originOf(base.url)} — from ${base.source}`))
-  io.out(
-    label(
-      'plan',
-      hasApiKey(env)
-        ? `an API key is configured; its plan cannot be verified here. ${PAID_ONLY_NOTICE}`
-        : `no API key configured — check-ins need none. ${PAID_ONLY_NOTICE}`,
-    ),
-  )
+
+  if (hasApiKey(env)) {
+    io.out(label('api key', `configured; its plan cannot be verified here. ${PAID_ONLY_NOTICE}`))
+  }
 
   if (disabled) {
     problems += 1
@@ -178,6 +177,19 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
 
       io.out(`    ${monitor.name.padEnd(24)} ${monitor.variable}${leg} — ${state}\n`)
     }
+  }
+
+  io.out(label('not checked', NOT_CHECKED))
+
+  if (asked !== undefined && resolveMonitor(asked, {}, env).id === undefined) {
+    const known =
+      monitors.length === 0
+        ? 'no monitor is configured in this environment'
+        : `the monitors configured here are ${monitors.map((monitor) => monitor.name).join(', ')}`
+
+    io.out(label('check-in', `skipped — nothing resolves ${JSON.stringify(asked)}; ${known}`))
+
+    return EXIT_PROBLEM
   }
 
   if (target === undefined) {
@@ -214,6 +226,11 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
   const result = await opened.client.ping(target)
 
   io.out(label('check-in', `${describeResult(result)} in ${result.durationMs} ms`))
+
+  if (result.message !== undefined) {
+    io.out(label('', result.message))
+  }
+
   io.out(label('clock', describeSkew(skewFrom(record))))
 
   if (!result.ok) {
