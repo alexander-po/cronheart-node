@@ -1,0 +1,134 @@
+{
+  "contract_version": "1.3.0",
+  "group": "ping.response_classification",
+  "default_subject": "ping.classifyResponse",
+  "description": "How a ping response becomes an outcome. Every row of /ping/responses/table appears here, and a per-SDK test asserts that: a row nothing covers fails the suite rather than going unpinned. The whole surface is one status line plus, at 2xx only, one English sentence — accepted and duplicate are the same status with no distinguishing header, so a wording change on the far side silently turns every duplicate into an accepted check-in. That is why the literal is anchored rather than copied.",
+  "case_count": 18,
+  "cases": [
+    {
+      "id": "accepted-200",
+      "input": { "status": 200, "body": "OK" },
+      "expect": [
+        { "predicate": "equals", "path": "/outcome", "value": "accepted" },
+        { "predicate": "equals", "path": "/ok", "value": true }
+      ]
+    },
+    {
+      "id": "duplicate-200",
+      "input": { "status": 200, "body": "OK (duplicate)" },
+      "expect": [
+        { "predicate": "equals", "path": "/outcome", "value": "duplicate" },
+        { "predicate": "equals", "path": "/ok", "value": true }
+      ],
+      "why": "duplicate-is-english-prose. The only thing separating this from the row above is the sentence in the body."
+    },
+    {
+      "id": "duplicate-surrounded-by-whitespace",
+      "input": { "status": 200, "body": "  OK (duplicate)\n" },
+      "expect": [{ "predicate": "equals", "path": "/outcome", "value": "duplicate" }],
+      "why": "The body is trimmed before it is compared, so a proxy that reflows the payload does not turn a duplicate into an accepted check-in."
+    },
+    {
+      "id": "duplicate-lowercased",
+      "input": { "status": 200, "body": "ok (duplicate)" },
+      "expect": [{ "predicate": "equals", "path": "/outcome", "value": "accepted" }],
+      "why": "The comparison is exact, not case-folded. This is the failure mode the anchor exists for: a reworded body reads as an ordinary accepted check-in and nothing anywhere reports it."
+    },
+    {
+      "id": "unknown-200-body",
+      "input": { "status": 200, "body": "something else entirely" },
+      "expect": [
+        { "predicate": "equals", "path": "/outcome", "value": "accepted" },
+        { "predicate": "equals", "path": "/ok", "value": true }
+      ],
+      "why": "Anything at 2xx that is not the duplicate literal is an accepted check-in. A classifier that threw here would turn a server-side wording change into a client outage."
+    },
+    {
+      "id": "empty-200-body",
+      "input": { "status": 200, "body": "" },
+      "expect": [{ "predicate": "equals", "path": "/outcome", "value": "accepted" }],
+      "why": "A HEAD request has no body at all, so the duplicate distinction is simply unavailable there."
+    },
+    {
+      "id": "accepted-204",
+      "input": { "status": 204, "body": "" },
+      "expect": [{ "predicate": "equals", "path": "/outcome", "value": "accepted" }],
+      "why": "The 2xx arm is a range, not the single status the table happens to list."
+    },
+    {
+      "id": "accepted-299",
+      "input": { "status": 299, "body": "" },
+      "expect": [{ "predicate": "equals", "path": "/outcome", "value": "accepted" }],
+      "why": "The upper bound of the range, exclusive of 300."
+    },
+    {
+      "id": "not-found-404",
+      "input": { "status": 404, "body": "Monitor not found" },
+      "expect": [
+        { "predicate": "equals", "path": "/outcome", "value": "not-found" },
+        { "predicate": "equals", "path": "/ok", "value": false }
+      ]
+    },
+    {
+      "id": "paused-410",
+      "input": { "status": 410, "body": "Monitor paused" },
+      "expect": [
+        { "predicate": "equals", "path": "/outcome", "value": "paused" },
+        { "predicate": "equals", "path": "/ok", "value": false }
+      ],
+      "why": "A paused monitor records the check-in and raises no alert. It is a configuration answer, not a failure."
+    },
+    {
+      "id": "rate-limited-429",
+      "input": { "status": 429, "body": "Rate limited" },
+      "expect": [
+        { "predicate": "equals", "path": "/outcome", "value": "rate-limited" },
+        { "predicate": "equals", "path": "/ok", "value": false }
+      ]
+    },
+    {
+      "id": "server-error-500",
+      "input": { "status": 500, "body": "" },
+      "expect": [
+        { "predicate": "equals", "path": "/outcome", "value": "server-error" },
+        { "predicate": "equals", "path": "/ok", "value": false }
+      ]
+    },
+    {
+      "id": "server-error-503",
+      "input": { "status": 503, "body": "nope" },
+      "expect": [{ "predicate": "equals", "path": "/outcome", "value": "server-error" }]
+    },
+    {
+      "id": "server-error-599",
+      "input": { "status": 599, "body": "" },
+      "expect": [{ "predicate": "equals", "path": "/outcome", "value": "server-error" }]
+    },
+    {
+      "id": "duplicate-literal-at-500",
+      "input": { "status": 500, "body": "OK (duplicate)" },
+      "expect": [{ "predicate": "equals", "path": "/outcome", "value": "server-error" }],
+      "why": "The body is consulted only inside the 2xx arm. An error page that happens to quote the literal is still an error."
+    },
+    {
+      "id": "client-error-400",
+      "input": { "status": 400, "body": "Bad request" },
+      "expect": [
+        { "predicate": "equals", "path": "/outcome", "value": "unexpected" },
+        { "predicate": "equals", "path": "/ok", "value": false }
+      ]
+    },
+    {
+      "id": "client-error-401",
+      "input": { "status": 401, "body": "" },
+      "expect": [{ "predicate": "equals", "path": "/outcome", "value": "unexpected" }],
+      "why": "The ping route is anonymous, so a 401 means something in front of the service is answering, not that a credential is missing."
+    },
+    {
+      "id": "redirect-302",
+      "input": { "status": 302, "body": "" },
+      "expect": [{ "predicate": "equals", "path": "/outcome", "value": "unexpected" }],
+      "why": "Redirects are never followed, so one arrives as a status to classify rather than as a second request."
+    }
+  ]
+}

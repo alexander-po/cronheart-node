@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.2.0",
+  "contract_version": "1.3.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-20",
@@ -78,19 +78,21 @@
         "not-found",
         "rate-limited",
         "timeout",
+        "aborted",
         "network-error",
         "server-error",
         "unexpected",
         "suppressed",
         "disabled"
       ],
-      "note": "The SDK's own outcome vocabulary. Closed because it is ours; a new member is an SDK minor release, not a server change — see rule 2b in CLASSIFICATION.md, which reads this vocabulary's layer before its openness. Not every member maps to a row of /ping/responses/table: suppressed and disabled report that no request was made at all, the first because no monitor id resolved and the second because the SDK's off switch is set."
+      "note": "The SDK's own outcome vocabulary. Closed because it is ours; a new member is an SDK minor release, not a server change — see rule 2b in CLASSIFICATION.md, which reads this vocabulary's layer before its openness. Not every member maps to a row of /ping/responses/table: suppressed and disabled report that no request was made at all, the first because no monitor id resolved and the second because the SDK's off switch is set, and timeout, aborted and network-error report that no answer came back — aborted only ever from a signal the caller supplied, never from a deadline."
     }
   },
 
   "ping": {
     "layer": "server",
     "anonymous": true,
+    "default_base_url": "https://cronheart.com",
     "credential": "The monitor UUID in the path is the entire authorisation token. No Authorization header is read on this route; sending one leaks an account-wide credential to every intermediary for no benefit.",
     "routes": [
       {
@@ -272,6 +274,15 @@
           "retryable": true
         }
       ],
+      "status_to_outcome": {
+        "2xx": "accepted",
+        "404": "not-found",
+        "410": "paused",
+        "429": "rate-limited",
+        "5xx": "server-error",
+        "other": "unexpected"
+      },
+      "status_to_outcome_note": "The table above, projected onto what a client can decide from the status line alone, with every status outside the listed ones falling to 'other'. duplicate is absent because it is not a status: it is the 2xx arm refined by the response body, which is why the body literal is anchored separately.",
       "hazards": [
         {
           "id": "duplicate-is-english-prose",
@@ -354,6 +365,8 @@
       { "id": "rfc850-obsolete", "example": "Wednesday, 20-Aug-26 12:00:07 GMT" },
       { "id": "asctime-obsolete", "example": "Wed Aug 20 12:00:07 2026" }
     ],
+    "min_seconds": 0,
+    "max_seconds": 2147483647,
     "rules": [
       "Surrounding optional whitespace is stripped before parsing.",
       "A date form resolves to the number of whole seconds from the current time to that instant, rounded down.",
@@ -772,6 +785,12 @@
 
   "anchors": [
     { "id": "ping.body.cap_bytes", "pointer": "/ping/body/cap_bytes", "value": 10000 },
+    { "id": "ping.default_base_url", "pointer": "/ping/default_base_url", "value": "https://cronheart.com" },
+    { "id": "ping.action.emit", "pointer": "/vocabularies/ping.action/emit", "value": ["start", "success", "fail"] },
+    { "id": "ping.responses.duplicate_body", "pointer": "/ping/responses/table/1/body", "value": "OK (duplicate)" },
+    { "id": "ping.responses.status_to_outcome", "pointer": "/ping/responses/status_to_outcome" },
+    { "id": "retry_after.max_seconds", "pointer": "/retry_after/max_seconds", "value": 2147483647 },
+    { "id": "vocabulary.ping_outcome", "pointer": "/vocabularies/ping.outcome/members" },
     { "id": "ping.action.pattern", "pointer": "/ping/routes/1/action_pattern", "value": "^[a-zA-Z0-9_-]{1,16}$" },
     { "id": "ping.uuid.pattern", "pointer": "/ping/routes/0/uuid_pattern", "value": "^[0-9a-fA-F-]{36}$" },
     { "id": "ping.dedup.window_seconds", "pointer": "/ping/dedup/window_seconds", "value": 2 },

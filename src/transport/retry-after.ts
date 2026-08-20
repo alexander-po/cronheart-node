@@ -1,4 +1,4 @@
-const MAX_SECONDS = 2147483647
+import { RETRY_AFTER_MAX_SECONDS } from '../constants.js'
 
 const DELTA_SECONDS = /^[0-9]+$/
 
@@ -109,7 +109,7 @@ export function parseRetryAfter(
   if (DELTA_SECONDS.test(value)) {
     const seconds = Number(value)
 
-    return Number.isSafeInteger(seconds) && seconds <= MAX_SECONDS ? seconds : undefined
+    return Number.isSafeInteger(seconds) && seconds <= RETRY_AFTER_MAX_SECONDS ? seconds : undefined
   }
 
   const instant = parseHttpDate(value, now)
@@ -120,5 +120,5 @@ export function parseRetryAfter(
 
   const seconds = Math.max(0, Math.floor((instant - now) / 1000))
 
-  return seconds <= MAX_SECONDS ? seconds : undefined
+  return seconds <= RETRY_AFTER_MAX_SECONDS ? seconds : undefined
 }

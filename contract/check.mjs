@@ -1,13 +1,25 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
 
 const UNRESOLVED = Symbol('unresolved')
 const VERSION_SHAPE = /^\d+\.\d+\.\d+$/
 const ARRAY_INDEX = /^(0|[1-9][0-9]*)$/
+const SDK_LITERAL = /^[A-Z][A-Z0-9_]*$/
 
-const contract = JSON.parse(
-  readFileSync(new URL('cronheart-contract.json', import.meta.url), 'utf8'),
-)
+// The paths are arguments so that the check can be pointed at a fixture and proven able
+// to fail, the way the source guard is.
+const contractUrl =
+  process.argv[2] === undefined
+    ? new URL('cronheart-contract.json', import.meta.url)
+    : pathToFileURL(process.argv[2])
+
+const sdkUrl =
+  process.argv[3] === undefined
+    ? new URL('../dist/index.mjs', import.meta.url)
+    : pathToFileURL(process.argv[3])
+
+const contract = JSON.parse(readFileSync(contractUrl, 'utf8'))
 
 function resolvePointer(pointer) {
   return pointer.split('/').slice(1).reduce(step, contract)
@@ -69,8 +81,15 @@ const HELD_AS_CONSTANTS = {
   'ping.uuid.pattern': 'PING_ROUTE_UUID_PATTERN',
   'ping.runtime_header.name': 'RUNTIME_HEADER_NAME',
   'ping.runtime_header.max_value': 'RUNTIME_HEADER_MAX_VALUE',
+  'ping.default_base_url': 'DEFAULT_BASE_URL',
+  'ping.action.emit': 'PING_EMITTABLE_ACTIONS',
+  'ping.responses.duplicate_body': 'PING_DUPLICATE_BODY',
+  'ping.responses.status_to_outcome': 'PING_STATUS_OUTCOMES',
   'body_truncation.marker': 'PING_BODY_TRUNCATION_MARKER',
   'body_truncation.budget_bytes': 'PING_BODY_BUDGET_BYTES',
+  'retry_after.max_seconds': 'RETRY_AFTER_MAX_SECONDS',
+  'vocabulary.ping_kind': 'PING_ACTIONS',
+  'vocabulary.ping_outcome': 'PING_OUTCOMES',
 }
 
 const DEFERRED = {
@@ -90,18 +109,22 @@ const DEFERRED = {
   'vocabulary.snooze': 'management client',
   'vocabulary.channel_kind': 'management client',
   'vocabulary.monitor_status': 'management client',
-  'vocabulary.ping_kind': 'management client',
   'vocabulary.plan_key': 'management client',
 }
 
-async function sdkConstants() {
-  const built = new URL('../dist/index.mjs', import.meta.url)
+// The other direction: a wire literal the SDK holds and the contract does not state is
+// how a fact stops being checked without anyone deciding that it should.
+const UNANCHORED = {
+  CONTRACT_VERSION: 'the version of this file, not a fact stated inside it',
+  SDK_VERSION: 'the package version',
+}
 
-  if (!existsSync(built)) {
+async function sdkConstants() {
+  if (!existsSync(sdkUrl)) {
     return undefined
   }
 
-  return import(built.href)
+  return import(sdkUrl.href)
 }
 
 function compareAgainstSdk(anchors, sdk) {
@@ -129,6 +152,32 @@ function compareAgainstSdk(anchors, sdk) {
   })
 }
 
+function sdkLiterals(sdk) {
+  return Object.entries(sdk)
+    .filter(([name, value]) => SDK_LITERAL.test(name) && typeof value !== 'function')
+    .map(([name]) => name)
+}
+
+function compareAgainstLedgers(sdk, anchorIds) {
+  const held = new Set(Object.values(HELD_AS_CONSTANTS))
+  const literals = sdkLiterals(sdk)
+
+  return [
+    ...literals
+      .filter((name) => !held.has(name) && !Object.hasOwn(UNANCHORED, name))
+      .map(
+        (name) =>
+          `${name} — the SDK holds it, no contract anchor states it, and it is not recorded as unanchored`,
+      ),
+    ...Object.keys(UNANCHORED)
+      .filter((name) => !literals.includes(name))
+      .map((name) => `${name} — recorded as unanchored but the SDK no longer exports it`),
+    ...[...Object.keys(HELD_AS_CONSTANTS), ...Object.keys(DEFERRED)]
+      .filter((id) => !anchorIds.has(id))
+      .map((id) => `${id} — recorded in a ledger but the contract has no anchor by that name`),
+  ]
+}
+
 function report(failures) {
   for (const failure of failures) {
     process.stderr.write(`  - ${failure}\n`)
@@ -146,6 +195,7 @@ if (!Array.isArray(anchors) || anchors.length === 0) {
 
 const outcomes = anchors.map((anchor, index) => inspect(anchor, `anchors[${index}]`))
 const validated = new Map(outcomes.map((outcome) => [outcome.key, outcome]))
+const anchorIds = new Set(outcomes.map((outcome) => outcome.key))
 
 const failures = [
   ...(VERSION_SHAPE.test(contract.contract_version ?? '')
@@ -170,14 +220,16 @@ if (sdk === undefined) {
   report(['dist/ is missing — build before checking the contract against the SDK'])
 }
 
-const drift = compareAgainstSdk(anchors, sdk)
+const drift = [...compareAgainstSdk(anchors, sdk), ...compareAgainstLedgers(sdk, anchorIds)]
 
 if (drift.length > 0) {
   report(drift)
 }
 
 const held = Object.keys(HELD_AS_CONSTANTS).length
+const deferred = Object.keys(DEFERRED).length
+const unanchored = Object.keys(UNANCHORED).length
 
 process.stdout.write(
-  `contract ${contract.contract_version} — ${validated.size} anchor(s) resolved, ${valueAssertions} value assertion(s), ${held} held by the SDK, ${anchors.length - held} deferred — ok\n`,
+  `contract ${contract.contract_version} — ${validated.size} anchor(s) resolved, ${valueAssertions} value assertion(s), ${held} held by the SDK, ${deferred} deferred, ${unanchored} SDK literal(s) recorded as unanchored — ok\n`,
 )

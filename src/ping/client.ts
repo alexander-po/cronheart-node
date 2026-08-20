@@ -11,10 +11,11 @@ import {
   assertEmittableAction,
   assertPingBaseUrl,
   defineMonitors,
+  pingPath,
   resolveOrThrow,
 } from '../wiring/validate.js'
 import { userAgent } from '../version.js'
-import { type PingAction, isTerminal, segmentFor } from './action.js'
+import { type PingAction, isTerminal } from './action.js'
 import { type TruncateMode, inAnyCase, redactSecrets, truncateBody } from './body.js'
 import { ambientEnv, isDisabled, numberFrom, readEnv } from './env.js'
 import { classifyStatus, isAccepted, isConfigurationOutcome } from './outcome.js'
@@ -34,12 +35,12 @@ import { warnOnce } from './warn.js'
 
 const DEFAULT_FLUSH_TIMEOUT_MS = 5000
 
-// What the entry points hand to dispatch instead of a merged options object: every read
-// of the caller's own object then happens inside the guard rather than on the job's frame.
+// What the entry points hand to dispatch alongside the caller's own option objects: every
+// read of those happens inside the guard rather than on the job's frame.
 interface CallShape {
   readonly transportOnly?: boolean | undefined
   readonly runtimeMs?: number | undefined
-  readonly body?: (() => string | undefined) | undefined
+  readonly bodyFallback?: (() => string | undefined) | undefined
 }
 
 function positive(value: number | undefined, fallback: number): number {
@@ -93,20 +94,32 @@ function describeError(error: unknown, includeStack: boolean): string {
   }
 }
 
-function callOptionsFrom(
-  options: PingOptions | undefined,
-  shape: CallShape | undefined,
-): PingOptions {
-  const given = options ?? {}
+function layered(sources: readonly (PingOptions | undefined)[]): Record<string, unknown> {
+  const merged: Record<string, unknown> = {}
 
-  if (shape === undefined) {
-    return given
+  for (const source of sources) {
+    if (source === undefined) {
+      continue
+    }
+
+    for (const [key, value] of Object.entries(source)) {
+      if (value !== undefined) {
+        merged[key] = value
+      }
+    }
   }
 
-  const { body: givenBody, runtimeMs: givenRuntime, ...rest } = given
-  const carried = shape.transportOnly === true
-  const body = shape.body === undefined ? (carried ? undefined : givenBody) : shape.body()
-  const runtimeMs = shape.runtimeMs ?? (carried ? undefined : givenRuntime)
+  return merged
+}
+
+function callOptionsFrom(
+  sources: readonly (PingOptions | undefined)[],
+  shape: CallShape | undefined,
+): PingOptions {
+  const { body: givenBody, runtimeMs: givenRuntime, ...rest } = layered(sources)
+  const carried = shape?.transportOnly === true
+  const body = carried ? undefined : (givenBody ?? shape?.bodyFallback?.())
+  const runtimeMs = shape?.runtimeMs ?? (carried ? undefined : givenRuntime)
   const next: Record<string, unknown> = { ...rest }
 
   if (body !== undefined) {
@@ -230,7 +243,6 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
       return finish({ outcome: 'suppressed' })
     }
 
-    const segment = segmentFor(action)
     const rawBody = callOptions.body
     const body =
       rawBody === undefined
@@ -258,7 +270,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
 
     try {
       const response = await transportSend({
-        url: `${baseUrl}/ping/${resolution.id}${segment === null ? '' : `/${segment}`}`,
+        url: `${baseUrl}/ping/${resolution.id}${pingPath(action)}`,
         method: body === undefined ? 'GET' : 'POST',
         headers,
         body,
@@ -302,7 +314,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
   function dispatch(
     name: string,
     action: PingAction,
-    callOptions?: PingOptions,
+    sources: readonly (PingOptions | undefined)[],
     shape?: CallShape,
   ): Promise<PingResult> {
     const startedAt = Date.now()
@@ -321,7 +333,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
 
     return track(
       safely(fallback, () =>
-        perform(name, action, callOptionsFrom(callOptions, shape), fallback, startedAt),
+        perform(name, action, callOptionsFrom(sources, shape), fallback, startedAt),
       ),
     )
   }
@@ -352,54 +364,53 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
     }
   }
 
-  async function withMonitor<T>(
-    name: string,
-    run: () => T | PromiseLike<T>,
-    runOptions?: PingOptions,
-  ): Promise<Awaited<T>> {
-    await dispatch(name, 'start', runOptions, { transportOnly: true })
-    const startedAt = Date.now()
-    const settled = await settleHost(run)
-    const runtimeMs = Date.now() - startedAt
-
-    if (settled.ok) {
-      await dispatch(name, 'success', runOptions, { runtimeMs })
-
-      return settled.value
-    }
-
-    await dispatch(name, 'fail', runOptions, {
-      runtimeMs,
-      body: () => runOptions?.body ?? describeError(settled.error, includeStack),
-    })
-
-    return rethrow<Awaited<T>>(settled.error)
-  }
-
   function startRun(name: string, runOptions?: PingOptions): MonitorRun {
     const startedAt = Date.now()
-    void dispatch(name, 'start', runOptions, { transportOnly: true })
+    void dispatch(name, 'start', [runOptions], { transportOnly: true })
     let terminal: Promise<PingResult> | undefined
 
-    const settle = (action: PingAction, body: () => string | undefined): Promise<PingResult> => {
-      terminal ??= dispatch(name, action, runOptions, {
+    const settle = (
+      action: PingAction,
+      callOptions: PingOptions | undefined,
+      bodyFallback?: () => string | undefined,
+    ): Promise<PingResult> => {
+      terminal ??= dispatch(name, action, [runOptions, callOptions], {
         runtimeMs: Date.now() - startedAt,
-        body,
+        bodyFallback,
       })
 
       return terminal
     }
 
     return {
-      success: (successOptions) => settle('success', () => successOptions?.body),
+      success: (successOptions) => settle('success', successOptions),
       fail: (error, failOptions) =>
-        settle(
-          'fail',
-          () =>
-            failOptions?.body ??
-            (error === undefined ? undefined : describeError(error, includeStack)),
+        settle('fail', failOptions, () =>
+          error === undefined ? undefined : describeError(error, includeStack),
         ),
     }
+  }
+
+  // One bracket, not two: the start check-in is dispatched without being awaited here as
+  // it is in startRun, because a job must not wait on the network to begin and a stalled
+  // start would otherwise hold it for the whole timeout budget.
+  async function withMonitor<T>(
+    name: string,
+    run: () => T | PromiseLike<T>,
+    runOptions?: PingOptions,
+  ): Promise<Awaited<T>> {
+    const monitored = startRun(name, runOptions)
+    const settled = await settleHost(run)
+
+    if (settled.ok) {
+      await monitored.success()
+
+      return settled.value
+    }
+
+    await monitored.fail(settled.error)
+
+    return rethrow<Awaited<T>>(settled.error)
   }
 
   function checkInWith(name: string, thunkOptions?: CheckInWithOptions): CheckInThunk {
@@ -408,17 +419,17 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
     resolveOrThrow(name, defined, env)
 
     const thunk = (): void => {
-      void dispatch(name, action, thunkOptions, { transportOnly: true })
+      void dispatch(name, action, [thunkOptions], { transportOnly: true })
     }
 
     return Object.assign(thunk, { flush })
   }
 
   return {
-    ping: (name, callOptions) => dispatch(name, 'heartbeat', callOptions),
-    start: (name, callOptions) => dispatch(name, 'start', callOptions),
-    success: (name, callOptions) => dispatch(name, 'success', callOptions),
-    fail: (name, callOptions) => dispatch(name, 'fail', callOptions),
+    ping: (name, callOptions) => dispatch(name, 'heartbeat', [callOptions]),
+    start: (name, callOptions) => dispatch(name, 'start', [callOptions]),
+    success: (name, callOptions) => dispatch(name, 'success', [callOptions]),
+    fail: (name, callOptions) => dispatch(name, 'fail', [callOptions]),
     withMonitor,
     startRun,
     checkInWith,

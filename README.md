@@ -54,6 +54,13 @@ setInterval(beat, 60_000)
 — a base URL, an id map, timeouts, redaction patterns and a result callback —
 for codebases that would rather not read the environment.
 
+`withMonitor` is `startRun` with the job handed in, so both brackets behave
+identically. The start check-in is dispatched and **not** awaited: a job begins
+immediately, whatever the network is doing, and a stalled start never holds it.
+The terminal check-in is awaited, and reports the job's own elapsed time.
+Options passed to `startRun` cover its terminal check-in too; options passed to
+`run.success()` or `run.fail(error)` layer on top of them.
+
 ## Never breaks the job
 
 A check-in never throws and never rejects, whatever the network does. Every
@@ -66,6 +73,12 @@ result.outcome // 'accepted' | 'duplicate' | 'paused' | 'not-found' | …
 result.ok      // the server recorded the check-in
 result.sent    // a request actually left the process
 ```
+
+A cancellation you asked for is reported as its own outcome: aborting a
+`signal` you passed in gives `aborted`, never `timeout`, so a shutdown does not
+read as a deadline nobody set. And when the budget runs out after the server
+has already answered with a 5xx, that answer is what comes back — `server-error`
+with its status — rather than a timeout that hides which of the two happened.
 
 Configuration mistakes are loud rather than silent: an id that resolves to
 nothing, and the `CRONHEART_DISABLED` kill switch, each produce their own

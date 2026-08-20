@@ -20,4 +20,6 @@ export const MAX_RETRIES = 5
 
 export const RETRY_FLOOR_DELAY_MS = 50
 
+export const RETRY_AFTER_MAX_SECONDS = 2147483647
+
 export const BODY_RELEASE_BUDGET_MS = 250

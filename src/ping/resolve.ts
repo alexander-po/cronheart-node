@@ -45,36 +45,52 @@ export function labelFor(name: unknown): string {
   return opensLikeAnId(name) ? `id…${name.slice(-4)}` : name
 }
 
+function definedFor(
+  defined: Readonly<Record<string, string>>,
+  name: string,
+): string | undefined {
+  return Object.hasOwn(defined, name) ? defined[name] : undefined
+}
+
+function configuredIn(env: EnvSource, name: string): string | undefined {
+  const key = screaming(name)
+  const value = (env[`CRONHEART_${key}_UUID`] ?? env[`CRON_MONITOR_${key}_UUID`] ?? '').trim()
+
+  return value === '' ? undefined : value
+}
+
+function settle(
+  candidate: string | undefined,
+  named: { readonly envVar: string | undefined; readonly label: string },
+): Resolution {
+  if (candidate === undefined) {
+    return { id: undefined, reason: 'unset', ...named }
+  }
+
+  return isMonitorId(candidate)
+    ? { id: candidate, reason: 'ok', ...named }
+    : { id: undefined, reason: 'malformed', ...named }
+}
+
+// Only a full id is read as an id, and a name that resolved through the map or the
+// environment is a name whatever its own first group looks like. Reading the shape first
+// lets a name shadow the configuration written for it, and prints its tail as an id.
 export function resolveMonitor(
   name: string,
   defined: Readonly<Record<string, string>>,
   env: EnvSource,
 ): Resolution {
-  const named = !opensLikeAnId(name)
-  const envVar = named ? envVarFor(name) : undefined
-  const label = labelFor(name)
-  const settle = (candidate: string | undefined): Resolution => {
-    if (candidate === undefined) {
-      return { id: undefined, reason: 'unset', envVar, label }
-    }
-
-    return isMonitorId(candidate)
-      ? { id: candidate, reason: 'ok', envVar, label }
-      : { id: undefined, reason: 'malformed', envVar, label }
+  if (isMonitorId(name)) {
+    return { id: name, reason: 'ok', envVar: undefined, label: labelFor(name) }
   }
 
-  if (!named) {
-    return settle(name)
+  const idShaped = opensLikeAnId(name)
+  const envVar = idShaped ? undefined : envVarFor(name)
+  const configured = definedFor(defined, name) ?? configuredIn(env, name)
+
+  if (configured !== undefined) {
+    return settle(configured, { envVar, label: name })
   }
 
-  const explicit = defined[name]
-
-  if (explicit !== undefined) {
-    return settle(explicit)
-  }
-
-  const key = screaming(name)
-  const fromEnv = (env[`CRONHEART_${key}_UUID`] ?? env[`CRON_MONITOR_${key}_UUID`] ?? '').trim()
-
-  return settle(fromEnv === '' ? undefined : fromEnv)
+  return settle(idShaped ? name : undefined, { envVar, label: labelFor(name) })
 }

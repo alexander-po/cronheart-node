@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { truncateBody } from '../src/ping/body.js'
+import { classifyStatus, isAccepted } from '../src/ping/outcome.js'
 import { parseRetryAfter } from '../src/transport/retry-after.js'
 import { InvalidActionError } from '../src/wiring/errors.js'
 import { assertEmittableAction } from '../src/wiring/validate.js'
@@ -16,6 +17,12 @@ const adapter: Adapter = {
       const { body, mode } = input as { body: unknown; mode: 'head' | 'tail' }
 
       return truncateBody(encodeByteString(body), mode)
+    },
+    'ping.classifyResponse': (input) => {
+      const { status, body } = input as { status: number; body: string }
+      const outcome = classifyStatus(status, body)
+
+      return { outcome, ok: isAccepted(outcome) }
     },
     'http.parseRetryAfter': (input) => {
       const { header, now } = input as { header: string | null; now: string }
@@ -37,6 +44,7 @@ describe('conformance vectors', () => {
     expect(files.map((file) => file.group)).toEqual([
       'body.truncation',
       'ping.action_to_kind',
+      'ping.response_classification',
       'http.retry_after',
     ])
   })

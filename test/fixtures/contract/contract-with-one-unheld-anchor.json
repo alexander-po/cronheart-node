@@ -1,0 +1,7 @@
+{
+  "contract_version": "9.9.9",
+  "title": "Fixture contract",
+  "description": "Not a description of anything real. It carries one anchor that no ledger mentions, and it mentions none of the anchors the ledgers do, so a check that reads its ledgers in only one direction passes it.",
+  "fixture": { "value": 1 },
+  "anchors": [{ "id": "fixture.value", "pointer": "/fixture/value", "value": 1 }]
+}

@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.2.0",
+  "contract_version": "1.3.0",
   "title": "Conformance vector vocabulary",
   "description": "The complete, fixed vocabulary every vector file is written in. Nothing here requires a language-specific expression evaluator: a per-SDK adapter is a lookup table of subjects plus a switch over six predicates.",
 
@@ -81,6 +81,18 @@
       "result": "undefined on success; throws otherwise",
       "error_classes": ["InvalidAction"],
       "note": "The wiring-time guard. The emittable set is exactly null, \"start\", \"success\", \"fail\" — canonical lowercase only. It is deliberately narrower than what the server accepts: the moment an SDK accepts a variable here, a typo becomes a silent success report."
+    },
+    "ping.classifyResponse": {
+      "pure": true,
+      "input": {
+        "status": "integer \u2014 the HTTP status of the ping response",
+        "body": "string \u2014 the response body as text; the empty string when there was none"
+      },
+      "result": {
+        "outcome": "string \u2014 a member of the ping.outcome vocabulary",
+        "ok": "boolean \u2014 whether the server recorded the check-in"
+      },
+      "note": "Every row of /ping/responses/table is covered by a case in this group, and an SDK-side test asserts that, so a row nobody classifies fails rather than going unnoticed."
     },
     "body.truncate": {
       "pure": true,

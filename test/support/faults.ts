@@ -1,3 +1,4 @@
+import { PING_DUPLICATE_BODY } from '../../src/ping/outcome.js'
 import type {
   FetchLike,
   PingClientOptions,
@@ -171,7 +172,7 @@ const bodyThatRefusesToBeRead = (): { fetch: FetchLike; undrainedBodies: () => n
 
 export const FAULTS: readonly Fault[] = [
   recorded('transport-accepts', {}),
-  recorded('transport-reports-a-duplicate', { body: 'OK (duplicate)' }),
+  recorded('transport-reports-a-duplicate', { body: PING_DUPLICATE_BODY }),
   recorded('transport-returns-a-server-error', { status: 500, body: 'boom' }),
   recorded('transport-returns-not-found', { status: 404, body: 'Monitor not found' }),
   recorded('transport-reports-the-monitor-paused', { status: 410, body: 'Monitor paused' }),

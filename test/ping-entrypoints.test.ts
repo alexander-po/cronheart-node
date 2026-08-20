@@ -11,6 +11,12 @@ const BASE = 'https://ping.example'
 let recorder = createPingRecorder()
 let warnings: string[] = []
 
+function later(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
 function client(extra: PingClientOptions = {}) {
   return createPingClient({ baseUrl: BASE, fetch: recorder.fetch, env: {}, ...extra })
 }
@@ -63,6 +69,32 @@ describe('name resolution', () => {
     expect(() => client().monitors.define({ job: 'not-an-id' })).toThrow(/not a monitor id/i)
   })
 
+  it('lets an explicit id win for a name whose first group happens to be hex', async () => {
+    await client({ monitors: { 'deadbeef-nightly': MONITOR_ID } }).ping('deadbeef-nightly')
+
+    expect(recorder.pings[0]?.monitorId).toBe(MONITOR_ID)
+  })
+
+  it('reads the environment for such a name too, rather than reading the name as an id', async () => {
+    await client({ env: { CRONHEART_DEADBEEF_NIGHTLY_UUID: MONITOR_ID } }).ping('deadbeef-nightly')
+
+    expect(recorder.pings[0]?.monitorId).toBe(MONITOR_ID)
+  })
+
+  it('reports such a monitor under its own name, not under a tail dressed up as an id', async () => {
+    const result = await client({ monitors: { 'deadbeef-nightly': MONITOR_ID } }).ping(
+      'deadbeef-nightly',
+    )
+
+    expect(result.monitor).toBe('deadbeef-nightly')
+  })
+
+  it('looks a name up in what was defined, not in what every object inherits', async () => {
+    await client({ env: { CRONHEART_CONSTRUCTOR_UUID: MONITOR_ID } }).ping('constructor')
+
+    expect(recorder.pings[0]?.monitorId).toBe(MONITOR_ID)
+  })
+
   it('resolves a name to an id on demand, so a boot check can fail the deploy', () => {
     const sdk = named()
 
@@ -112,6 +144,29 @@ describe('withMonitor', () => {
     expect(recorder.pings[3]?.body).toContain('at ')
   })
 
+  it('runs the job without waiting for the start check-in to come back', async () => {
+    recorder.respondWith({ hang: true })
+    const sdk = named({ timeoutMs: 400, retries: 0 })
+    const started = Date.now()
+    let ranAfterMs: number | undefined
+
+    void sdk.withMonitor('job', () => {
+      ranAfterMs = Date.now() - started
+    })
+    await later(30)
+
+    expect(ranAfterMs).toBeDefined()
+    expect(ranAfterMs).toBeLessThan(30)
+  })
+
+  it('prefers a body the caller supplied over the description of the error', async () => {
+    await named()
+      .withMonitor('job', () => Promise.reject(new Error('backup blew up')), { body: 'stderr tail' })
+      .catch(() => undefined)
+
+    expect(recorder.pings[1]?.body).toBe('stderr tail')
+  })
+
   it('measures the run and reports it on the terminal ping only', async () => {
     await named().withMonitor('job', () => undefined)
 
@@ -131,6 +186,23 @@ describe('startRun', () => {
     expect(recorder.pings.map((ping) => ping.action)).toEqual(['start', 'success'])
     expect(second).toBe(first)
     expect(third).toBe(first)
+  })
+
+  it('sends the body the run was opened with, on the terminal check-in', async () => {
+    const run = named().startRun('job', { body: 'run-level output' })
+    await run.success()
+
+    expect(recorder.pings[1]?.body).toBe('run-level output')
+  })
+
+  it('applies a terminal call\u2019s own options rather than reading one field of them', async () => {
+    recorder.respondWith({ status: 500, body: 'boom' })
+    const seen: PingResult[] = []
+    const run = named({ retries: 0 }).startRun('job')
+
+    await run.success({ retries: 2, onResult: (result) => seen.push(result) })
+
+    expect(seen.map((result) => result.attempts)).toEqual([3])
   })
 
   it('carries the failure detail into the body of a failed run', async () => {
@@ -244,6 +316,7 @@ describe('the off switches are audible', () => {
 
     expect(byName.monitor).toBe('job')
     expect(byId.monitor).not.toContain(MONITOR_ID)
+    expect(warnings).toHaveLength(2)
     expect(warnings.join('\n')).not.toContain(MONITOR_ID)
   })
 })

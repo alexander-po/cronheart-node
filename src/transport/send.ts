@@ -1,11 +1,13 @@
 import { BODY_RELEASE_BUDGET_MS, MAX_RETRIES, RETRY_FLOOR_DELAY_MS } from '../constants.js'
 import type { AbortSignalLike, FetchLike, PingHttpResponse } from '../ping/types.js'
 
-export type TransportReason = 'timeout' | 'network-error' | 'unexpected'
+export type TransportReason = 'timeout' | 'aborted' | 'network-error' | 'unexpected'
 
 const OUT_OF_BUDGET = 'the check-in ran out of its time budget'
 
 const UNREACHABLE = 'the check-in could not reach the server'
+
+const CANCELLED = 'the caller aborted the check-in'
 
 const EXPIRED = Symbol('deadline')
 
@@ -140,11 +142,7 @@ async function readResponse(response: PingHttpResponse): Promise<ReadResponse> {
   }
 }
 
-function relayAbort(
-  signal: unknown,
-  controller: AbortController,
-  relay: () => void,
-): AbortSignalLike | undefined {
+function relayAbort(signal: unknown, relay: () => void): AbortSignalLike | undefined {
   const caller = isAbortSignalLike(signal) ? signal : undefined
 
   if (caller === undefined) {
@@ -153,7 +151,7 @@ function relayAbort(
 
   try {
     if (caller.aborted) {
-      controller.abort()
+      relay()
 
       return undefined
     }
@@ -182,10 +180,21 @@ async function attemptOnce(
   budgetMs: number,
 ): Promise<ReadResponse> {
   const controller = new AbortController()
-  const relay = (): void => {
+  let expired = false
+  let stoppedBy: 'deadline' | 'caller' | undefined
+  const stop = (source: 'deadline' | 'caller'): void => {
+    stoppedBy ??= source
     controller.abort()
   }
-  let expired = false
+  const relay = (): void => {
+    stop('caller')
+  }
+  // A shutdown the caller asked for is not a deadline they never configured, and reporting
+  // it as one hides a clean cancellation inside a failure count.
+  const gaveUp = (cause?: unknown): TransportFailure =>
+    stoppedBy === 'caller'
+      ? new TransportFailure('aborted', 1, CANCELLED, cause)
+      : new TransportFailure('timeout', 1, OUT_OF_BUDGET, cause)
   let handle: ReturnType<typeof setTimeout> | undefined
   let listening: AbortSignalLike | undefined
 
@@ -193,12 +202,12 @@ async function attemptOnce(
     const reached = new Promise<typeof EXPIRED>((resolve) => {
       handle = setTimeout(() => {
         expired = true
-        controller.abort()
+        stop('deadline')
         resolve(EXPIRED)
       }, budgetMs)
     })
 
-    listening = relayAbort(request.signal, controller, relay)
+    listening = relayAbort(request.signal, relay)
 
     let response: PingHttpResponse
     let dispatched: Promise<PingHttpResponse> | undefined
@@ -218,7 +227,7 @@ async function attemptOnce(
       const raced = await Promise.race([dispatched, reached])
 
       if (raced === EXPIRED) {
-        throw new TransportFailure('timeout', 1, OUT_OF_BUDGET)
+        throw gaveUp()
       }
 
       response = raced
@@ -235,7 +244,7 @@ async function attemptOnce(
       }
 
       throw expired || controller.signal.aborted
-        ? new TransportFailure('timeout', 1, OUT_OF_BUDGET, cause)
+        ? gaveUp(cause)
         : new TransportFailure('network-error', 1, UNREACHABLE, cause)
     }
 
@@ -247,7 +256,7 @@ async function attemptOnce(
       if (read === EXPIRED) {
         void releaseBody(response)
 
-        throw new TransportFailure('timeout', 1, OUT_OF_BUDGET)
+        throw gaveUp()
       }
 
       return read
@@ -280,6 +289,7 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
   const maxAttempts = Math.min(Math.max(1, request.retries + 1), MAX_RETRIES + 1)
   let attempt = 0
   let last: TransportFailure | undefined
+  let answered: ReadResponse | undefined
 
   while (attempt < maxAttempts) {
     if (attempt > 0) {
@@ -290,6 +300,12 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
     const budget = deadline - Date.now()
 
     if (budget <= 0) {
+      // A server that answered and then ran the budget out is a different report from a
+      // server that was never reached, and the retried answer is the more informative one.
+      if (answered !== undefined) {
+        return { ...answered, attempts: attempt - 1 }
+      }
+
       throw new TransportFailure('timeout', attempt - 1, OUT_OF_BUDGET, last)
     }
 
@@ -297,6 +313,8 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
       const outcome = await attemptOnce(request, dispatch, budget)
 
       if (outcome.status >= 500 && attempt < maxAttempts) {
+        answered = outcome
+
         continue
       }
 

@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  MAX_RETRIES,
   PING_BODY_CAP_BYTES,
   PING_BODY_TRUNCATION_MARKER,
   RUNTIME_HEADER_MAX_VALUE,
   RUNTIME_HEADER_NAME,
 } from '../src/constants.js'
 import { createPingClient } from '../src/ping/client.js'
-import type { PingClientOptions } from '../src/ping/types.js'
+import { PING_DUPLICATE_BODY } from '../src/ping/outcome.js'
+import type { FetchLike, PingClientOptions, PingHttpResponse } from '../src/ping/types.js'
 import { createPingRecorder } from '../src/testing.js'
 
 const MONITOR_ID = '00000000-0000-4000-8000-0000000000a1'
@@ -74,7 +76,7 @@ describe('the ping request', () => {
 describe('response classification', () => {
   it.each([
     [200, 'OK', 'accepted', true],
-    [200, 'OK (duplicate)', 'duplicate', true],
+    [200, PING_DUPLICATE_BODY, 'duplicate', true],
     [200, 'something else entirely', 'accepted', true],
     [404, 'Monitor not found', 'not-found', false],
     [410, 'Monitor paused', 'paused', false],
@@ -140,6 +142,18 @@ describe('retries', () => {
 
     expect(result.outcome).toBe('timeout')
     expect(Date.now() - started).toBeLessThan(60 * 3)
+  })
+
+  it('reports the server error it already had when the budget runs out, not a bare timeout', async () => {
+    recorder.respondWith({ status: 503, body: 'nope' })
+
+    const result = await client({ retries: MAX_RETRIES, timeoutMs: 120 }).ping('job')
+
+    expect(result.outcome).toBe('server-error')
+    expect(result.status).toBe(503)
+    expect(result.sent).toBe(true)
+    expect(recorder.pings.length).toBeLessThan(MAX_RETRIES + 1)
+    expect(result.attempts).toBe(recorder.pings.length)
   })
 
   it('surfaces a transport rejection as a network error rather than a throw', async () => {
@@ -235,6 +249,63 @@ describe('the body', () => {
 
     expect(body).not.toContain('SECRET-')
     expect(body).not.toContain('123456')
+  })
+})
+
+describe('a caller redaction pattern', () => {
+  it.each([/tok-[0-9]/gy, /tok-[0-9]/y])(
+    'redacts every occurrence even when it arrives sticky (%s)',
+    async (pattern) => {
+      await client({ redact: [pattern] }).fail('job', { body: 'prefix tok-1 and tok-2' })
+
+      expect(recorder.pings[0]?.body).toBe('prefix [redacted] and [redacted]')
+    },
+  )
+
+  it('keeps matching a plain string pattern everywhere it appears', async () => {
+    await client({ redact: ['tok-1'] }).fail('job', { body: 'tok-1 and tok-1' })
+
+    expect(recorder.pings[0]?.body).toBe('[redacted] and [redacted]')
+  })
+})
+
+describe('a caller-initiated abort', () => {
+  const abortable: FetchLike = (_url, init) =>
+    new Promise<PingHttpResponse>((_resolve, reject) => {
+      const signal = init.signal as AbortSignal
+
+      if (signal.aborted) {
+        reject(new Error('aborted before the request left'))
+
+        return
+      }
+
+      signal.addEventListener('abort', () => reject(new Error('aborted in flight')), { once: true })
+    })
+
+  it('is reported as an abort rather than as a deadline nobody configured', async () => {
+    const controller = new AbortController()
+    const sdk = client({ fetch: abortable, signal: controller.signal, timeoutMs: 5000 })
+    const settled = sdk.ping('job')
+    setTimeout(() => controller.abort(), 10)
+
+    const result = await settled
+
+    expect(result.outcome).toBe('aborted')
+    expect(result.ok).toBe(false)
+  })
+
+  it('is reported the same way when the signal was already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await client({
+      fetch: abortable,
+      signal: controller.signal,
+      timeoutMs: 5000,
+    }).ping('job')
+
+    expect(result.outcome).toBe('aborted')
   })
 })
 

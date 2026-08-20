@@ -180,7 +180,7 @@
     "check": "pnpm run build && pnpm run contract:check && pnpm run contract:vectors && pnpm run lint && pnpm run test && pnpm run smoke",
     "audit": "pnpm audit --audit-level high",
     "contract:check": "node contract/check.mjs",
-    "contract:vectors": "vitest run test/contract-vectors.test.ts test/contract-vectors-meta.test.ts test/contract-outcomes.test.ts",
+    "contract:vectors": "vitest run test/contract-vectors.test.ts test/contract-vectors-meta.test.ts test/contract-outcomes.test.ts test/contract-responses.test.ts",
     "fault-matrix": "vitest run test/fault-matrix.test.ts test/fault-matrix-meta.test.ts",
     "changeset": "changeset",
     "release": "changeset publish"

@@ -88,12 +88,15 @@ export function inAnyCase(value: string): RegExp {
   return new RegExp(escapeLiteral(value), 'gi')
 }
 
+// Rebuilt rather than reused even when it is already global: a sticky pattern anchors
+// every attempt at its own lastIndex, so it matches nothing beyond that position and
+// redacts nothing at all, and a shared one carries that position between check-ins.
 function globalised(pattern: string | RegExp): RegExp {
   if (typeof pattern === 'string') {
     return new RegExp(escapeLiteral(pattern), 'g')
   }
 
-  return pattern.global ? pattern : new RegExp(pattern.source, `${pattern.flags}g`)
+  return new RegExp(pattern.source, `${pattern.flags.replace(/[gy]/g, '')}g`)
 }
 
 export function redactSecrets(text: string, patterns: readonly (string | RegExp)[]): string {

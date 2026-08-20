@@ -1,4 +1,4 @@
-import type { PingAction } from '../ping/action.js'
+import { type PingAction, isEmittableAction, segmentFor } from '../ping/action.js'
 import type { EnvSource } from '../ping/env.js'
 import { isMonitorId, resolveMonitor } from '../ping/resolve.js'
 import {
@@ -34,14 +34,31 @@ export function assertPingBaseUrl(baseUrl: string): void {
   }
 }
 
+function notEmittable(action: unknown): InvalidActionError {
+  return new InvalidActionError(
+    `cronheart: ${JSON.stringify(action)} is not a check-in action this SDK will emit. Use "start", "success" or "fail", or omit it for a heartbeat. The server maps an unrecognised action to a heartbeat, which marks the monitor up.`,
+  )
+}
+
 export function assertEmittableAction(action: string | null): asserts action is PingAction | null {
-  if (action === null || action === 'start' || action === 'success' || action === 'fail') {
+  if (action === null || isEmittableAction(action)) {
     return
   }
 
-  throw new InvalidActionError(
-    `cronheart: ${JSON.stringify(action)} is not a check-in action this SDK will emit. Use "start", "success" or "fail", or omit it for a heartbeat. The server maps an unrecognised action to a heartbeat, which marks the monitor up.`,
-  )
+  throw notEmittable(action)
+}
+
+// The last gate before the segment is interpolated into the URL. An unrecognised one does
+// not fail on the far side: it matches the route, falls through to the action mapper and
+// is recorded as a heartbeat, which marks the monitor up while the job is failing.
+export function pingPath(action: PingAction): string {
+  const segment = segmentFor(action)
+
+  if (segment === undefined) {
+    throw notEmittable(action)
+  }
+
+  return segment === null ? '' : `/${segment}`
 }
 
 export function defineMonitors(

@@ -56,9 +56,9 @@ describe('the retry count', () => {
     recorder.respondWith({ status: 500, body: 'boom' })
     const started = Date.now()
 
-    const result = await client({ retries: MAX_RETRIES, timeoutMs: 120 }).ping('job')
+    await client({ retries: MAX_RETRIES, timeoutMs: 120 }).ping('job')
 
-    expect(result.outcome).toBe('timeout')
+    expect(recorder.pings.length).toBeLessThan(MAX_RETRIES + 1)
     expect(Date.now() - started).toBeLessThan(120 * 3)
   })
 })

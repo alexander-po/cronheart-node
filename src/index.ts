@@ -10,13 +10,17 @@ import type {
 } from './ping/types.js'
 
 export {
+  DEFAULT_BASE_URL,
   PING_BODY_BUDGET_BYTES,
   PING_BODY_CAP_BYTES,
   PING_BODY_TRUNCATION_MARKER,
   PING_ROUTE_UUID_PATTERN,
+  RETRY_AFTER_MAX_SECONDS,
   RUNTIME_HEADER_MAX_VALUE,
   RUNTIME_HEADER_NAME,
 } from './constants.js'
+export { PING_ACTIONS, PING_EMITTABLE_ACTIONS } from './ping/action.js'
+export { PING_DUPLICATE_BODY, PING_OUTCOMES, PING_STATUS_OUTCOMES } from './ping/outcome.js'
 export { createPingClient } from './ping/client.js'
 export { CONTRACT_VERSION, SDK_VERSION, userAgent } from './version.js'
 export {
