@@ -94,8 +94,11 @@ Four more gaps worth naming:
   order by a second-precision timestamp with no tiebreaker. A drift job cannot observe
   a lost tiebreaker; only a live listing with colliding timestamps can.
 - **`client-convention` facts have no server side to drift from.** They change when we
-  change them. The classification table treats them like any other pointer, but a
-  verdict on one binds the SDK fleet rather than reporting a server event.
+  change them, which is why the classification table reads a vocabulary's `layer` before
+  its `openness`: widening one we own is an SDK minor release, not a coordinated major.
+  What nothing here can confirm is that a fact called a convention really is unenforced,
+  and a `breaking-*` verdict on one binds the SDK fleet rather than reporting a server
+  event.
 
 ## Scripts
 

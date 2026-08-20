@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.0.0",
+  "contract_version": "1.1.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-20",
@@ -80,9 +80,11 @@
         "timeout",
         "network-error",
         "server-error",
-        "unexpected"
+        "unexpected",
+        "suppressed",
+        "disabled"
       ],
-      "note": "The SDK's own outcome vocabulary. Closed because it is ours; a new member is an SDK minor release, not a server change."
+      "note": "The SDK's own outcome vocabulary. Closed because it is ours; a new member is an SDK minor release, not a server change — see rule 2b in CLASSIFICATION.md, which reads this vocabulary's layer before its openness. Not every member maps to a row of /ping/responses/table: suppressed and disabled report that no request was made at all, the first because no monitor id resolved and the second because the SDK's off switch is set."
     }
   },
 
@@ -193,12 +195,13 @@
       "over_max_behaviour": "discarded",
       "invalid_behaviour": "discarded",
       "applied_to_kinds": "all",
+      "note": "An SDK omits an over-maximum runtime; it does not clamp it. The server discards an out-of-range value, so clamping is the one transformation that turns a value the server would have ignored into one it accepts and stores: a job that really ran thirty hours is then recorded and displayed as a plausible twenty-four-hour duration, which is wrong data that reads as real. Omitting records no duration for that run. For a product whose worth is the trustworthiness of its signal, a missing number is recoverable and a confident wrong one is not.",
       "hazards": [
         {
           "id": "float-is-silently-dropped",
           "severity": "high",
           "statement": "A malformed value is discarded silently; the ping still succeeds. A raw high-resolution timer delta stringifies as a float and is dropped without any signal.",
-          "sdk_rule": "Round to an integer before stringifying, and clamp to the maximum rather than letting the server discard the value."
+          "sdk_rule": "Round to an integer before stringifying, and omit the header entirely when the rounded value falls outside the accepted range rather than substituting one the server will accept."
         },
         {
           "id": "terminal-pings-only",

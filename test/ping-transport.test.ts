@@ -180,10 +180,16 @@ describe('the runtime header', () => {
     ])
   })
 
-  it('clamps a runtime past the contract maximum instead of letting it be discarded', async () => {
-    await client().success('job', { runtimeMs: RUNTIME_HEADER_MAX_VALUE + 5000 })
+  it('sends the maximum itself, so the omission below is a bound and not an off-by-one', async () => {
+    await client().success('job', { runtimeMs: RUNTIME_HEADER_MAX_VALUE })
 
     expect(recorder.pings[0]?.headers[RUNTIME_HEADER_NAME]).toBe(String(RUNTIME_HEADER_MAX_VALUE))
+  })
+
+  it('omits a runtime past the maximum rather than clamping it into a duration that never happened', async () => {
+    await client().success('job', { runtimeMs: RUNTIME_HEADER_MAX_VALUE + 5000 })
+
+    expect(recorder.pings[0]?.headers[RUNTIME_HEADER_NAME]).toBeUndefined()
   })
 
   it.each([Number.NaN, Number.POSITIVE_INFINITY, -1])(

@@ -44,7 +44,10 @@ function runtimeHeaderValue(runtimeMs: number | undefined): string | undefined {
     return undefined
   }
 
-  return String(Math.min(Math.round(runtimeMs), RUNTIME_HEADER_MAX_VALUE))
+  const whole = Math.round(runtimeMs)
+
+  // Clamping would hand the server a duration the job never took, and it would store it as real.
+  return whole > RUNTIME_HEADER_MAX_VALUE ? undefined : String(whole)
 }
 
 function describeError(error: unknown, includeStack: boolean): string {

@@ -2,25 +2,21 @@ import { describe, expect, it } from 'vitest'
 import { PING_OUTCOMES } from '../src/ping/outcome.js'
 import { contract } from './support/server-model.js'
 
-// The two extras are the SDK's own off switches: nothing was sent, and the reason is
-// a configuration one. The contract's vocabulary predates them. Adding them there is
-// an `added` on a closed read vocabulary, which its own classification table calls
-// breaking-readers and therefore a major bump — a decision that belongs with whoever
-// owns the contract, not with this SDK. Until then the divergence is pinned here so
-// it cannot widen unnoticed.
-const OFF_SWITCH_OUTCOMES = ['suppressed', 'disabled']
+const stated = contract.vocabularies['ping.outcome']?.members ?? []
+const statedMembers = new Set<string>(stated)
+const exported = new Set<string>(PING_OUTCOMES)
 
 describe('the outcome vocabulary', () => {
-  it('is the contract vocabulary plus exactly the two off-switch outcomes', () => {
-    const stated = contract.vocabularies['ping.outcome']?.members ?? []
-
+  it('is non-empty on both sides, so neither list can agree by being missing', () => {
     expect(stated.length).toBeGreaterThan(0)
-    expect([...PING_OUTCOMES].sort()).toEqual([...stated, ...OFF_SWITCH_OUTCOMES].sort())
+    expect(PING_OUTCOMES.length).toBeGreaterThan(0)
   })
 
-  it('describes the members the contract does state as the ping response table does', () => {
-    const stated = new Set(contract.vocabularies['ping.outcome']?.members ?? [])
+  it('states every outcome the SDK can return', () => {
+    expect(PING_OUTCOMES.filter((outcome) => !statedMembers.has(outcome))).toEqual([])
+  })
 
-    expect(PING_OUTCOMES.filter((outcome) => !stated.has(outcome))).toEqual(OFF_SWITCH_OUTCOMES)
+  it('states no outcome the SDK cannot return', () => {
+    expect(stated.filter((outcome) => !exported.has(outcome))).toEqual([])
   })
 })

@@ -35,6 +35,27 @@ are a patch bump.
 leaf takes a different value. `reordered` — an array's membership is identical but its
 order differs.
 
+## Layers
+
+Every pointer sits in a layer, read from the nearest enclosing `layer` tag. `server`
+means the service enforces the fact; `client-convention` means nothing enforces it and
+every official SDK implements it identically so that behaviour is portable. A pointer
+with no tag above it is classified as `server`, which is the louder of the two verdicts.
+
+**The layer decides who a widening can break.** A `server` vocabulary gaining a member
+means a response may now carry a string the SDK has never seen, and the reader sits on
+the far side of the wire where it cannot be updated in the same release. A
+`client-convention` vocabulary is one we emit ourselves: no member can reach a consumer
+that the SDK did not ship, so a widening is an SDK minor release rather than a
+contract-breaking change. Reading `openness` without reading `layer` classifies the
+second case as the first and demands a coordinated major for a change no server ever
+sees.
+
+Narrowings and value changes are **not** layer-sensitive. Removing a member breaks
+whoever reads it either way; on a `client-convention` vocabulary that reader is a
+consumer of the SDK rather than of the server, so the coordinated release the verdict
+demands is a fleet release, not a server one.
+
 ## Rule table
 
 Pointer patterns use `*` for one path segment and `**` for any number.
@@ -42,11 +63,14 @@ Pointer patterns use `*` for one path segment and `**` for any number.
 | # | Pointer class | `added` | `removed` | `changed` | `reordered` |
 | --- | --- | --- | --- | --- | --- |
 | 1 | `/vocabularies/*/members` where `openness: open` **and** `direction: read` | `additive` | `breaking-readers` | `breaking-readers` | `additive` |
-| 2 | `/vocabularies/*/members` where `openness: closed` **and** `direction: read` | `breaking-readers` | `breaking-readers` | `breaking-readers` | `additive` |
+| 2a | `/vocabularies/*/members` where `openness: closed`, `direction: read` **and** `layer: server` | `breaking-readers` | `breaking-readers` | `breaking-readers` | `additive` |
+| 2b | the same where `layer: client-convention` | `additive` — the vocabulary is ours, so a member reaches a consumer only in an SDK release that already knows it | `breaking-readers` | `breaking-readers` | `additive` |
 | 3 | `/vocabularies/*/members` where `direction: write` (any openness) | `additive` | `breaking-writers` | `breaking-writers` | `additive` |
-| 4 | `/vocabularies/*/members` where `direction: read+write` | apply rows 1–2 for the read half **and** row 3 for the write half; take the union | union | union | `additive` |
+| 4 | `/vocabularies/*/members` where `direction: read+write` | apply rows 1, 2a and 2b for the read half **and** row 3 for the write half; take the union | union | union | `additive` |
 | 5 | `/vocabularies/*/openness` (`open` → `closed`) | — | — | `breaking-readers` | — |
 | 6 | `/vocabularies/*/openness` (`closed` → `open`) | — | — | `additive` | — |
+| 6a | `/vocabularies/*/layer` (`client-convention` → `server`) | — | — | `breaking-readers` — a vocabulary we owned is now the service's, so a member we never shipped can arrive on the wire | — |
+| 6b | `/vocabularies/*/layer` (`server` → `client-convention`) | — | — | `undecidable` — the claim is that the service does not enforce this after all, which nothing offline can confirm, and every later verdict on that vocabulary turns on the answer | — |
 | 7 | `/api/constraints/schedule.simple/allowlist` | `additive` | `breaking-writers` | `breaking-writers` | `additive` |
 | 8 | `/api/constraints/*/max*` and `/**/max_value`, `/**/cap_bytes` — bound **raised** | — | — | `additive` | — |
 | 9 | the same bounds — **lowered** | — | — | `breaking-writers` | — |
@@ -64,7 +88,7 @@ Pointer patterns use `*` for one path segment and `**` for any number.
 | 21 | `/api/pagination/shapes` (a whole shape added or removed) | `additive` | `breaking-readers` | — | `additive` |
 | 22 | `/api/ordering/*/guarantee` — strengthened (a tiebreaker added, or a partial order made total) | — | — | `additive` | — |
 | 23 | the same — weakened or reversed | — | — | `breaking-readers` | — |
-| 24 | `/api/status_to_error_class/map/*` | `additive` when `openness: open`, else `breaking-readers` | `breaking-readers` | `breaking-readers` | `additive` |
+| 24 | `/api/status_to_error_class/map/*` | `additive` when `openness: open` **or** `layer: client-convention`, else `breaking-readers` | `breaking-readers` | `breaking-readers` | `additive` |
 | 25 | `/api/identifiers/*/read_type` | — | — | `breaking-readers` | — |
 | 26 | `/api/identifiers/*/write_type` — widened | — | — | `additive` | — |
 | 27 | the same — narrowed | — | — | `breaking-writers` | — |
@@ -104,9 +128,11 @@ alongside a change elsewhere is classified by that other change.
 1. Diff the two contract documents into a flat list of `(pointer, direction, before, after)`.
 2. Match each pointer against the classes above, **most specific pattern first**. The
    editorial table is consulted last, so an editorial pattern never shadows a rule.
-3. For rows 1–6 and 24, read the enclosing object's `openness` and `direction` tags
-   **from the new document**, and re-read them from the old one; if a tag itself changed,
-   emit both the tag-change verdict (rows 5–6) and the member verdict.
+3. For rows 1 through 6b and 24, read the enclosing object's `openness`, `direction` and
+   `layer` tags **from the new document**, and re-read them from the old one; if a tag
+   itself changed, emit both the tag-change verdict (rows 5–6b) and the member verdict.
+   `layer` is inherited: an object without its own tag takes the nearest one above it, and
+   a pointer with none above it is read as `server`.
 4. Union all verdicts. `undecidable` present ⇒ the whole change is `undecidable`.
    Otherwise `breaking-*` wins over `additive`, which wins over `editorial`.
 5. Compare against the `contract_version` bump in the same diff and fail on a mismatch.
@@ -136,7 +162,11 @@ with a documented hole:
   `additive` and `breaking-readers` separately, and the union happens to be right here,
   but the rules carry no general notion of interaction. Anything touching more than
   three pointer classes at once should be read by a human regardless of the verdict.
-- **Layer confusion.** A `client-convention` fact (body truncation, `Retry-After`
-  parsing, the SDK outcome vocabulary) changes only when we change it, so its verdict
-  binds the SDK fleet rather than describing server drift. The rules classify it
-  identically; the release process must not treat it as a server event.
+- **Whether a `layer` tag is true.** The rules now read the tag (rows 2b, 6a, 6b, 24),
+  which makes it load-bearing: calling a fact a `client-convention` downgrades every
+  future widening of it. Nothing offline can observe that the service really does not
+  enforce it, which is why changing the tag is `undecidable` rather than merely
+  classified. Beyond that, a `breaking-*` verdict on a `client-convention` fact (body
+  truncation, `Retry-After` parsing, the SDK outcome vocabulary) binds the SDK fleet
+  rather than describing server drift, so the release process must read the layer and
+  not only the verdict.
