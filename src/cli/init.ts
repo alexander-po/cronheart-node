@@ -1,6 +1,7 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
+import { escapeLiteral } from '../ping/body.js'
 import { envVarFor, isMonitorId } from '../ping/resolve.js'
 import { type ParsedArgs, readFlag, readText, unknownFlags } from './args.js'
 import { describeResult, environment, hasApiKey, openClient } from './client.js'
@@ -14,9 +15,42 @@ const DASHBOARD = 'https://cronheart.com/dashboard'
 
 const DEFAULT_ENV_FILE = '.env'
 
+const OWNER_ONLY = 0o600
+
+const SECRET_FIELD = 'uuid'
+
 interface Answers {
   readonly name: string | undefined
   readonly id: string | undefined
+}
+
+interface Echoing {
+  _writeToOutput?: (text: string) => void
+  readonly output?: { write(text: string): unknown } | null | undefined
+}
+
+type Existing =
+  | { readonly ok: true; readonly text: string | undefined; readonly mode: number | undefined }
+  | { readonly ok: false; readonly problem: string }
+
+function codeOf(error: unknown): string {
+  return (error as { code?: string }).code ?? 'unknown error'
+}
+
+// On a terminal readline echoes what it reads, which would put the pasted id — the whole
+// credential for the check-in route — into scrollback and into any screen being shared.
+export function muteEchoWhile(session: Echoing, hidden: () => boolean): void {
+  const output = session.output
+
+  if (output === null || output === undefined) {
+    return
+  }
+
+  session._writeToOutput = (text) => {
+    if (!hidden()) {
+      output.write(text)
+    }
+  }
 }
 
 function questionFor(field: string): string {
@@ -33,23 +67,26 @@ async function askFor(missing: readonly string[]): Promise<Record<string, string
     return answers
   }
 
+  const terminal = process.stdin.isTTY === true
   const session = createInterface({
     input: process.stdin,
     output: process.stdout,
-    terminal: process.stdin.isTTY === true,
+    terminal,
   })
+  let asking = String(missing[0])
 
-  process.stdout.write(questionFor(String(missing[0])))
+  muteEchoWhile(session as unknown as Echoing, () => asking === SECRET_FIELD)
+  process.stdout.write(questionFor(asking))
 
   try {
     for await (const line of session) {
-      const field = missing[Object.keys(answers).length]
+      const wasHidden = asking === SECRET_FIELD
 
-      if (field === undefined) {
-        break
+      answers[asking] = String(line).trim()
+
+      if (wasHidden && terminal) {
+        process.stdout.write('\n')
       }
-
-      answers[field] = String(line).trim()
 
       const next = missing[Object.keys(answers).length]
 
@@ -57,6 +94,7 @@ async function askFor(missing: readonly string[]): Promise<Record<string, string
         break
       }
 
+      asking = next
       process.stdout.write(questionFor(next))
     }
   } catch {
@@ -76,7 +114,9 @@ export function upsertEnvLine(existing: string | undefined, key: string, value: 
   }
 
   const lines = existing.split('\n')
-  const at = lines.findIndex((one) => new RegExp(`^\\s*(?:export\\s+)?${key}=`).test(one))
+  const at = lines.findIndex((one) =>
+    new RegExp(`^\\s*(?:export\\s+)?${escapeLiteral(key)}=`).test(one),
+  )
 
   if (at >= 0) {
     lines[at] = line
@@ -87,11 +127,55 @@ export function upsertEnvLine(existing: string | undefined, key: string, value: 
   return `${existing}${existing.endsWith('\n') ? '' : '\n'}${line}\n`
 }
 
-function readIfPresent(path: string): string | undefined {
+// Absent is the one failure that means "write a new one". A file that is unreadable would
+// otherwise be replaced by a single line, and a link would divert the credential.
+function inspect(path: string): Existing {
+  let entry
+
   try {
-    return readFileSync(path, 'utf8')
-  } catch {
+    entry = lstatSync(path)
+  } catch (error) {
+    if (codeOf(error) === 'ENOENT') {
+      return { ok: true, text: undefined, mode: undefined }
+    }
+
+    return { ok: false, problem: `${path} cannot be examined (${codeOf(error)})` }
+  }
+
+  if (entry.isSymbolicLink()) {
+    return {
+      ok: false,
+      problem: `${path} is a symbolic link, and a file that will hold a credential is not written through one`,
+    }
+  }
+
+  try {
+    return { ok: true, text: readFileSync(path, 'utf8'), mode: entry.mode & 0o777 }
+  } catch (error) {
+    return {
+      ok: false,
+      problem: `${path} exists but cannot be read (${codeOf(error)}), so it was left untouched rather than replaced`,
+    }
+  }
+}
+
+// Written beside the target and renamed over it: an interrupted write cannot leave half a
+// secrets file behind, and a file this command creates is readable by its owner alone.
+function writeSecretly(path: string, text: string, mode: number | undefined): string | undefined {
+  const temporary = `${path}.${process.pid}.cronheart-tmp`
+
+  try {
+    writeFileSync(temporary, text, { mode: OWNER_ONLY, flag: 'wx' })
+    chmodSync(temporary, mode ?? OWNER_ONLY)
+    renameSync(temporary, path)
+
     return undefined
+  } catch (error) {
+    try {
+      unlinkSync(temporary)
+    } catch {}
+
+    return `${path} could not be written (${codeOf(error)})`
   }
 }
 
@@ -160,7 +244,26 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
   if (readFlag(args, 'print-env')) {
     io.out(`${variable}=${given.id}\n`)
   } else {
-    writeFileSync(path, upsertEnvLine(readIfPresent(path), variable, given.id))
+    const existing = inspect(path)
+
+    if (!existing.ok) {
+      io.err(`cronheart: ${existing.problem}\n`)
+
+      return EXIT_PROBLEM
+    }
+
+    const failed = writeSecretly(
+      path,
+      upsertEnvLine(existing.text, variable, given.id),
+      existing.mode,
+    )
+
+    if (failed !== undefined) {
+      io.err(`cronheart: ${failed}\n`)
+
+      return EXIT_PROBLEM
+    }
+
     io.out(`  wrote ${variable} to ${path}\n`)
   }
 

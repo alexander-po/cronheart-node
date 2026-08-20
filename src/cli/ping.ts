@@ -1,12 +1,14 @@
 import process from 'node:process'
 import { PING_EMITTABLE_ACTIONS } from '../ping/action.js'
 import type { PingClient, PingOptions, PingResult } from '../ping/types.js'
+import type { EnvSource } from '../ping/env.js'
 import { type ParsedArgs, type Read, readFlag, readText, unknownFlags } from './args.js'
-import { describeResult, openClient } from './client.js'
+import { describeResult, environment, openClient } from './client.js'
 import { EXIT_OK, EXIT_PROBLEM, EXIT_USAGE } from './exit.js'
 import type { Io } from './io.js'
+import { REDACT_FLAG, planRedaction } from './redact.js'
 
-const FLAGS = ['action', 'body', 'strict']
+const FLAGS = ['action', 'body', 'strict', REDACT_FLAG]
 
 const STDIN_CAP_BYTES = 65_536
 
@@ -18,6 +20,7 @@ interface PingSpec {
   readonly fromStdin: boolean
   readonly body: string | undefined
   readonly strict: boolean
+  readonly redact: readonly RegExp[]
 }
 
 // Validated here, against a closed list of literals, because the far side does not reject an
@@ -45,7 +48,7 @@ function readAction(args: ParsedArgs): Read<Emittable | undefined> {
   return { ok: true, value: given.value as Emittable }
 }
 
-export function planPing(args: ParsedArgs): Read<PingSpec> {
+export function planPing(args: ParsedArgs, env: EnvSource): Read<PingSpec> {
   const unknown = unknownFlags(args, FLAGS)
 
   if (unknown.length > 0) {
@@ -70,6 +73,12 @@ export function planPing(args: ParsedArgs): Read<PingSpec> {
     return body
   }
 
+  const redact = planRedaction(args, env)
+
+  if (!redact.ok) {
+    return redact
+  }
+
   return {
     ok: true,
     value: {
@@ -78,6 +87,7 @@ export function planPing(args: ParsedArgs): Read<PingSpec> {
       fromStdin: body.value === '-',
       body: body.value === '-' ? undefined : body.value,
       strict: readFlag(args, 'strict'),
+      redact: redact.value,
     },
   }
 }
@@ -126,7 +136,7 @@ function send(client: PingClient, spec: PingSpec, options: PingOptions): Promise
 }
 
 export async function pingCommand(args: ParsedArgs, io: Io): Promise<number> {
-  const plan = planPing(args)
+  const plan = planPing(args, environment())
 
   if (!plan.ok) {
     io.err(`cronheart: ${plan.problem}\n`)
@@ -135,7 +145,7 @@ export async function pingCommand(args: ParsedArgs, io: Io): Promise<number> {
   }
 
   const spec = plan.value
-  const opened = openClient({ onResult: () => {} })
+  const opened = openClient({ onResult: () => {}, redact: spec.redact })
 
   if (!opened.ok) {
     io.err(`cronheart: ${opened.problem}\n`)

@@ -3,6 +3,7 @@ export const HELP = `cronheart — check-in monitoring for scheduled jobs
 Usage
   cronheart run [--name=<name> | --uuid=<id>] [options] -- <command> [args…]
   cronheart ping <name-or-id> [--action=start|success|fail] [--body=- | <text>] [--strict]
+                              [--redact=<pattern>]
   cronheart doctor [<name-or-id>]
   cronheart init [--name=<name>] [--uuid=<id>] [--env-path=<path>] [--print-env]
 
@@ -16,7 +17,12 @@ run
                             not the command's own, because there is no command status to
                             report. Off unless asked for.
   --kill-after=<duration>   how long a terminated command gets before SIGKILL (default 5s)
-  --stderr-bytes=<n>        how many bytes of the stderr tail to send (default fills the body)
+  --stderr-bytes=<n>        how many bytes of the stderr tail to send (default fills the body).
+                            0 sends no excerpt at all, only the one-line summary.
+  --redact=<pattern>        a JavaScript regular expression whose every match is replaced
+                            with [redacted] before the excerpt is sent. Repeatable, and
+                            applied on top of the built-in ones. A pattern that does not
+                            compile is a usage error rather than a silently absent control.
 
   SIGINT and SIGTERM are forwarded to the command and escalate to SIGKILL after
   --kill-after; the check-in body says the run was signalled.
@@ -48,4 +54,5 @@ Environment
   CRONHEART_TIMEOUT_MS      per-check-in budget
   CRONHEART_RETRIES         attempts beyond the first
   CRONHEART_DISABLED        set to stop every check-in
+  CRONHEART_REDACT          redaction patterns, one per line, applied like --redact
 `

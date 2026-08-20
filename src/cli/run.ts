@@ -2,8 +2,9 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { constants } from 'node:os'
 import process from 'node:process'
 import { PING_BODY_BUDGET_BYTES } from '../ping/body.js'
+import type { EnvSource } from '../ping/env.js'
 import { type ParsedArgs, type Read, readText, unknownFlags } from './args.js'
-import { describeResult, openClient } from './client.js'
+import { describeResult, environment, monitorSecrets, openClient } from './client.js'
 import { describeDuration, parseDuration } from './duration.js'
 import {
   EXIT_NOT_EXECUTABLE,
@@ -14,9 +15,13 @@ import {
   SIGNAL_EXIT_BASE,
 } from './exit.js'
 import type { Io } from './io.js'
+import { REDACT_FLAG, planRedaction } from './redact.js'
 import { createStderrTail } from './stderr-tail.js'
 
-const FLAGS = ['name', 'uuid', 'timeout', 'stderr-bytes', 'kill-after']
+const FLAGS = ['name', 'uuid', 'timeout', 'stderr-bytes', 'kill-after', REDACT_FLAG]
+
+// Check-ins need no key, so withholding an account-wide credential costs nothing.
+const WITHHELD_FROM_THE_CHILD = ['CRONHEART_API_KEY', 'CRON_MONITOR_API_KEY']
 
 const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM'] as const
 
@@ -33,6 +38,7 @@ export interface RunSpec {
   readonly timeoutMs: number | undefined
   readonly killAfterMs: number
   readonly stderrBytes: number
+  readonly redact: readonly RegExp[]
   readonly command: string
   readonly args: readonly string[]
 }
@@ -78,7 +84,7 @@ function duration(args: ParsedArgs, flag: string): Read<number | undefined> {
   return { ok: true, value: parsed }
 }
 
-export function planRun(args: ParsedArgs): Read<RunSpec> {
+export function planRun(args: ParsedArgs, env: EnvSource): Read<RunSpec> {
   const unknown = unknownFlags(args, FLAGS)
 
   if (unknown.length > 0) {
@@ -136,6 +142,12 @@ export function planRun(args: ParsedArgs): Read<RunSpec> {
     )
   }
 
+  const redact = planRedaction(args, env)
+
+  if (!redact.ok) {
+    return redact
+  }
+
   const rest = args.rest
 
   if (rest === undefined) {
@@ -155,6 +167,7 @@ export function planRun(args: ParsedArgs): Read<RunSpec> {
       timeoutMs: timeout.value,
       killAfterMs: killAfter.value ?? DEFAULT_KILL_AFTER_MS,
       stderrBytes,
+      redact: redact.value,
       command,
       args: rest.slice(1),
     },
@@ -167,20 +180,33 @@ function signalNumber(name: string): number {
   return table[name] ?? 0
 }
 
+function childEnvironment(): Record<string, string | undefined> {
+  const inherited: Record<string, string | undefined> = { ...process.env }
+
+  for (const name of WITHHELD_FROM_THE_CHILD) {
+    delete inherited[name]
+  }
+
+  return inherited
+}
+
 function passThrough(chunk: Uint8Array): void {
   try {
     process.stderr.write(chunk)
   } catch {}
 }
 
-function execute(spec: RunSpec): Promise<Completed> {
+function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise<Completed> {
   return new Promise<Completed>((resolve) => {
-    const tail = createStderrTail(spec.stderrBytes)
+    const tail = createStderrTail(spec.stderrBytes, patterns)
     const startedAt = Date.now()
     let child: ChildProcess
 
     try {
-      child = spawn(spec.command, [...spec.args], { stdio: ['inherit', 'inherit', 'pipe'] })
+      child = spawn(spec.command, [...spec.args], {
+        stdio: ['inherit', 'inherit', 'pipe'],
+        env: childEnvironment(),
+      })
     } catch (error) {
       resolve({
         ended: {
@@ -340,7 +366,8 @@ function summaryFor(ended: Ended, spec: RunSpec): string {
 }
 
 export async function runCommand(args: ParsedArgs, io: Io): Promise<number> {
-  const plan = planRun(args)
+  const env = environment()
+  const plan = planRun(args, env)
 
   if (!plan.ok) {
     io.err(`cronheart: ${plan.problem}\n`)
@@ -352,6 +379,7 @@ export async function runCommand(args: ParsedArgs, io: Io): Promise<number> {
   const reported = new Set<string>()
   const opened = openClient({
     truncate: 'tail',
+    redact: spec.redact,
     onResult: (result) => {
       if (result.ok || reported.has(result.outcome)) {
         return
@@ -370,7 +398,7 @@ export async function runCommand(args: ParsedArgs, io: Io): Promise<number> {
 
   void client?.start(spec.monitor)
 
-  const completed = await execute(spec)
+  const completed = await execute(spec, [...spec.redact, ...monitorSecrets(env, spec.monitor)])
   const code = exitCodeFor(completed.ended)
   const summary = summaryFor(completed.ended, spec)
 

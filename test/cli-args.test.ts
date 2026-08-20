@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseArgv, readText, unknownFlags } from '../src/cli/args.js'
+import { parseArgv, readAllText, readText, unknownFlags } from '../src/cli/args.js'
 import { parseDuration } from '../src/cli/duration.js'
 import { runCli } from './support/cli.js'
 
@@ -14,6 +14,7 @@ const DECLARED_FLAGS = [
   '--action=start',
   '--body=x',
   '--strict',
+  '--redact=x',
   '--env-path=/tmp/nowhere',
   '--print-env',
   '--help',
@@ -65,6 +66,19 @@ describe('the argument parser', () => {
 
     expect(read.ok).toBe(false)
     expect(args.positional).toEqual(['run', 'job'])
+  })
+
+  it('keeps every occurrence of a flag that is meant to be repeated', () => {
+    const args = parseArgv(['run', '--redact=one', '--redact=two', '--', 'true'])
+
+    expect(readAllText(args, 'redact')).toEqual({ ok: true, value: ['one', 'two'] })
+    expect(readText(args, 'redact')).toEqual({ ok: true, value: 'two' })
+  })
+
+  it('refuses a repeated flag whose value was left off any one of its occurrences', () => {
+    const args = parseArgv(['run', '--redact=one', '--redact', '--', 'true'])
+
+    expect(readAllText(args, 'redact').ok).toBe(false)
   })
 
   it('reports a flag nobody declared', () => {

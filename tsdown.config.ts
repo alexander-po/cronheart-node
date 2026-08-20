@@ -9,6 +9,15 @@ const contract = JSON.parse(
   readFileSync(new URL('contract/cronheart-contract.json', import.meta.url), 'utf8'),
 ) as { contract_version: string }
 
+// Rolldown labels every inlined module with a //#region pair, which ships to whoever installs
+// the package and costs more of the ping entry's size budget than its redaction patterns do.
+const withoutRegionMarkers = {
+  name: 'without-region-markers',
+  renderChunk(code: string): { code: string; map: null } {
+    return { code: code.replace(/^\/\/#(?:region|endregion).*\n/gm, ''), map: null }
+  },
+}
+
 const define = {
   __CRONHEART_VERSION__: JSON.stringify(pkg.version),
   __CRONHEART_CONTRACT_VERSION__: JSON.stringify(contract.contract_version),
@@ -35,6 +44,7 @@ export default defineConfig([
     clean: true,
     target: 'node22',
     define,
+    plugins: [withoutRegionMarkers],
   },
   {
     entry: { 'contract-anchors': 'src/contract-anchors.ts' },
@@ -45,5 +55,6 @@ export default defineConfig([
     clean: true,
     target: 'node22',
     define,
+    plugins: [withoutRegionMarkers],
   },
 ])

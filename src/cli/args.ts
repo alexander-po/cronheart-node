@@ -1,5 +1,5 @@
 export interface ParsedArgs {
-  readonly flags: ReadonlyMap<string, string | true>
+  readonly flags: ReadonlyMap<string, readonly (string | true)[]>
   readonly positional: readonly string[]
   readonly rest: readonly string[] | undefined
 }
@@ -9,9 +9,21 @@ export type Read<T> =
   | { readonly ok: false; readonly problem: string }
 
 export function parseArgv(tokens: readonly string[]): ParsedArgs {
-  const flags = new Map<string, string | true>()
+  const flags = new Map<string, (string | true)[]>()
   const positional: string[] = []
   let rest: string[] | undefined
+
+  const remember = (name: string, value: string | true): void => {
+    const seen = flags.get(name)
+
+    if (seen === undefined) {
+      flags.set(name, [value])
+
+      return
+    }
+
+    seen.push(value)
+  }
 
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index] ?? ''
@@ -25,16 +37,16 @@ export function parseArgv(tokens: readonly string[]): ParsedArgs {
       const equals = token.indexOf('=')
 
       if (equals === -1) {
-        flags.set(token.slice(2), true)
+        remember(token.slice(2), true)
       } else {
-        flags.set(token.slice(2, equals), token.slice(equals + 1))
+        remember(token.slice(2, equals), token.slice(equals + 1))
       }
 
       continue
     }
 
     if (token.startsWith('-') && token.length > 1) {
-      flags.set(token.slice(1), true)
+      remember(token.slice(1), true)
       continue
     }
 
@@ -44,22 +56,41 @@ export function parseArgv(tokens: readonly string[]): ParsedArgs {
   return { flags, positional, rest }
 }
 
+function needsAValue(name: string): string {
+  return `--${name} needs a value — write it as --${name}=<value>`
+}
+
 export function readText(args: ParsedArgs, name: string): Read<string | undefined> {
-  const value = args.flags.get(name)
+  const given = args.flags.get(name)
+  const value = given?.[given.length - 1]
 
   if (value === undefined) {
     return { ok: true, value: undefined }
   }
 
   if (value === true) {
-    return { ok: false, problem: `--${name} needs a value — write it as --${name}=<value>` }
+    return { ok: false, problem: needsAValue(name) }
   }
 
   return { ok: true, value }
 }
 
+export function readAllText(args: ParsedArgs, name: string): Read<readonly string[]> {
+  const given = args.flags.get(name) ?? []
+
+  for (const value of given) {
+    if (value === true) {
+      return { ok: false, problem: needsAValue(name) }
+    }
+  }
+
+  return { ok: true, value: given as readonly string[] }
+}
+
 export function readFlag(args: ParsedArgs, name: string): boolean {
-  return args.flags.get(name) === true
+  const given = args.flags.get(name)
+
+  return given?.[given.length - 1] === true
 }
 
 export function unknownFlags(args: ParsedArgs, allowed: readonly string[]): string[] {

@@ -70,10 +70,42 @@ describe('the base URL', () => {
     'ftp://host.example',
     'https://host.example/?tenant=a',
     'https://host.example#fragment',
+    'https://someone:hunter2@host.example',
+    'https://someone@host.example',
+    'http://host.example',
+    'http://198.51.100.7',
   ])('is refused at wiring time when a check-in could not reach the route: %s', (baseUrl) => {
     expect(() =>
       createPingClient({ baseUrl, env: {}, monitors: { job: MONITOR_ID } }),
     ).toThrow(InvalidBaseUrlError)
+  })
+
+  // The excerpt a wrapper sends is a job's stderr, and a base URL is set by an environment
+  // variable: plain http to somewhere else on the network would put it in the clear.
+  it.each(['http://localhost:8080', 'http://127.0.0.1:9000', 'http://[::1]:9000'])(
+    'is allowed over plain http on the loopback address a developer runs on: %s',
+    (baseUrl) => {
+      expect(() =>
+        createPingClient({ baseUrl, env: {}, monitors: { job: MONITOR_ID } }),
+      ).not.toThrow()
+    },
+  )
+
+  it('says which URL it refused without repeating the credential that was in it', () => {
+    expect(() =>
+      createPingClient({
+        baseUrl: 'https://someone:hunter2-not-real@host.example',
+        env: {},
+        monitors: { job: MONITOR_ID },
+      }),
+    ).toThrow(/host\.example/)
+    expect(() =>
+      createPingClient({
+        baseUrl: 'https://someone:hunter2-not-real@host.example',
+        env: {},
+        monitors: { job: MONITOR_ID },
+      }),
+    ).not.toThrow(/hunter2-not-real/)
   })
 
   it('is refused the same way when it arrives from the environment', () => {

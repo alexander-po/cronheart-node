@@ -28,7 +28,7 @@ function sequenceLength(lead: number): number {
   return 4
 }
 
-function withoutTrailingPartial(bytes: Uint8Array): Uint8Array {
+export function withoutTrailingPartial(bytes: Uint8Array): Uint8Array {
   let start = bytes.length - 1
 
   while (start >= 0 && isContinuation(bytes[start])) {
@@ -72,14 +72,18 @@ export function truncateBody(body: string, mode: TruncateMode): string {
   return decoder.decode(kept) + PING_BODY_TRUNCATION_MARKER
 }
 
-const REDACTION = '[redacted]'
+export const REDACTION = '[redacted]'
 
-const BUILT_IN_SECRETS: readonly RegExp[] = [
+// The anchor sits in a lookbehind rather than in the match, so the scheme word, the host and
+// the assignment's key survive and the redacted line is still a diagnostic.
+export const BUILT_IN_SECRETS: readonly RegExp[] = [
   /cmk_[A-Za-z0-9_-]{8,}/g,
-  /\bBearer\s+[A-Za-z0-9._~+/-]{8,}={0,2}/gi,
+  /(?<=\b(?:Bearer|Basic)\s)[A-Za-z0-9._~+/-]{8,}={0,2}/gi,
+  /(?<=:\/\/)[^\s/@]+(?=@)/g,
+  /(?<=(?:secret|passw(?:or)?d|token|key)['"\w-]{0,20}[ \t]{0,4}[=:][ \t]{0,4})("[^"]*"|'[^']*'|\S+)/gi,
 ]
 
-function escapeLiteral(value: string): string {
+export function escapeLiteral(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
@@ -90,7 +94,7 @@ export function inAnyCase(value: string): RegExp {
 // Rebuilt rather than reused even when it is already global: a sticky pattern anchors
 // every attempt at its own lastIndex, so it matches nothing beyond that position and
 // redacts nothing at all, and a shared one carries that position between check-ins.
-function globalised(pattern: string | RegExp): RegExp {
+export function globalised(pattern: string | RegExp): RegExp {
   if (typeof pattern === 'string') {
     return new RegExp(escapeLiteral(pattern), 'g')
   }

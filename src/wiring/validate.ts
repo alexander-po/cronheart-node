@@ -8,13 +8,21 @@ import {
   UnknownMonitorError,
 } from './errors.js'
 
+const LOOPBACK = /^(localhost|127\.|\[::1\])/i
+
+// The value is echoed back to whoever misconfigured it, and that is a place a credential
+// must not reach: this message is printed by four commands and pasted into support threads.
+export function withoutUserinfo(baseUrl: string): string {
+  return baseUrl.replace(/\/\/[^/@]*@/, '//')
+}
+
 // A base URL is not merely concatenated onto: a query string or a fragment moves the
 // ping path out of the URL entirely, and the request then lands on the site root, which
 // answers 200 and classifies as an accepted check-in for as long as nobody looks.
 export function assertPingBaseUrl(baseUrl: string): void {
   const refuse = (why: string): never => {
     throw new InvalidBaseUrlError(
-      `cronheart: ${JSON.stringify(baseUrl)} cannot be a base URL — ${why}. The ping path is appended to it, so a check-in would land somewhere else and be recorded as accepted.`,
+      `cronheart: ${JSON.stringify(withoutUserinfo(baseUrl))} cannot be a base URL — ${why}. The ping path is appended to it, so a check-in would land somewhere else, or in the open.`,
     )
   }
   let parsed: URL
@@ -31,6 +39,14 @@ export function assertPingBaseUrl(baseUrl: string): void {
 
   if (parsed.search !== '' || parsed.hash !== '') {
     refuse('it carries a query string or a fragment')
+  }
+
+  if (parsed.username !== '' || parsed.password !== '') {
+    refuse('it carries a credential')
+  }
+
+  if (parsed.protocol === 'http:' && !LOOPBACK.test(parsed.hostname)) {
+    refuse('it is plain http to a host that is not loopback')
   }
 }
 

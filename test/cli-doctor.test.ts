@@ -160,3 +160,30 @@ describe('cronheart doctor says which tier you are on', () => {
     expect(`${ran.stdout}${ran.stderr}`).not.toContain('cmk_notarealkey')
   })
 })
+
+describe('cronheart doctor and the base URL it reports', () => {
+  it('prints the origin alone, because its output is what goes into a support thread', async () => {
+    const ran = await runCli(['doctor'], {
+      env: envFor({
+        CRONHEART_URL: server.url.replace('http://', 'http://someone:hunter2-not-real@'),
+        CRONHEART_JOB_UUID: MONITOR_ID,
+      }),
+    })
+
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain('hunter2-not-real')
+    expect(ran.stdout).toContain(server.url)
+  })
+
+  it('says the URL is unusable without echoing the credential that made it so', async () => {
+    const ran = await runCli(['ping', 'job'], {
+      env: envFor({
+        CRONHEART_URL: 'https://someone:hunter2-not-real@host.invalid',
+        CRONHEART_JOB_UUID: MONITOR_ID,
+      }),
+    })
+
+    expect(ran.stderr).toContain('cronheart:')
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain('hunter2-not-real')
+    expect(server.requests).toHaveLength(0)
+  })
+})

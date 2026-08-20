@@ -12,6 +12,7 @@ import {
   hasApiKey,
   killSwitchOn,
   openClient,
+  originOf,
 } from './client.js'
 import { EXIT_OK, EXIT_PROBLEM, EXIT_USAGE } from './exit.js'
 import type { Io } from './io.js'
@@ -145,7 +146,7 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
   io.out('cronheart doctor\n')
   io.out(label('package', `cronheart-node ${SDK_VERSION} (contract ${CONTRACT_VERSION})`))
   io.out(label('runtime', `node ${process.versions.node} on ${process.platform}`))
-  io.out(label('base url', `${base.url} — from ${base.source}`))
+  io.out(label('base url', `${originOf(base.url)} — from ${base.source}`))
   io.out(
     label(
       'plan',

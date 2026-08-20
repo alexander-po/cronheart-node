@@ -110,6 +110,7 @@ control proves the matrix can go red.
 | `CRONHEART_TIMEOUT_MS` | `5000` | total budget for one check-in, across retries |
 | `CRONHEART_RETRIES` | `2` | retries after the first attempt, capped at 5; server errors and network failures |
 | `CRONHEART_DISABLED` | unset | `1` stops every check-in, loudly |
+| `CRONHEART_REDACT` | unset | extra redaction patterns for the CLI, one regular expression per line |
 
 `CRON_MONITOR_*` is accepted for all of these, permanently and without a
 deprecation warning.
@@ -121,6 +122,8 @@ delays included, is spent inside `CRONHEART_TIMEOUT_MS`. The base URL is
 validated when the client is built: a query string, a fragment or a scheme that
 is not http(s) is refused there, because the ping path is appended to it and a
 check-in would otherwise land on the site root and be recorded as accepted. A
+credential in the URL is refused too, and so is plain `http:` to anywhere but
+loopback — a check-in body carries a job's own output. A
 redirect is never followed either: the specification turns a redirected POST
 into a GET without a body, which would drop the job's output on the way.
 
@@ -152,6 +155,18 @@ stderr is teed rather than captured — every byte still reaches the parent, so 
 crontab's `2>> log` keeps working while the last `--stderr-bytes` of it ride
 along with the check-in. The excerpt is cut on a character boundary even when
 the operating system split a character across two reads.
+
+A job's stderr is the most credential-dense stream it produces, so the excerpt
+is redacted **before** any of it is cut — the wrapper's byte budget, the ring
+that bounds its memory and the body cap all run afterwards, and can therefore
+only ever split a `[redacted]` marker in half rather than strip the anchor off
+a secret and leave the secret behind. Tokens, `Authorization` values,
+credentials inside a URL and `*_PASSWORD` / `*_TOKEN` / `*_KEY` assignments are
+recognised out of the box; `--redact=<pattern>` (repeatable) and
+`CRONHEART_REDACT` add more, and `--stderr-bytes=0` sends no excerpt at all. A
+pattern that does not compile is a usage error, not a control that quietly
+protects nothing. The command being wrapped is not given `CRONHEART_API_KEY`:
+check-ins need no key, so there is nothing to trade away.
 
 Three exit statuses are the wrapper's own rather than the command's, and each
 is a case where there is no command status to report: `64` for a usage error,
