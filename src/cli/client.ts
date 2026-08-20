@@ -5,7 +5,6 @@ import { ambientEnv, isDisabled, readEnv } from '../ping/env.js'
 import type { EnvSource } from '../ping/env.js'
 import { isMonitorId, opensLikeAnId, resolveMonitor } from '../ping/resolve.js'
 import type { PingClient, PingClientOptions, PingResult } from '../ping/types.js'
-import { withoutUserinfo } from '../wiring/validate.js'
 import { type ParsedArgs, type Read, readText } from './args.js'
 
 export type Opened =
@@ -24,11 +23,12 @@ export function baseUrlOf(env: EnvSource): { readonly url: string; readonly sour
     : { url: configured, source: 'CRONHEART_URL' }
 }
 
+// An origin carries no userinfo, path, query or fragment; anything unparseable is described.
 export function originOf(baseUrl: string): string {
   try {
     return new URL(baseUrl).origin
   } catch {
-    return withoutUserinfo(baseUrl)
+    return 'not a URL'
   }
 }
 

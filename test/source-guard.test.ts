@@ -43,11 +43,12 @@ describe('the source guard', () => {
     expect(run.status).toBe(0)
   })
 
-  it('catches the banned expressions on the ping path, a transport reaching into wiring, the ping path reaching into the management client, and an expression hidden in an interpolation', () => {
+  it('catches the banned expressions on the ping path, a second retry loop deriving its own attempt count, a transport reaching into wiring, the ping path reaching into the management client, and an expression hidden in an interpolation', () => {
     const run = guard('test/fixtures/source-guard/dirty')
 
     expect(run.status).toBe(1)
     expect(rulesIn(run.output)).toEqual([
+      'attempt-count-derived-outside-the-bound ping/hot.ts',
       'fetch-outside-transport ping/hot.ts',
       'fetch-outside-transport ping/hot.ts',
       'ping-path-imports-the-management-client ping/hot.ts',

@@ -227,7 +227,7 @@ export const EVERY_CALL: readonly Call[] = [
   { id: 'account.get', run: (api) => api.account.get() },
 ]
 
-const FAILURE_MODES: readonly { id: string; stub: ApiStub }[] = [
+export const FAILURE_MODES: readonly { id: string; stub: ApiStub }[] = [
   { id: '401', stub: { status: 401, json: { status: 401, detail: 'security.token.invalid' } } },
   { id: '402', stub: { status: 402, json: { status: 402, upgrade_url: 'https://billing.example' } } },
   { id: '403', stub: { status: 403, json: { status: 403, detail: 'Monitor limit reached.' } } },
@@ -249,6 +249,10 @@ const FAILURE_MODES: readonly { id: string; stub: ApiStub }[] = [
   { id: 'rejects-a-string', stub: { rejectWith: 'a bare string' } },
 ]
 
+// Fixed rather than counted, because it asserts something: a cause chain would add five
+// more per value, and this client attaches no cause anywhere.
+export const SURFACES_PER_VALUE = 6
+
 export interface Sweep {
   readonly surfacesInspected: number
   readonly mentioningTheKey: string[]
@@ -258,6 +262,9 @@ export interface Sweep {
   // proves nothing about whether the sweep is pointed at the real client. This is what pins
   // that: a route that stopped being exercised drops out of here rather than going quiet.
   readonly routesThatFailed: readonly string[]
+  // The pairs that answered instead of failing, named: a route that quietly stopped
+  // producing one would otherwise only move a total nobody reads.
+  readonly succeeded: readonly string[]
 }
 
 function describeQuietly(value: unknown, depth = 0): string[] {
@@ -315,6 +322,7 @@ export async function describeEverySurfaceOf({ leak = false } = {}): Promise<Swe
   const mentioningTheKey: string[] = []
   const failures: unknown[] = []
   const routesThatFailed = new Set<string>()
+  const succeeded: string[] = []
   let surfacesInspected = 0
 
   for (const mode of FAILURE_MODES) {
@@ -332,6 +340,7 @@ export async function describeEverySurfaceOf({ leak = false } = {}): Promise<Swe
 
       try {
         await (leak ? unsafelyManaged(options) : call.run(createCronheartApi(options)))
+        succeeded.push(`${call.id} / ${mode.id}`)
       } catch (error) {
         thrown = error
         failures.push(error)
@@ -355,5 +364,6 @@ export async function describeEverySurfaceOf({ leak = false } = {}): Promise<Swe
     mentioningTheKey,
     failures,
     routesThatFailed: [...routesThatFailed].sort(),
+    succeeded: succeeded.sort(),
   }
 }

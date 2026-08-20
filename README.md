@@ -307,8 +307,13 @@ with its newline still attached fails at process start rather than inside a
 running job. It travels in the `Authorization` header and nowhere else — never
 a query string — and this package refuses to send it over plain `http` to
 anything but loopback. It appears in no message, no log line, no `toJSON` and
-no error `cause`; the fault matrix asserts that across every route, and a
-deliberately-leaking control proves the assertion can fail.
+no error `cause`. A separate sweep asserts that across every route the built
+client exposes — the route list is read off the client, not maintained by hand
+— under thirteen ways a request can fail, and a deliberately-leaking control
+proves the assertion can fail. The fault matrix carries three of those routes,
+where it also asserts that no monitor identifier reaches a message: a request
+is reported as `GET /api/v1/monitors/{uuid}`, never with the identifier in it,
+because that identifier is the check-in capability.
 
 ### Paging has three shapes and they are not interchangeable
 
@@ -354,7 +359,11 @@ pass an `idempotencyKey`**, and it is the one request that waits between
 attempts: the key reserves a row for 60 seconds, so a retry sent immediately is
 refused as a conflict while the resource was in fact created. A `409` on a
 create says so — read the resource back before deciding it was not created.
-Rotations and channel tests are never retried at all.
+Rotations and channel tests are never retried at all. `CRONHEART_RETRIES` is
+read here too, and capped at 5 the same way — one bound, shared with the
+check-in transport, which neither client can raise. An idempotency key that is
+blank counts as no key at all, because that is what the service does with one:
+a blank key would otherwise turn retries on and create a second monitor.
 
 `cronheart/sync` will reconcile a declared set of monitors against the server.
 Both are separate entry points so the ping path stays small in production

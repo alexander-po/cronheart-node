@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { ENTRY_POINTS, REGISTRY } from './support/entry-points.js'
 import { API_KEY, FAULTS, MONITOR_ID } from './support/faults.js'
 import { hosts, observe, violations } from './support/fault-harness.js'
+import { callablesIn } from './support/surface.js'
 import { HOSTILE_INPUTS, hostileHosts } from './support/hostile.js'
 
 const repoRoot = new URL('../', import.meta.url)
@@ -51,22 +52,6 @@ const NEEDS_NO_CASE: Readonly<Record<string, string>> = {
 }
 
 const SECRETS = { monitorId: MONITOR_ID, apiKey: API_KEY }
-
-function callablesIn(namespace: object): string[] {
-  return Object.entries(namespace).flatMap(([name, value]: [string, unknown]) => {
-    if (typeof value === 'function') {
-      return [name]
-    }
-
-    if (value === null || typeof value !== 'object') {
-      return []
-    }
-
-    return Object.entries(value)
-      .filter(([, member]: [string, unknown]) => typeof member === 'function')
-      .map(([member]) => `${name}.${member}`)
-  })
-}
 
 async function publishedSurface(): Promise<string[]> {
   const files = Object.values(exportsMap)

@@ -17,3 +17,13 @@ export function label(url: string): string {
 export function handBack(error: unknown): Promise<void> {
   return Promise.reject(error)
 }
+
+export function again(retries: number): number {
+  let attempt = 0
+
+  while (attempt < retries + 1) {
+    attempt += 1
+  }
+
+  return attempt
+}

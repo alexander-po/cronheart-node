@@ -1,9 +1,38 @@
 import { describe, expect, it } from 'vitest'
 import { createCronheartApi } from '../src/api/client.js'
 import { ApiConfigurationError, isCronheartApiError } from '../src/api/errors.js'
-import { API_KEY, EVERY_CALL, apiWith, describeEverySurfaceOf } from './support/api-recorder.js'
+import {
+  API_KEY,
+  BASE_URL,
+  EVERY_CALL,
+  FAILURE_MODES,
+  SURFACES_PER_VALUE,
+  apiWith,
+  describeEverySurfaceOf,
+} from './support/api-recorder.js'
+import { callablesIn } from './support/surface.js'
 
 const BASE = 'https://api.example'
+
+// A delete reads no body, so a 200 carrying an unhydratable shape is a successful delete.
+const ANSWERED_ANYWAY = ['channels.delete / wrong-shape', 'monitors.delete / wrong-shape']
+
+// Derived the way the fault matrix derives its registry: a sweep compared against the ids
+// of the very list it iterates cannot notice a route that was never added to that list.
+async function everyRouteOnTheBuiltClient(): Promise<string[]> {
+  const { createCronheartApi: built } = (await import(
+    new URL('../dist/api.mjs', import.meta.url).href
+  )) as { createCronheartApi: (options: unknown) => object }
+
+  return callablesIn(
+    built({
+      apiKey: API_KEY,
+      baseUrl: BASE_URL,
+      env: {},
+      fetch: () => new Promise(() => {}),
+    }),
+  ).sort()
+}
 
 describe('the credential is checked before a job can be running', () => {
   it('refuses a key that is missing, and names the variable that would supply it', () => {
@@ -83,11 +112,14 @@ describe('the credential is checked before a job can be running', () => {
     }
   })
 
+  // The class assertion keeps this honest: without it the catch also catches the assertion
+  // saying the refusal never happened, whose message satisfies an absence check.
   it('never rejects a base URL by quoting the credential inside it back', () => {
     try {
       createCronheartApi({ apiKey: API_KEY, baseUrl: `https://someone:${API_KEY}@api.example` })
       expect.unreachable('a credential in the base URL must be refused')
     } catch (error) {
+      expect(error).toBeInstanceOf(ApiConfigurationError)
       expect((error as Error).message).not.toContain(API_KEY)
     }
   })
@@ -107,11 +139,18 @@ describe('the credential travels in one place only', () => {
     expect(new URL(String(request?.url)).search).toBe('?limit=50&offset=0')
   })
 
+  it('sweeps every route the built client exposes, not the ones this file happens to list', async () => {
+    expect(EVERY_CALL.map((call) => call.id).sort()).toEqual(await everyRouteOnTheBuiltClient())
+  })
+
   it('keeps it out of every surface a failure is inspected through, on every route', async () => {
+    const routes = await everyRouteOnTheBuiltClient()
     const leaks = await describeEverySurfaceOf()
 
-    expect(leaks.surfacesInspected).toBeGreaterThan(40)
-    expect(leaks.routesThatFailed).toEqual(EVERY_CALL.map((call) => call.id).sort())
+    expect(leaks.routesThatFailed).toEqual(routes)
+    expect(leaks.surfacesInspected).toBe(
+      FAILURE_MODES.length * routes.length * SURFACES_PER_VALUE,
+    )
     expect(leaks.mentioningTheKey).toEqual([])
   })
 
@@ -122,9 +161,13 @@ describe('the credential travels in one place only', () => {
   })
 
   it('keeps every failure inside the one type a caller catches', async () => {
+    const routes = await everyRouteOnTheBuiltClient()
     const leaks = await describeEverySurfaceOf()
 
-    expect(leaks.failures.length).toBeGreaterThan(10)
+    expect(leaks.succeeded).toEqual(ANSWERED_ANYWAY)
+    expect(leaks.failures).toHaveLength(
+      FAILURE_MODES.length * routes.length - ANSWERED_ANYWAY.length,
+    )
     expect(leaks.failures.filter((error) => !isCronheartApiError(error))).toEqual([])
   })
 })

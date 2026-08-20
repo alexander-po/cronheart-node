@@ -1,7 +1,6 @@
+import { baseUrlRefusal } from '../net/base-url.js'
 import { API_TOKEN_PREFIX } from './constants.js'
 import { ApiConfigurationError } from './errors.js'
-
-const LOOPBACK = /^(localhost|127\.|\[::1\])/i
 
 // Deliberately looser than the length the service issues today, and deliberately strict
 // about everything else: the failure this catches is a key read out of a file or a command
@@ -11,10 +10,6 @@ const TOKEN_BODY = /^[A-Za-z0-9_-]{20,200}$/
 
 function refuse(why: string): never {
   throw new ApiConfigurationError(`cronheart: ${why}`)
-}
-
-function withoutUserinfo(baseUrl: string): string {
-  return baseUrl.replace(/\/\/[^/@]*@/, '//')
 }
 
 export function assertApiKey(value: unknown, source: string): asserts value is string {
@@ -31,32 +26,28 @@ export function assertApiKey(value: unknown, source: string): asserts value is s
   }
 }
 
-export function assertApiBaseUrl(baseUrl: string): void {
-  const refuseUrl = (why: string): never =>
+// Visible ASCII and spaces only, for the same reason an idempotency key is checked: this
+// value is written into a header on every request the account's key travels on.
+const USER_AGENT = /^[ -~]{1,200}$/
+
+export function assertUserAgent(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || !USER_AGENT.test(value)) {
     refuse(
-      `${JSON.stringify(withoutUserinfo(baseUrl))} cannot be the API base URL — ${why}. The API path is appended to it, and the key travels with every request.`,
+      'the userAgent option is not something this client can put in a header. It is at most 200 visible ASCII characters, and a line break in one would inject a header of its own.',
     )
-  let parsed: URL
+  }
+}
 
-  try {
-    parsed = new URL(baseUrl)
-  } catch {
-    return refuseUrl('it is not a URL')
+export function assertApiBaseUrl(baseUrl: unknown): asserts baseUrl is string {
+  if (typeof baseUrl !== 'string') {
+    refuse(
+      'the baseUrl option is not a string. The API path is appended to it, and a value of another shape is refused rather than coerced into an address nobody chose.',
+    )
   }
 
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    refuseUrl('it is not http or https')
-  }
+  const refusal = baseUrlRefusal(baseUrl)
 
-  if (parsed.search !== '' || parsed.hash !== '') {
-    refuseUrl('it carries a query string or a fragment')
-  }
-
-  if (parsed.username !== '' || parsed.password !== '') {
-    refuseUrl('it carries a credential of its own')
-  }
-
-  if (parsed.protocol === 'http:' && !LOOPBACK.test(parsed.hostname)) {
-    refuseUrl('plain http would put the API key on the wire in the clear')
+  if (refusal !== undefined) {
+    refuse(`${refusal}. The API path is appended to it, and the key travels with every request.`)
   }
 }

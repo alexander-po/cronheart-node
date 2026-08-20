@@ -113,6 +113,7 @@ Pointer patterns use `*` for one path segment and `**` for any number.
 | 46 | `/ping_retry/retried`, `/ping_retry/not_retried` | `breaking-writers` — the fleet starts issuing requests it did not issue before, into the ping rate limits | `additive` | `breaking-writers` | `additive` |
 | 47 | `/ping_retry/max_retries` raised, or `/ping_retry/floor_delay_ms` lowered | — | — | `breaking-writers` — more traffic per job than the fleet was sized for | — |
 | 48 | the same, in the direction of less traffic | — | — | `additive` | — |
+| 49 | `/api/idempotency/max_key_length` | `additive` — a bound the service always enforced, now stated | `breaking-writers` — a writer that trusted the bound loses it | `additive` when raised, `breaking-writers` when lowered | — |
 
 ### Editorial: never a version-bumping verdict on its own
 

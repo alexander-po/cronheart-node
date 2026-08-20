@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.4.0",
+  "contract_version": "1.5.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-20",
@@ -552,6 +552,7 @@
       "applies_to": ["POST /api/v1/monitors", "POST /api/v1/channels"],
       "fingerprint": "method, path and raw request body",
       "in_flight_ttl_seconds": 60,
+      "max_key_length": 255,
       "replay_header": "Idempotency-Replayed: true",
       "behaviours": [
         { "condition": "same key, same fingerprint, first request still pending", "status": 409 },
@@ -572,6 +573,12 @@
           "severity": "low",
           "statement": "A replayed create returns the stored body and status but not the original Location header.",
           "sdk_rule": "Read the resource identifier out of the body, never out of Location."
+        },
+        {
+          "id": "empty-key-is-no-key",
+          "severity": "high",
+          "statement": "A present but empty Idempotency-Key header is read as no key at all: the request runs unguarded, and a retry under the same empty key creates a second resource rather than replaying the first.",
+          "sdk_rule": "Treat a blank key as absent for both the header and the retry decision, so a create carrying one is never retried."
         },
         {
           "id": "fingerprint-is-byte-exact",
@@ -801,6 +808,7 @@
     { "id": "api.pagination.limit_max", "pointer": "/api/pagination/limit_clamp/max", "value": 100 },
     { "id": "api.pagination.limit_default", "pointer": "/api/pagination/limit_clamp/default", "value": 50 },
     { "id": "api.idempotency.ttl_seconds", "pointer": "/api/idempotency/in_flight_ttl_seconds", "value": 60 },
+    { "id": "api.idempotency.max_key_length", "pointer": "/api/idempotency/max_key_length", "value": 255 },
     { "id": "constraints.monitor.name.max", "pointer": "/api/constraints/monitor.name/max_length", "value": 120 },
     { "id": "constraints.grace.max", "pointer": "/api/constraints/monitor.grace_seconds/max", "value": 86400 },
     { "id": "constraints.interval.min", "pointer": "/api/constraints/schedule.interval/min_seconds", "value": 30 },

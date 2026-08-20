@@ -1,11 +1,18 @@
 import { RETRY_FLOOR_DELAY_MS } from '../constants.js'
+import { type Attempts } from '../transport/attempts.js'
 import { countdown } from '../timer.js'
 import { errorForStatus } from './classify.js'
 import { API_BASE_PATH, CREATE_RETRY_BASE_DELAY_MS } from './constants.js'
-import { ApiTransportError, type RequestDescriptor, isCronheartApiError } from './errors.js'
+import {
+  ApiInvalidRequestError,
+  ApiTransportError,
+  type RequestDescriptor,
+  isCronheartApiError,
+} from './errors.js'
 import { EMPTY_PROBLEM, parseProblem } from './problem.js'
 import { type WireRequest, exchange } from './transport.js'
 import type { RateLimitSnapshot, RequestOptions } from './types.js'
+import { idempotencyKeyFor } from './validate.js'
 
 // Whether a repeat of this request is safe, decided per route rather than per verb: a
 // rotate leaves a different resource behind every time it runs, and a channel test sends a
@@ -26,10 +33,17 @@ export interface SessionSettings {
   readonly baseUrl: string
   readonly apiKey: string
   readonly timeoutMs: number
-  readonly retries: number
+  readonly attempts: Attempts
   readonly userAgent: string
   readonly fetch: WireRequest['fetch']
   readonly signal: WireRequest['signal']
+}
+
+interface Wire {
+  readonly where: RequestDescriptor
+  readonly url: string
+  readonly body: string | undefined
+  readonly idempotencyKey: string | undefined
 }
 
 export interface Session {
@@ -65,6 +79,37 @@ function positiveOr(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
 }
 
+// The monitor identifier is the check-in capability, and a descriptor is read back through
+// a message, a log record and JSON.stringify alike. The address sent to is built separately.
+const IDENTIFIER_SEGMENT =
+  /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/gi
+
+function forDisplay(path: string): string {
+  return path.replace(IDENTIFIER_SEGMENT, '/{uuid}')
+}
+
+function encode(body: unknown): string | undefined {
+  if (body === undefined) {
+    return undefined
+  }
+
+  let encoded: unknown
+
+  try {
+    encoded = JSON.stringify(body)
+  } catch {
+    encoded = undefined
+  }
+
+  if (typeof encoded !== 'string') {
+    throw new ApiInvalidRequestError(
+      'This request cannot be written as JSON. A value that is circular, a BigInt, or an object whose toJSON throws cannot be sent, and is refused rather than encoded.',
+    )
+  }
+
+  return encoded
+}
+
 export function createSession(settings: SessionSettings): Session {
   let lastSeen: RateLimitSnapshot | undefined
 
@@ -88,11 +133,11 @@ export function createSession(settings: SessionSettings): Session {
 
   async function attempt(
     endpoint: Endpoint,
-    where: RequestDescriptor,
-    body: string | undefined,
+    wire: Wire,
     timeoutMs: number,
     options: RequestOptions | undefined,
   ): Promise<unknown> {
+    const { where, body, idempotencyKey } = wire
     const headers: Record<string, string> = {
       Accept: 'application/json',
       Authorization: `Bearer ${settings.apiKey}`,
@@ -103,12 +148,12 @@ export function createSession(settings: SessionSettings): Session {
       headers['Content-Type'] = 'application/json'
     }
 
-    if (endpoint.idempotencyKey !== undefined) {
-      headers['Idempotency-Key'] = endpoint.idempotencyKey
+    if (idempotencyKey !== undefined) {
+      headers['Idempotency-Key'] = idempotencyKey
     }
 
     const answered = await exchange({
-      url: `${settings.baseUrl}${where.path}${queryOf(endpoint.query)}`,
+      url: wire.url,
       method: endpoint.method,
       headers,
       body,
@@ -148,8 +193,8 @@ export function createSession(settings: SessionSettings): Session {
   // A create is retried only when the caller supplied an idempotency key, and it is the one
   // request that waits between attempts: the reservation the key takes stays pending, so a
   // retry sent immediately is refused as a conflict while the resource was in fact created.
-  function delayFor(attemptNumber: number, endpoint: Endpoint): number {
-    return endpoint.idempotencyKey === undefined
+  function delayFor(attemptNumber: number, wire: Wire): number {
+    return wire.idempotencyKey === undefined
       ? RETRY_FLOOR_DELAY_MS
       : CREATE_RETRY_BASE_DELAY_MS * attemptNumber
   }
@@ -163,12 +208,12 @@ export function createSession(settings: SessionSettings): Session {
       : new ApiTransportError('unexpected', 'The request failed in a way this client did not model.')
   }
 
-  function mayRetry(endpoint: Endpoint, error: unknown): boolean {
+  function mayRetry(endpoint: Endpoint, wire: Wire, error: unknown): boolean {
     if (endpoint.retry === 'never') {
       return false
     }
 
-    if (endpoint.retry === 'with-idempotency-key' && endpoint.idempotencyKey === undefined) {
+    if (endpoint.retry === 'with-idempotency-key' && wire.idempotencyKey === undefined) {
       return false
     }
 
@@ -186,50 +231,62 @@ export function createSession(settings: SessionSettings): Session {
       return lastSeen
     },
     send: async (endpoint, options) => {
+      const path = `${API_BASE_PATH}${endpoint.path}`
       const where: RequestDescriptor = {
         method: endpoint.method,
-        path: `${API_BASE_PATH}${endpoint.path}`,
+        path: forDisplay(path),
         deliversDownstream: endpoint.deliversDownstream,
       }
-      // Serialised once and retried byte for byte: the idempotency fingerprint covers the
-      // raw body, so re-encoding the same object is a different request under the same key.
-      const body = endpoint.body === undefined ? undefined : JSON.stringify(endpoint.body)
-      const budgetMs = positiveOr(options?.timeoutMs, settings.timeoutMs)
-      const deadline = Date.now() + budgetMs
-      const maxAttempts = settings.retries + 1
-      let attemptNumber = 0
 
-      for (;;) {
-        if (attemptNumber > 0) {
-          const waited = countdown(
-            Math.max(0, Math.min(delayFor(attemptNumber, endpoint), deadline - Date.now())),
-          )
+      // Encoding is inside the seal too: a body the caller handed in is the last place a
+      // rejection this client did not author could come from.
+      try {
+        const wire: Wire = {
+          where,
+          url: `${settings.baseUrl}${path}${queryOf(endpoint.query)}`,
+          // Serialised once and retried byte for byte: the idempotency fingerprint covers
+          // the raw body, so re-encoding the same object is a different request.
+          body: encode(endpoint.body),
+          idempotencyKey: idempotencyKeyFor(endpoint.idempotencyKey),
+        }
+        const budgetMs = positiveOr(options?.timeoutMs, settings.timeoutMs)
+        const deadline = Date.now() + budgetMs
+        let attemptNumber = 0
+
+        for (;;) {
+          if (attemptNumber > 0) {
+            const waited = countdown(
+              Math.max(0, Math.min(delayFor(attemptNumber, wire), deadline - Date.now())),
+            )
+
+            try {
+              await waited.reached
+            } finally {
+              waited.cancel()
+            }
+          }
+
+          attemptNumber += 1
+          const remaining = deadline - Date.now()
+
+          if (remaining <= 0) {
+            throw new ApiTransportError(
+              'timeout',
+              `The request ran out of its time budget after ${attemptNumber - 1} attempt(s).`,
+              { request: where },
+            )
+          }
 
           try {
-            await waited.reached
-          } finally {
-            waited.cancel()
+            return await attempt(endpoint, wire, remaining, options)
+          } catch (error) {
+            if (attemptNumber >= settings.attempts || !mayRetry(endpoint, wire, error)) {
+              throw error
+            }
           }
         }
-
-        attemptNumber += 1
-        const remaining = deadline - Date.now()
-
-        if (remaining <= 0) {
-          throw new ApiTransportError(
-            'timeout',
-            `The request ran out of its time budget after ${attemptNumber - 1} attempt(s).`,
-            { request: where },
-          )
-        }
-
-        try {
-          return await attempt(endpoint, where, body, remaining, options)
-        } catch (error) {
-          if (attemptNumber >= maxAttempts || !mayRetry(endpoint, error)) {
-            throw sealed(error)
-          }
-        }
+      } catch (error) {
+        throw sealed(error)
       }
     },
   }

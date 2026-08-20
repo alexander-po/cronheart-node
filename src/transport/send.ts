@@ -1,6 +1,7 @@
-import { BODY_RELEASE_BUDGET_MS, MAX_RETRIES, RETRY_FLOOR_DELAY_MS } from '../constants.js'
+import { BODY_RELEASE_BUDGET_MS, RETRY_FLOOR_DELAY_MS } from '../constants.js'
 import type { AbortSignalLike, FetchLike, PingHttpResponse } from '../ping/types.js'
 import { type Countdown, countdown, detachedCountdown } from '../timer.js'
+import type { Attempts } from './attempts.js'
 
 export type TransportReason = 'timeout' | 'aborted' | 'network-error' | 'unexpected'
 
@@ -32,7 +33,7 @@ export interface TransportRequest {
   readonly headers: Readonly<Record<string, string>>
   readonly body: string | undefined
   readonly timeoutMs: number
-  readonly retries: number
+  readonly attempts: Attempts
   readonly signal: AbortSignalLike | undefined
   readonly fetch: FetchLike | undefined
 }
@@ -260,12 +261,11 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
   }
 
   const deadline = Date.now() + request.timeoutMs
-  const maxAttempts = Math.min(Math.max(1, request.retries + 1), MAX_RETRIES + 1)
   let attempt = 0
   let last: TransportFailure | undefined
   let answered: ReadResponse | undefined
 
-  while (attempt < maxAttempts) {
+  while (attempt < request.attempts) {
     if (attempt > 0) {
       await countdown(Math.min(RETRY_FLOOR_DELAY_MS, Math.max(0, deadline - Date.now()))).reached
     }
@@ -286,7 +286,7 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
     try {
       const outcome = await attemptOnce(request, transport, budget)
 
-      if (outcome.status >= 500 && attempt < maxAttempts) {
+      if (outcome.status >= 500 && attempt < request.attempts) {
         answered = outcome
 
         continue
@@ -299,7 +299,7 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
           ? new TransportFailure(error.reason, error.message, error.cause, attempt)
           : new TransportFailure('network-error', UNREACHABLE, error, attempt)
 
-      if (failure.reason !== 'network-error' || attempt >= maxAttempts) {
+      if (failure.reason !== 'network-error' || attempt >= request.attempts) {
         throw failure
       }
 

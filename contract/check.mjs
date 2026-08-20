@@ -110,6 +110,7 @@ const HELD_AS_CONSTANTS = {
   'api.pagination.limit_default': 'API_PAGE_LIMIT_DEFAULT',
   'api.pagination.max_pages': 'API_MAX_PAGES',
   'api.idempotency.ttl_seconds': 'API_IDEMPOTENCY_TTL_SECONDS',
+  'api.idempotency.max_key_length': 'API_IDEMPOTENCY_KEY_MAX_LENGTH',
   'constraints.monitor.name.max': 'MONITOR_NAME_MAX_LENGTH',
   'constraints.grace.max': 'MONITOR_GRACE_SECONDS_MAX',
   'constraints.interval.min': 'INTERVAL_SECONDS_MIN',

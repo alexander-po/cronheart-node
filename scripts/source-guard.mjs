@@ -49,6 +49,13 @@ const RULES = [
       'the management client always throws and is a separate bundle; anything on the check-in path that reached it would inherit both',
   },
   {
+    id: 'attempt-count-derived-outside-the-bound',
+    test: (line) => /\bretries\b\s*[+-]|[+-]\s*\bretries\b|[<>]=?\s*[\w.]*\bretries\b/.test(line),
+    allows: (relative) => relative === 'transport/attempts.ts',
+    explains:
+      'the number of attempts is capped in one place and handed out branded; a loop that derived its own count from a raw retry option would run past the cap, which is how the check-in cap was bypassed once already',
+  },
+  {
     id: 'transport-imports-wiring',
     test: (line) => /from '[^']*wiring\//.test(line),
     allows: (relative) => !relative.startsWith('transport/'),

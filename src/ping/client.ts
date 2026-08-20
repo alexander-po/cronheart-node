@@ -5,6 +5,7 @@ import {
   RUNTIME_HEADER_MAX_VALUE,
   RUNTIME_HEADER_NAME,
 } from '../constants.js'
+import { attemptsFor } from '../transport/attempts.js'
 import { TransportFailure, send as transportSend } from '../transport/send.js'
 import { parseRetryAfter } from '../transport/retry-after.js'
 import {
@@ -280,7 +281,7 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
         headers,
         body,
         timeoutMs: positiveOr(callOptions.timeoutMs, timeoutMs),
-        retries: nonNegativeOr(callOptions.retries, retries),
+        attempts: attemptsFor(nonNegativeOr(callOptions.retries, retries)),
         signal: callOptions.signal ?? options.signal,
         fetch: options.fetch,
       })

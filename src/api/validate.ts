@@ -1,4 +1,5 @@
 import {
+  API_IDEMPOTENCY_KEY_MAX_LENGTH,
   API_PAGE_LIMIT_MAX,
   CHANNEL_KINDS,
   CHANNEL_LABEL_MAX_LENGTH,
@@ -70,6 +71,42 @@ export function channelIdsFor(values: readonly (string | number)[]): readonly st
   }
 
   return values.map(channelIdFor)
+}
+
+// Visible ASCII with no space, which is what the header may carry and the service store.
+// A line break here begins a header of the caller's choosing on the request carrying the key.
+const IDEMPOTENCY_KEY = new RegExp(`^[!-~]{1,${API_IDEMPOTENCY_KEY_MAX_LENGTH}}$`)
+
+// Blank counts as absent, not as a key: the service reads an empty header as no key at all,
+// so a retry under one would create a second monitor rather than replaying the first.
+export function idempotencyKeyFor(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (typeof value !== 'string') {
+    refuse('An idempotency key must be a string, since it travels as an HTTP header.')
+  }
+
+  if (value.trim() === '') {
+    return undefined
+  }
+
+  if (!IDEMPOTENCY_KEY.test(value)) {
+    refuse(
+      `An idempotency key is at most ${API_IDEMPOTENCY_KEY_MAX_LENGTH} visible ASCII characters with no spaces — it is sent as a header, and a line break in one would inject a header of its own.`,
+    )
+  }
+
+  return value
+}
+
+// Bounds are the service's to enforce; that these are strings at all is this client's,
+// because a value of another shape reaches the encoder and fails there instead.
+export function assertChannelDestination(value: unknown, field: string): asserts value is string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    refuse(`${field} must be a non-empty string.`)
+  }
 }
 
 export function assertScheduleKind(value: unknown): asserts value is ScheduleKind {

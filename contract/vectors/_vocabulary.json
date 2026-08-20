@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.4.0",
+  "contract_version": "1.5.0",
   "title": "Conformance vector vocabulary",
   "description": "The complete, fixed vocabulary every vector file is written in. Nothing here requires a language-specific expression evaluator: a per-SDK adapter is a lookup table of subjects plus a switch over six predicates.",
 

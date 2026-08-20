@@ -139,6 +139,19 @@ export const ENTRY_POINTS: readonly EntryPoint[] = [
       return context.host()
     },
   },
+  // The one management case whose path carries the monitor identifier: without it the
+  // no-identifier rule has nothing to fire on across this half of the surface.
+  {
+    id: 'api.monitors.get',
+    exports: [],
+    pings: 1,
+    unsafe: false,
+    invoke: async (context) => {
+      await managed(context, (api) => api.monitors.get(MONITOR_ID))
+
+      return context.host()
+    },
+  },
   {
     id: 'api.monitors.create',
     exports: [],

@@ -1,7 +1,8 @@
 import { DEFAULT_BASE_URL } from '../constants.js'
+import { attemptsFor } from '../transport/attempts.js'
 import { ambientEnv, numberFrom, readEnv } from '../ping/env.js'
 import { userAgent } from '../version.js'
-import { assertApiBaseUrl, assertApiKey } from './config.js'
+import { assertApiBaseUrl, assertApiKey, assertUserAgent } from './config.js'
 import {
   API_PAGE_LIMIT_DEFAULT,
   DEFAULT_API_RETRIES,
@@ -19,6 +20,7 @@ import {
   rotatedSecretFrom,
 } from './hydrate.js'
 import { type Endpoint, type Session, createSession } from './http.js'
+import { ApiConfigurationError, isCronheartApiError } from './errors.js'
 import { cursorWalk, offsetWalk } from './paginate.js'
 import type {
   Account,
@@ -46,6 +48,7 @@ import type {
   UpdateMonitorRequest,
 } from './types.js'
 import {
+  assertChannelDestination,
   assertChannelKind,
   assertChannelLabel,
   assertGraceSeconds,
@@ -126,13 +129,14 @@ function channelBodyFrom(request: CreateChannelRequest) {
 
   const body: Record<string, unknown> = { kind: request.kind, label: request.label }
 
-  for (const [key, value] of [
-    ['address', request.address],
-    ['chat_id', request.chatId],
-    ['webhook_url', request.webhookUrl],
-    ['secret', request.secret],
+  for (const [key, field, value] of [
+    ['address', 'address', request.address],
+    ['chat_id', 'chatId', request.chatId],
+    ['webhook_url', 'webhookUrl', request.webhookUrl],
+    ['secret', 'secret', request.secret],
   ] as const) {
     if (value !== undefined) {
+      assertChannelDestination(value, field)
       body[key] = value
     }
   }
@@ -140,29 +144,41 @@ function channelBodyFrom(request: CreateChannelRequest) {
   return body
 }
 
+// A property is an accessor as readily as a value, and one that throws would leave this
+// rejecting with something no caller of it is catching.
 export function createCronheartApi(configuration: CronheartApiOptions = {}): CronheartApi {
+  try {
+    return build(configuration)
+  } catch (error) {
+    throw isCronheartApiError(error)
+      ? error
+      : new ApiConfigurationError(
+          'cronheart: the options passed to createCronheartApi could not be read.',
+        )
+  }
+}
+
+function build(configuration: CronheartApiOptions): CronheartApi {
   const env = configuration.env ?? ambientEnv()
   const apiKey = configuration.apiKey ?? readEnv(env, 'API_KEY')
-  const baseUrl = (configuration.baseUrl ?? readEnv(env, 'URL') ?? DEFAULT_BASE_URL).replace(
-    /\/+$/,
-    '',
-  )
+  const configuredUrl = configuration.baseUrl ?? readEnv(env, 'URL') ?? DEFAULT_BASE_URL
+  const agent = configuration.userAgent ?? userAgent()
 
   assertApiKey(apiKey, configuration.apiKey === undefined ? API_KEY_VARIABLE : API_KEY_OPTION)
-  assertApiBaseUrl(baseUrl)
+  assertApiBaseUrl(configuredUrl)
+  assertUserAgent(agent)
 
   const session: Session = createSession({
-    baseUrl,
+    baseUrl: configuredUrl.replace(/\/+$/, ''),
     apiKey,
     timeoutMs: positiveOr(
       configuration.timeoutMs ?? numberFrom(env, 'TIMEOUT_MS'),
       DEFAULT_API_TIMEOUT_MS,
     ),
-    retries: nonNegativeOr(
-      configuration.retries ?? numberFrom(env, 'RETRIES'),
-      DEFAULT_API_RETRIES,
+    attempts: attemptsFor(
+      nonNegativeOr(configuration.retries ?? numberFrom(env, 'RETRIES'), DEFAULT_API_RETRIES),
     ),
-    userAgent: configuration.userAgent ?? userAgent(),
+    userAgent: agent,
     fetch: configuration.fetch,
     signal: configuration.signal,
   })
