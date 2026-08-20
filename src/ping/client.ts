@@ -1,0 +1,384 @@
+import {
+  DEFAULT_BASE_URL,
+  DEFAULT_RETRIES,
+  DEFAULT_TIMEOUT_MS,
+  RUNTIME_HEADER_MAX_VALUE,
+  RUNTIME_HEADER_NAME,
+} from '../constants.js'
+import { TransportFailure, send as transportSend } from '../transport/send.js'
+import { parseRetryAfter } from '../transport/retry-after.js'
+import { assertEmittableAction, defineMonitors, resolveOrThrow } from '../wiring/validate.js'
+import { userAgent } from '../version.js'
+import { type PingAction, isTerminal, segmentFor } from './action.js'
+import { type TruncateMode, redactSecrets, truncateBody } from './body.js'
+import { ambientEnv, isDisabled, numberFrom, readEnv } from './env.js'
+import { classifyStatus, isAccepted, isConfigurationOutcome } from './outcome.js'
+import { type Resolution, labelFor, resolveMonitor } from './resolve.js'
+import { safely, toError } from './safely.js'
+import type {
+  CheckInThunk,
+  CheckInWithOptions,
+  MonitorRegistry,
+  MonitorRun,
+  PingClient,
+  PingClientOptions,
+  PingOptions,
+  PingResult,
+} from './types.js'
+import { warnOnce } from './warn.js'
+
+const DEFAULT_FLUSH_TIMEOUT_MS = 5000
+
+function positive(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+function nonNegative(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : fallback
+}
+
+function runtimeHeaderValue(runtimeMs: number | undefined): string | undefined {
+  if (typeof runtimeMs !== 'number' || !Number.isFinite(runtimeMs) || runtimeMs < 0) {
+    return undefined
+  }
+
+  return String(Math.min(Math.round(runtimeMs), RUNTIME_HEADER_MAX_VALUE))
+}
+
+function describeError(error: unknown, includeStack: boolean): string {
+  const failure = toError(error)
+  const stack = failure.stack
+
+  return includeStack && typeof stack === 'string' ? stack : `${failure.name}: ${failure.message}`
+}
+
+function transportOptionsOf(options: PingOptions | undefined): PingOptions {
+  if (options === undefined) {
+    return {}
+  }
+
+  const { body: _body, runtimeMs: _runtimeMs, ...rest } = options
+
+  return rest
+}
+
+function messageFor(outcome: string, resolution: Resolution): string | undefined {
+  const monitor = JSON.stringify(resolution.label)
+
+  if (outcome === 'disabled') {
+    return `cronheart: CRONHEART_DISABLED is set, so no check-in was sent for ${monitor}. Unset it to resume monitoring.`
+  }
+
+  if (outcome === 'suppressed') {
+    return resolution.reason === 'malformed'
+      ? `cronheart: the value ${resolution.envVar} holds is not a monitor id, so nothing was sent for ${monitor}.`
+      : `cronheart: no monitor id for ${monitor}, so nothing was sent. Set ${resolution.envVar}, or pass monitors: { … } to createPingClient.`
+  }
+
+  if (outcome === 'not-found') {
+    return `cronheart: the server does not recognise the monitor for ${monitor} (HTTP 404). Check the id in ${resolution.envVar}.`
+  }
+
+  if (outcome === 'paused') {
+    return `cronheart: the monitor for ${monitor} is paused (HTTP 410). Check-ins are recorded, but no alert will fire.`
+  }
+
+  return undefined
+}
+
+export function createPingClient(options: PingClientOptions = {}): PingClient {
+  const env = options.env ?? ambientEnv()
+  const baseUrl = (options.baseUrl ?? readEnv(env, 'URL') ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
+  const timeoutMs = positive(options.timeoutMs ?? numberFrom(env, 'TIMEOUT_MS'), DEFAULT_TIMEOUT_MS)
+  const retries = nonNegative(options.retries ?? numberFrom(env, 'RETRIES'), DEFAULT_RETRIES)
+  const disabled = options.disabled ?? isDisabled(env)
+  const truncate: TruncateMode = options.truncate ?? 'head'
+  const includeStack = options.includeStack ?? false
+  const redact = options.redact ?? []
+  const defined: Record<string, string> = {}
+  const inFlight = new Set<Promise<PingResult>>()
+
+  if (options.monitors !== undefined) {
+    defineMonitors(defined, options.monitors)
+  }
+
+  const monitors: MonitorRegistry = {
+    define: (next) => {
+      defineMonitors(defined, next)
+    },
+    resolve: (name) => resolveOrThrow(name, defined, env),
+    has: (name) => resolveMonitor(name, defined, env).id !== undefined,
+  }
+
+  function report(
+    result: PingResult,
+    resolution: Resolution,
+    callOptions: PingOptions | undefined,
+  ): void {
+    const sink = callOptions?.onResult ?? options.onResult
+
+    try {
+      if (sink !== undefined) {
+        sink(result)
+
+        return
+      }
+
+      if (isConfigurationOutcome(result.outcome)) {
+        const message = messageFor(result.outcome, resolution)
+
+        if (message !== undefined) {
+          warnOnce(result.outcome, message)
+        }
+      }
+    } catch {
+      // A reporting sink is an observer. It must not be able to change a check-in.
+    }
+  }
+
+  async function perform(
+    name: string,
+    action: PingAction,
+    callOptions: PingOptions,
+    fallback: PingResult,
+    startedAt: number,
+  ): Promise<PingResult> {
+    const resolution = resolveMonitor(name, defined, env)
+    const finish = (partial: Partial<PingResult>): PingResult => {
+      const result: PingResult = {
+        ...fallback,
+        ...partial,
+        monitor: resolution.label,
+        durationMs: Date.now() - startedAt,
+      }
+
+      report(result, resolution, callOptions)
+
+      return result
+    }
+
+    if (disabled) {
+      return finish({ outcome: 'disabled' })
+    }
+
+    if (resolution.id === undefined) {
+      return finish({ outcome: 'suppressed' })
+    }
+
+    const segment = segmentFor(action)
+    const rawBody = callOptions.body
+    const body =
+      rawBody === undefined
+        ? undefined
+        : truncateBody(
+            redactSecrets(String(rawBody), [resolution.id, ...redact]),
+            callOptions.truncate ?? truncate,
+          )
+    const runtime = isTerminal(action) ? runtimeHeaderValue(callOptions.runtimeMs) : undefined
+
+    const headers: Record<string, string> = {
+      Accept: 'text/plain',
+      'User-Agent': options.userAgent ?? userAgent(),
+    }
+
+    if (body !== undefined) {
+      headers['Content-Type'] = 'text/plain; charset=utf-8'
+    }
+
+    if (runtime !== undefined) {
+      headers[RUNTIME_HEADER_NAME] = runtime
+    }
+
+    try {
+      const response = await transportSend({
+        url: `${baseUrl}/ping/${resolution.id}${segment === null ? '' : `/${segment}`}`,
+        method: body === undefined ? 'GET' : 'POST',
+        headers,
+        body,
+        timeoutMs: positive(callOptions.timeoutMs, timeoutMs),
+        retries: nonNegative(callOptions.retries, retries),
+        signal: callOptions.signal ?? options.signal,
+        fetch: options.fetch,
+      })
+      const outcome = classifyStatus(response.status, response.body)
+
+      return finish({
+        outcome,
+        ok: isAccepted(outcome),
+        sent: true,
+        status: response.status,
+        attempts: response.attempts,
+        retryAfterSeconds: parseRetryAfter(response.retryAfter, Date.now()),
+      })
+    } catch (error) {
+      const failure = error instanceof TransportFailure ? error : undefined
+
+      return finish({
+        outcome: failure?.reason ?? 'unexpected',
+        sent: (failure?.attempts ?? 0) > 0,
+        attempts: failure?.attempts ?? 0,
+        error: toError(error),
+      })
+    }
+  }
+
+  function track(promise: Promise<PingResult>): Promise<PingResult> {
+    inFlight.add(promise)
+    void promise.then(
+      () => inFlight.delete(promise),
+      () => inFlight.delete(promise),
+    )
+
+    return promise
+  }
+
+  function dispatch(
+    name: string,
+    action: PingAction,
+    callOptions: PingOptions = {},
+  ): Promise<PingResult> {
+    const startedAt = Date.now()
+    const fallback: PingResult = {
+      outcome: 'unexpected',
+      ok: false,
+      sent: false,
+      monitor: labelFor(name),
+      action,
+      status: undefined,
+      attempts: 0,
+      durationMs: 0,
+      retryAfterSeconds: undefined,
+      error: undefined,
+    }
+
+    return track(
+      safely(fallback, () => perform(name, action, callOptions ?? {}, fallback, startedAt)),
+    )
+  }
+
+  async function flush(timeoutMs?: number): Promise<void> {
+    const pending = [...inFlight]
+
+    if (pending.length === 0) {
+      return
+    }
+
+    const deadline = timer(positive(timeoutMs, DEFAULT_FLUSH_TIMEOUT_MS))
+
+    try {
+      await Promise.race([Promise.allSettled(pending), deadline.reached])
+    } finally {
+      deadline.cancel()
+    }
+  }
+
+  async function settleHost<T>(
+    run: () => T | PromiseLike<T>,
+  ): Promise<{ ok: true; value: Awaited<T> } | { ok: false; error: unknown }> {
+    try {
+      return { ok: true, value: (await run()) as Awaited<T> }
+    } catch (error) {
+      return { ok: false, error }
+    }
+  }
+
+  async function withMonitor<T>(
+    name: string,
+    run: () => T | PromiseLike<T>,
+    runOptions?: PingOptions,
+  ): Promise<Awaited<T>> {
+    await dispatch(name, 'start', transportOptionsOf(runOptions))
+    const startedAt = Date.now()
+    const settled = await settleHost(run)
+    const runtimeMs = Date.now() - startedAt
+
+    if (settled.ok) {
+      await dispatch(name, 'success', { ...runOptions, runtimeMs })
+
+      return settled.value
+    }
+
+    await dispatch(name, 'fail', {
+      ...runOptions,
+      runtimeMs,
+      body: runOptions?.body ?? describeError(settled.error, includeStack),
+    })
+
+    // Rethrowing with `throw` is banned outside the transport and wiring layers, so
+    // the host's error is handed back through the promise instead. Identity and
+    // stack are preserved either way.
+    return Promise.reject<Awaited<T>>(settled.error)
+  }
+
+  function startRun(name: string, runOptions?: PingOptions): MonitorRun {
+    const startedAt = Date.now()
+    void dispatch(name, 'start', transportOptionsOf(runOptions))
+    let terminal: Promise<PingResult> | undefined
+
+    const settle = (action: PingAction, body: string | undefined): Promise<PingResult> => {
+      terminal ??= dispatch(name, action, {
+        ...runOptions,
+        runtimeMs: Date.now() - startedAt,
+        body,
+      })
+
+      return terminal
+    }
+
+    return {
+      success: (successOptions) => settle('success', successOptions?.body),
+      fail: (error, failOptions) =>
+        settle(
+          'fail',
+          failOptions?.body ??
+            (error === undefined ? undefined : describeError(error, includeStack)),
+        ),
+    }
+  }
+
+  function checkInWith(name: string, thunkOptions?: CheckInWithOptions): CheckInThunk {
+    const action = thunkOptions?.action ?? 'heartbeat'
+    assertEmittableAction(action === 'heartbeat' ? null : action)
+    resolveOrThrow(name, defined, env)
+
+    const thunk = (): void => {
+      void dispatch(name, action, transportOptionsOf(thunkOptions))
+    }
+
+    return Object.assign(thunk, { flush })
+  }
+
+  return {
+    ping: (name, callOptions) => dispatch(name, 'heartbeat', callOptions),
+    start: (name, callOptions) => dispatch(name, 'start', callOptions),
+    success: (name, callOptions) => dispatch(name, 'success', callOptions),
+    fail: (name, callOptions) => dispatch(name, 'fail', callOptions),
+    withMonitor,
+    startRun,
+    checkInWith,
+    flush,
+    monitors,
+  }
+}
+
+function timer(ms: number): { reached: Promise<void>; cancel: () => void } {
+  let handle: ReturnType<typeof setTimeout> | undefined
+  const reached = new Promise<void>((resolve) => {
+    handle = setTimeout(resolve, ms)
+
+    if (typeof (handle as { unref?: () => void }).unref === 'function') {
+      ;(handle as { unref: () => void }).unref()
+    }
+  })
+
+  return {
+    reached,
+    cancel: () => {
+      if (handle !== undefined) {
+        clearTimeout(handle)
+      }
+    },
+  }
+}

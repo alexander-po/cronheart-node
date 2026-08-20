@@ -1,7 +1,7 @@
 COMPOSE ?= docker compose
 RUN := $(COMPOSE) run --rm node
 
-.PHONY: help image install build test lint contract check smoke shell changeset clean
+.PHONY: help image install build test lint guard contract vectors matrix check smoke shell changeset clean
 
 help:
 	@echo "Targets (everything runs inside the container — no host Node or pnpm):"
@@ -10,7 +10,10 @@ help:
 	@echo "  build      Bundle dist/ (ESM + CJS + .d.ts)"
 	@echo "  test       Build, then run the Vitest suite"
 	@echo "  lint       Build, then tsc + fixture tsc + publint + attw + size budget"
-	@echo "  contract   Validate the wire contract file against its own anchors"
+	@echo "  guard      Check the source for a network call or a throw outside its layer"
+	@echo "  contract   Validate the wire contract against its own anchors and the SDK constants"
+	@echo "  vectors    Run the language-neutral conformance vectors"
+	@echo "  matrix     Run the fault matrix and its negative control"
 	@echo "  smoke      Pack the tarball and consume it from a scratch ESM and CJS project"
 	@echo "  check      The full gate: contract + build + lint + test + smoke"
 	@echo "  shell      Interactive shell in the container"
@@ -35,8 +38,17 @@ lint: build
 smoke: build
 	$(RUN) pnpm run smoke
 
-contract:
+guard:
+	$(RUN) pnpm run guard
+
+contract: build
 	$(RUN) pnpm run contract:check
+
+vectors:
+	$(RUN) pnpm run contract:vectors
+
+matrix: build
+	$(RUN) pnpm run fault-matrix
 
 check:
 	$(RUN) pnpm run check

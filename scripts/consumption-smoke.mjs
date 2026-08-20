@@ -47,10 +47,15 @@ try {
     entryFile: 'index.mjs',
     source: `import assert from 'node:assert/strict'
 ${SUBPATHS.map((subpath) => `import 'cronheart/${subpath}'`).join('\n')}
-import { SDK_VERSION, userAgent } from 'cronheart'
+import { SDK_VERSION, checkIn, userAgent } from 'cronheart'
 
 assert.equal(SDK_VERSION, ${JSON.stringify(pkg.version)})
 assert.ok(userAgent().startsWith(${JSON.stringify(`cronheart-node/${pkg.version} `)}))
+
+const result = await checkIn('a-monitor-nobody-configured')
+
+assert.equal(result.outcome, 'suppressed')
+assert.equal(result.sent, false)
 console.log('esm consumption ok —', userAgent())
 `,
   })
@@ -60,11 +65,16 @@ console.log('esm consumption ok —', userAgent())
     entryFile: 'index.cjs',
     source: `const assert = require('node:assert/strict')
 ${SUBPATHS.map((subpath) => `require('cronheart/${subpath}')`).join('\n')}
-const { SDK_VERSION, userAgent } = require('cronheart')
+const { SDK_VERSION, checkIn, userAgent } = require('cronheart')
 
 assert.equal(SDK_VERSION, ${JSON.stringify(pkg.version)})
 assert.ok(userAgent().startsWith(${JSON.stringify(`cronheart-node/${pkg.version} `)}))
-console.log('cjs consumption ok —', userAgent())
+
+checkIn('a-monitor-nobody-configured').then((result) => {
+  assert.equal(result.outcome, 'suppressed')
+  assert.equal(result.sent, false)
+  console.log('cjs consumption ok —', userAgent())
+})
 `,
   })
 } finally {

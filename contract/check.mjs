@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { isDeepStrictEqual } from 'node:util'
 
 const UNRESOLVED = Symbol('unresolved')
@@ -61,6 +61,74 @@ function inspect(anchor, position) {
   }
 }
 
+// Anchors the SDK holds as constants, and the ones it deliberately does not yet.
+// An anchor in neither list fails: adding one to the contract has to be a decision
+// about the SDK, not a silent no-op.
+const HELD_AS_CONSTANTS = {
+  'ping.body.cap_bytes': 'PING_BODY_CAP_BYTES',
+  'ping.uuid.pattern': 'PING_ROUTE_UUID_PATTERN',
+  'ping.runtime_header.name': 'RUNTIME_HEADER_NAME',
+  'ping.runtime_header.max_value': 'RUNTIME_HEADER_MAX_VALUE',
+  'body_truncation.marker': 'PING_BODY_TRUNCATION_MARKER',
+  'body_truncation.budget_bytes': 'PING_BODY_BUDGET_BYTES',
+}
+
+const DEFERRED = {
+  'ping.action.pattern':
+    'the SDK emits a closed union of literals and never builds the segment from a value, so the route pattern is a server-side gate it holds no constant for; the conformance vectors read it from this file',
+  'ping.dedup.window_seconds':
+    'server behaviour the ping path neither implements nor compensates for',
+  'api.pagination.limit_max': 'management client',
+  'api.pagination.limit_default': 'management client',
+  'api.idempotency.ttl_seconds': 'management client',
+  'constraints.monitor.name.max': 'management client',
+  'constraints.grace.max': 'management client',
+  'constraints.interval.min': 'management client',
+  'constraints.interval.max': 'management client',
+  'constraints.simple.allowlist': 'management client',
+  'constraints.cron.field_count': 'management client',
+  'vocabulary.snooze': 'management client',
+  'vocabulary.channel_kind': 'management client',
+  'vocabulary.monitor_status': 'management client',
+  'vocabulary.ping_kind': 'management client',
+  'vocabulary.plan_key': 'management client',
+}
+
+async function sdkConstants() {
+  const built = new URL('../dist/index.mjs', import.meta.url)
+
+  if (!existsSync(built)) {
+    return undefined
+  }
+
+  return import(built.href)
+}
+
+function compareAgainstSdk(anchors, sdk) {
+  return anchors.flatMap((anchor) => {
+    const exportName = HELD_AS_CONSTANTS[anchor.id]
+
+    if (exportName === undefined) {
+      return Object.hasOwn(DEFERRED, anchor.id)
+        ? []
+        : [`${anchor.id} — no SDK constant holds it and it is not recorded as deferred`]
+    }
+
+    if (!Object.hasOwn(sdk, exportName)) {
+      return [`${anchor.id} — the SDK no longer exports ${exportName}`]
+    }
+
+    const held = sdk[exportName]
+    const stated = resolvePointer(anchor.pointer)
+
+    return isDeepStrictEqual(held, stated)
+      ? []
+      : [
+          `${anchor.id} — the SDK holds ${JSON.stringify(held)}, the contract states ${JSON.stringify(stated)}`,
+        ]
+  })
+}
+
 function report(failures) {
   for (const failure of failures) {
     process.stderr.write(`  - ${failure}\n`)
@@ -96,7 +164,20 @@ if (failures.length > 0) {
 }
 
 const valueAssertions = outcomes.filter((outcome) => outcome.assertsValue).length
+const sdk = await sdkConstants()
+
+if (sdk === undefined) {
+  report(['dist/ is missing — build before checking the contract against the SDK'])
+}
+
+const drift = compareAgainstSdk(anchors, sdk)
+
+if (drift.length > 0) {
+  report(drift)
+}
+
+const held = Object.keys(HELD_AS_CONSTANTS).length
 
 process.stdout.write(
-  `contract ${contract.contract_version} — ${validated.size} anchor(s) resolved, ${valueAssertions} value assertion(s) — ok\n`,
+  `contract ${contract.contract_version} — ${validated.size} anchor(s) resolved, ${valueAssertions} value assertion(s), ${held} held by the SDK, ${anchors.length - held} deferred — ok\n`,
 )

@@ -9,6 +9,6 @@ change rather than editing this file by hand.
 
 ## [Unreleased]
 
-_Nothing released yet. The repository skeleton, build, test and release
-pipeline are in place; the ping client, CLI, management API, sync and the
-scheduler adapters are still to come._
+_Nothing released yet. The repository skeleton and the ping client are in
+place; the CLI, management API, sync and the scheduler adapters are still to
+come._
