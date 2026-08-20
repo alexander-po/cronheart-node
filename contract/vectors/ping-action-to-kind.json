@@ -1,0 +1,326 @@
+{
+  "contract_version": "1.0.0",
+  "group": "ping.action_to_kind",
+  "default_subject": "ping.classifyAction",
+  "description": "Two layers guard the ping action segment and they disagree about what is legal. The route pattern is an ASCII character class of 1 to 16 characters; anything outside it 404s at routing and never reaches the mapper. The mapper then lowercases, matches a handful of literals, and falls back to an ASCII-only digit test — with heartbeat, the kind that marks a monitor UP, as the default arm. Both layers are ASCII-only, and reproducing them with a Unicode-aware digit or word class is the single most likely way for a port to drift.",
+  "case_count": 45,
+  "cases": [
+    {
+      "id": "no-segment",
+      "input": { "action": null },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": true },
+        { "predicate": "equals", "path": "/kind", "value": "heartbeat" }
+      ]
+    },
+    {
+      "id": "empty-segment",
+      "input": { "action": "" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": false },
+        { "predicate": "equals", "path": "/kind", "value": null },
+        { "predicate": "equals", "path": "/mapperKind", "value": "heartbeat" }
+      ],
+      "why": "The mapper has an explicit empty-string arm, but the route pattern requires at least one character, so that arm is unreachable over HTTP. Pinning both halves stops a port from 'fixing' the discrepancy in either direction."
+    },
+    {
+      "id": "run-lowercase",
+      "input": { "action": "run" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": true },
+        { "predicate": "equals", "path": "/kind", "value": "heartbeat" }
+      ]
+    },
+    {
+      "id": "run-uppercase",
+      "input": { "action": "RUN" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "heartbeat" }],
+      "why": "The 'run' literal is compared before lowercasing, so an uppercase RUN misses it — and lands on heartbeat anyway through the default arm. Same answer, different path. A port that special-cases 'run' case-insensitively is still correct here; one that treats an unmatched action as an error is not."
+    },
+    {
+      "id": "run-mixed-case",
+      "input": { "action": "Run" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "heartbeat" }]
+    },
+    {
+      "id": "start",
+      "input": { "action": "start" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "start" }]
+    },
+    {
+      "id": "start-uppercase",
+      "input": { "action": "START" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "start" }]
+    },
+    {
+      "id": "start-mixed-case",
+      "input": { "action": "StArT" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "start" }]
+    },
+    {
+      "id": "success",
+      "input": { "action": "success" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "success" }]
+    },
+    {
+      "id": "success-uppercase",
+      "input": { "action": "SUCCESS" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "success" }]
+    },
+    {
+      "id": "ok",
+      "input": { "action": "ok" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "success" }]
+    },
+    {
+      "id": "ok-uppercase",
+      "input": { "action": "OK" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "success" }]
+    },
+    {
+      "id": "fail",
+      "input": { "action": "fail" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "fail" }]
+    },
+    {
+      "id": "fail-uppercase",
+      "input": { "action": "FAIL" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "fail" }]
+    },
+    {
+      "id": "digit-zero",
+      "input": { "action": "0" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "success" }]
+    },
+    {
+      "id": "digit-double-zero",
+      "input": { "action": "00" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "fail" }],
+      "why": "The success arm matches the literal string '0', not the number zero. '00' falls through to the digit test and is recorded as a failure. A wrapper that zero-pads an exit status reports every clean run as a failure."
+    },
+    {
+      "id": "digit-triple-zero",
+      "input": { "action": "000" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "fail" }]
+    },
+    {
+      "id": "digit-leading-zero-nonzero",
+      "input": { "action": "05" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "fail" }]
+    },
+    {
+      "id": "digit-one",
+      "input": { "action": "1" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "fail" }]
+    },
+    {
+      "id": "digit-137",
+      "input": { "action": "137" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "fail" }],
+      "why": "128 plus SIGKILL. The value is discarded: only zero versus non-zero survives, so the SDK must put the code in the body if the user needs it."
+    },
+    {
+      "id": "signed-negative-one",
+      "input": { "action": "-1" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": true },
+        { "predicate": "equals", "path": "/kind", "value": "heartbeat" }
+      ],
+      "why": "signed-integer-is-heartbeat. The minus sign is inside the route's character class but outside the digit test, so a failing run reported as '-1' marks the monitor UP. This is the worst single case in the file."
+    },
+    {
+      "id": "signed-plus-one",
+      "input": { "action": "+1" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": false },
+        { "predicate": "equals", "path": "/kind", "value": null },
+        { "predicate": "equals", "path": "/mapperKind", "value": "heartbeat" }
+      ],
+      "why": "Asymmetric with '-1': plus is not in the route's character class, minus is."
+    },
+    {
+      "id": "decimal",
+      "input": { "action": "1.5" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": false },
+        { "predicate": "equals", "path": "/mapperKind", "value": "heartbeat" }
+      ]
+    },
+    {
+      "id": "arabic-indic-digit",
+      "input": { "action": "٣" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": false },
+        { "predicate": "equals", "path": "/kind", "value": null },
+        { "predicate": "equals", "path": "/mapperKind", "value": "heartbeat" }
+      ],
+      "why": "non-ascii-digit-is-not-routable. This is the case the whole vector suite exists for: the server's digit test is ASCII-only, so a non-ASCII decimal digit is not a digit string — and the route pattern rejects it before the mapper is even consulted. A port that reaches for its language's Unicode-aware digit predicate classifies this as a failure report and diverges from the server on both layers at once. The same ASCII-only test guards the runtime header and the interval schedule expression, where no route pattern stands in front of it."
+    },
+    {
+      "id": "mixed-ascii-and-arabic-indic-digits",
+      "input": { "action": "1٣" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": false },
+        { "predicate": "equals", "path": "/mapperKind", "value": "heartbeat" }
+      ],
+      "why": "A Unicode-aware digit test returns true for this whole string. The server's does not."
+    },
+    {
+      "id": "fullwidth-digit-zero",
+      "input": { "action": "０" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": false },
+        { "predicate": "equals", "path": "/mapperKind", "value": "heartbeat" }
+      ],
+      "why": "A fullwidth zero is a decimal digit to Unicode and not to the server. It is not the ASCII '0' that maps to success."
+    },
+    {
+      "id": "length-sixteen",
+      "input": { "action": "aaaaaaaaaaaaaaaa" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": true },
+        { "predicate": "equals", "path": "/kind", "value": "heartbeat" }
+      ],
+      "why": "The upper bound of the route pattern, inclusive."
+    },
+    {
+      "id": "length-seventeen",
+      "input": { "action": "aaaaaaaaaaaaaaaaa" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": false },
+        { "predicate": "equals", "path": "/kind", "value": null }
+      ],
+      "why": "action-length-boundary. One over. The failure is a 404 that reads exactly like an unknown monitor, so the SDK must catch it locally."
+    },
+    {
+      "id": "path-traversal",
+      "input": { "action": "../" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": false },
+        { "predicate": "equals", "path": "/kind", "value": null }
+      ]
+    },
+    {
+      "id": "single-space",
+      "input": { "action": " " },
+      "expect": [{ "predicate": "equals", "path": "/routable", "value": false }]
+    },
+    {
+      "id": "trailing-space-after-zero",
+      "input": { "action": "0 " },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": false },
+        { "predicate": "equals", "path": "/mapperKind", "value": "heartbeat" }
+      ],
+      "why": "Whitespace is neither trimmed by the route nor by the mapper, so a trailing space turns a success into an unroutable request whose mapper reading would have been heartbeat."
+    },
+    {
+      "id": "typo-of-success",
+      "input": { "action": "succes" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": true },
+        { "predicate": "equals", "path": "/kind", "value": "heartbeat" }
+      ],
+      "why": "unrecognised-action-is-heartbeat. A one-character typo returns 200 OK and marks the monitor UP. Nothing anywhere reports the mistake."
+    },
+    {
+      "id": "hex-literal",
+      "input": { "action": "0x10" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "heartbeat" }]
+    },
+    {
+      "id": "underscore-word",
+      "input": { "action": "run_now" },
+      "expect": [
+        { "predicate": "equals", "path": "/routable", "value": true },
+        { "predicate": "equals", "path": "/kind", "value": "heartbeat" }
+      ]
+    },
+    {
+      "id": "kind-name-as-action",
+      "input": { "action": "heartbeat" },
+      "expect": [{ "predicate": "equals", "path": "/kind", "value": "heartbeat" }],
+      "why": "Right answer, wrong reason: 'heartbeat' is not a recognised action, it reaches heartbeat through the default arm. A port must not add it to the literal table."
+    },
+    {
+      "id": "emittable-no-segment",
+      "subject": "ping.assertEmittableAction",
+      "input": { "action": null },
+      "expect": [{ "predicate": "throwsNothing" }]
+    },
+    {
+      "id": "emittable-start",
+      "subject": "ping.assertEmittableAction",
+      "input": { "action": "start" },
+      "expect": [{ "predicate": "throwsNothing" }]
+    },
+    {
+      "id": "emittable-success",
+      "subject": "ping.assertEmittableAction",
+      "input": { "action": "success" },
+      "expect": [{ "predicate": "throwsNothing" }]
+    },
+    {
+      "id": "emittable-fail",
+      "subject": "ping.assertEmittableAction",
+      "input": { "action": "fail" },
+      "expect": [{ "predicate": "throwsNothing" }]
+    },
+    {
+      "id": "not-emittable-run",
+      "subject": "ping.assertEmittableAction",
+      "input": { "action": "run" },
+      "expect": [
+        { "predicate": "rejects" },
+        { "predicate": "isErrorClass", "value": "InvalidAction" }
+      ],
+      "why": "Accepted by the server, never emitted by us. The emit set stays literally closed so that widening it is a deliberate release, not an accident."
+    },
+    {
+      "id": "not-emittable-ok",
+      "subject": "ping.assertEmittableAction",
+      "input": { "action": "ok" },
+      "expect": [
+        { "predicate": "rejects" },
+        { "predicate": "isErrorClass", "value": "InvalidAction" }
+      ]
+    },
+    {
+      "id": "not-emittable-digit",
+      "subject": "ping.assertEmittableAction",
+      "input": { "action": "0" },
+      "expect": [
+        { "predicate": "rejects" },
+        { "predicate": "isErrorClass", "value": "InvalidAction" }
+      ]
+    },
+    {
+      "id": "not-emittable-uppercase-success",
+      "subject": "ping.assertEmittableAction",
+      "input": { "action": "SUCCESS" },
+      "expect": [
+        { "predicate": "rejects" },
+        { "predicate": "isErrorClass", "value": "InvalidAction" }
+      ],
+      "why": "The server would accept it. We do not, because a case-insensitive guard is one step from a guard that accepts a variable."
+    },
+    {
+      "id": "not-emittable-negative-one",
+      "subject": "ping.assertEmittableAction",
+      "input": { "action": "-1" },
+      "expect": [
+        { "predicate": "rejects" },
+        { "predicate": "isErrorClass", "value": "InvalidAction" }
+      ]
+    },
+    {
+      "id": "not-emittable-empty",
+      "subject": "ping.assertEmittableAction",
+      "input": { "action": "" },
+      "expect": [
+        { "predicate": "rejects" },
+        { "predicate": "isErrorClass", "value": "InvalidAction" }
+      ]
+    }
+  ]
+}

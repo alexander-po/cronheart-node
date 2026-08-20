@@ -1,0 +1,109 @@
+{
+  "contract_version": "1.0.0",
+  "title": "Conformance vector vocabulary",
+  "description": "The complete, fixed vocabulary every vector file is written in. Nothing here requires a language-specific expression evaluator: a per-SDK adapter is a lookup table of subjects plus a switch over six predicates.",
+
+  "case_shape": {
+    "id": "unique within its file; stable across contract versions so a failure is greppable",
+    "subject": "a key of /subjects; may be set per file (default_subject) and overridden per case",
+    "input": "an object matching the subject's input shape",
+    "expect": "a non-empty array of assertions",
+    "why": "optional. Present only where the case exists because of a named hazard; carries that hazard's id",
+    "optional": "optional boolean. When true, an adapter that has not registered the subject skips the case instead of failing"
+  },
+
+  "assertion_shape": {
+    "predicate": "one of /predicates",
+    "path": "a JSON Pointer into the subject's result. The empty string addresses the whole result. Omitted where the predicate takes no path",
+    "value": "the expected value; the predicate defines its type"
+  },
+
+  "predicates": {
+    "equals": {
+      "takes_path": true,
+      "semantics": "The value at path is deeply equal to value. Scalars compare by value and type; arrays compare element-wise and in order; null is distinct from absent. No coercion: the string \"5\" never equals the number 5."
+    },
+    "byteLength": {
+      "takes_path": true,
+      "semantics": "The value at path is a string whose UTF-8 encoding is exactly value bytes long. Not code units, not code points."
+    },
+    "matches": {
+      "takes_path": true,
+      "semantics": "The value at path is a string matched by the regular expression in value.",
+      "regex_dialect": "The common subset of ECMAScript and RE2: literal characters, character classes, alternation, grouping, the quantifiers * + ? {m} {m,n}, the anchors ^ and $, and backslash escapes. No backreferences, no lookaround, no named groups, no inline flags. ^ and $ mean start and end of the whole string, never of a line. Non-ASCII characters appear as literals, never as escapes or property classes."
+    },
+    "isErrorClass": {
+      "takes_path": false,
+      "semantics": "The subject threw (or rejected with) an error whose contract class name is value. The mapping from a contract class name to a language type is the adapter's job. Implies the subject did not return normally."
+    },
+    "rejects": {
+      "takes_path": false,
+      "semantics": "The subject threw or rejected. Use with isErrorClass to pin which error."
+    },
+    "throwsNothing": {
+      "takes_path": false,
+      "semantics": "The subject returned normally. Present on cases where not throwing is the point, not merely incidental."
+    }
+  },
+
+  "input_encodings": {
+    "byte_string": {
+      "used_by": ["body.truncate"],
+      "shape": "{ \"parts\": [ ... ] }",
+      "part_forms": [
+        "{ \"repeat\": \"<string>\", \"times\": <integer> } — the string concatenated with itself times times",
+        "{ \"literal\": \"<string>\" } — the string once"
+      ],
+      "semantics": "Parts are concatenated in order and the result is encoded as UTF-8. The generative form keeps a ten-kilobyte fixture readable and diffable; a base64 blob would not be.",
+      "empty": "An empty parts array denotes the empty string."
+    },
+    "instant": {
+      "used_by": ["http.parseRetryAfter"],
+      "shape": "an RFC 3339 timestamp with an explicit Z offset",
+      "semantics": "The clock reading the subject must treat as 'now'. Every time-dependent subject takes its clock as input; no vector reads a real clock."
+    }
+  },
+
+  "subjects": {
+    "ping.classifyAction": {
+      "pure": true,
+      "input": { "action": "string or null — the raw, percent-decoded path segment after the monitor id; null means no segment" },
+      "result": {
+        "routable": "boolean — whether the server's route pattern accepts this segment at all",
+        "kind": "string or null — the ping kind the server records; null when the request never reaches the mapper",
+        "mapperKind": "string — what the action mapper alone would return, ignoring routing. Always populated, so the mapper's behaviour on unroutable input stays pinned"
+      },
+      "note": "This models the server; it is not a function an SDK calls on a hot path. Implement it in test scope if that is cheaper than exporting it."
+    },
+    "ping.assertEmittableAction": {
+      "pure": true,
+      "input": { "action": "string or null" },
+      "result": "undefined on success; throws otherwise",
+      "error_classes": ["InvalidAction"],
+      "note": "The wiring-time guard. The emittable set is exactly null, \"start\", \"success\", \"fail\" — canonical lowercase only. It is deliberately narrower than what the server accepts: the moment an SDK accepts a variable here, a typo becomes a silent success report."
+    },
+    "body.truncate": {
+      "pure": true,
+      "input": {
+        "body": "a byte_string",
+        "mode": "\"head\" or \"tail\""
+      },
+      "result": "string — the body as it will be sent"
+    },
+    "http.parseRetryAfter": {
+      "pure": true,
+      "input": {
+        "header": "string or null — the raw header value",
+        "now": "an instant"
+      },
+      "result": { "seconds": "integer or null" }
+    }
+  },
+
+  "runner_requirements": [
+    "Every file's contract_version must equal the version of the contract the SDK was built against; a mismatch fails the suite rather than being tolerated.",
+    "An unknown predicate fails the suite. Silently skipping one would make the harness vacuously green.",
+    "An unknown subject fails the suite unless the case carries optional: true.",
+    "The runner asserts the total case count it executed against the count in the files, so a filtering bug cannot hide as a pass."
+  ]
+}

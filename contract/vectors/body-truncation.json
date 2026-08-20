@@ -1,0 +1,156 @@
+{
+  "contract_version": "1.0.0",
+  "group": "body.truncation",
+  "default_subject": "body.truncate",
+  "description": "The client-side body cap. The rule is byte-exact against a 10000-byte cap with a 19-byte marker, leaving a 9981-byte budget — but only for ASCII. When the budget lands inside a multi-byte character the character is dropped whole, so the result is 1 to 3 bytes short of the cap. The cap is inclusive: a body of exactly 10000 bytes is sent unchanged, with no marker. Every case here would pass trivially in a language whose string length happened to be bytes, and fail in both of the languages this contract targets.",
+  "case_count": 14,
+  "cases": [
+    {
+      "id": "empty-body",
+      "input": { "body": { "parts": [] }, "mode": "head" },
+      "expect": [
+        { "predicate": "equals", "path": "", "value": "" },
+        { "predicate": "throwsNothing" }
+      ]
+    },
+    {
+      "id": "under-cap-ascii",
+      "input": { "body": { "parts": [{ "repeat": "a", "times": 9999 }] }, "mode": "head" },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 9999 },
+        { "predicate": "matches", "path": "", "value": "^a{9999}$" }
+      ]
+    },
+    {
+      "id": "exactly-cap-ascii",
+      "input": { "body": { "parts": [{ "repeat": "a", "times": 10000 }] }, "mode": "head" },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 10000 },
+        { "predicate": "matches", "path": "", "value": "^a{10000}$" }
+      ],
+      "why": "The cap is inclusive. A body sitting exactly on it carries no marker, so a test that asserts 'over cap implies marker present' must use strictly-over-cap input."
+    },
+    {
+      "id": "one-over-cap-ascii-head",
+      "input": { "body": { "parts": [{ "repeat": "a", "times": 10001 }] }, "mode": "head" },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 10000 },
+        { "predicate": "matches", "path": "", "value": "^a{9981}\\n\\[truncated by SDK\\]$" },
+        { "predicate": "throwsNothing" }
+      ],
+      "why": "The only shape in which the result lands on exactly the cap."
+    },
+    {
+      "id": "exactly-cap-multibyte",
+      "input": { "body": { "parts": [{ "repeat": "😀", "times": 2500 }] }, "mode": "head" },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 10000 },
+        { "predicate": "matches", "path": "", "value": "^[^\\[]+$" }
+      ],
+      "why": "2500 four-byte characters are exactly 10000 bytes but only 2500 code points and 5000 UTF-16 code units. A budget measured in either unit leaves this body untouched at first and then mis-cuts every longer one. The pattern asserts the marker is absent without quantifying an astral literal, which is the one regex construct that behaves differently with and without Unicode mode."
+    },
+    {
+      "id": "head-cut-straddles-two-byte-character",
+      "input": {
+        "body": { "parts": [{ "repeat": "a", "times": 9980 }, { "literal": "é" }, { "repeat": "a", "times": 2000 }] },
+        "mode": "head"
+      },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 9999 },
+        { "predicate": "matches", "path": "", "value": "^a{9980}\\n\\[truncated by SDK\\]$" }
+      ],
+      "why": "The character occupies bytes 9980 and 9981; the budget ends after 9981, splitting it. One byte short of the cap."
+    },
+    {
+      "id": "head-cut-straddles-three-byte-character",
+      "input": {
+        "body": { "parts": [{ "repeat": "a", "times": 9979 }, { "literal": "€" }, { "repeat": "a", "times": 2000 }] },
+        "mode": "head"
+      },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 9998 },
+        { "predicate": "matches", "path": "", "value": "^a{9979}\\n\\[truncated by SDK\\]$" }
+      ],
+      "why": "Two bytes short of the cap. exact-cap-is-ascii-only."
+    },
+    {
+      "id": "head-cut-straddles-four-byte-emoji",
+      "input": {
+        "body": { "parts": [{ "repeat": "a", "times": 9978 }, { "literal": "😀" }, { "repeat": "a", "times": 2000 }] },
+        "mode": "head"
+      },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 9997 },
+        { "predicate": "matches", "path": "", "value": "^a{9978}\\n\\[truncated by SDK\\]$" },
+        { "predicate": "throwsNothing" }
+      ],
+      "why": "Three bytes short of the cap, the worst case. In a UTF-16 language this is also the case that produces a lone surrogate if the cut is done on code units instead of bytes."
+    },
+    {
+      "id": "head-cut-lands-exactly-after-four-byte-emoji",
+      "input": {
+        "body": { "parts": [{ "repeat": "a", "times": 9977 }, { "literal": "😀" }, { "repeat": "a", "times": 2000 }] },
+        "mode": "head"
+      },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 10000 },
+        { "predicate": "matches", "path": "", "value": "^a{9977}😀\\n\\[truncated by SDK\\]$" }
+      ],
+      "why": "One byte earlier than the previous case and the emoji survives whole, landing on exactly the cap. An implementation that backs off to the previous boundary unconditionally, rather than only when the cut is unsafe, drops it and fails here."
+    },
+    {
+      "id": "head-cut-multibyte-only-body",
+      "input": { "body": { "parts": [{ "repeat": "😀", "times": 2501 }] }, "mode": "head" },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 9999 },
+        { "predicate": "matches", "path": "", "value": "^[^\\[]+\\n\\[truncated by SDK\\]$" }
+      ],
+      "why": "A body with no ASCII in it at all: 10004 bytes in, 2495 whole emoji plus the marker out."
+    },
+    {
+      "id": "tail-under-cap",
+      "input": { "body": { "parts": [{ "repeat": "a", "times": 100 }] }, "mode": "tail" },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 100 },
+        { "predicate": "matches", "path": "", "value": "^a{100}$" }
+      ],
+      "why": "Mode is irrelevant below the cap; neither mode adds a marker."
+    },
+    {
+      "id": "tail-cut-straddles-four-byte-emoji",
+      "input": {
+        "body": { "parts": [{ "repeat": "a", "times": 2000 }, { "literal": "😀" }, { "repeat": "a", "times": 9979 }] },
+        "mode": "tail"
+      },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 9998 },
+        { "predicate": "matches", "path": "", "value": "^\\n\\[truncated by SDK\\]a{9979}$" }
+      ],
+      "why": "Tail mode repairs the boundary by moving forward, not backward: the window would start in the middle of the emoji, so it advances past it and the result is two bytes short of the cap. The marker is prepended, not appended."
+    },
+    {
+      "id": "tail-cut-lands-exactly-on-boundary",
+      "input": {
+        "body": { "parts": [{ "repeat": "a", "times": 2000 }, { "literal": "😀" }, { "repeat": "a", "times": 9981 }] },
+        "mode": "tail"
+      },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 10000 },
+        { "predicate": "matches", "path": "", "value": "^\\n\\[truncated by SDK\\]a{9981}$" }
+      ],
+      "why": "The window starts immediately after the emoji, so nothing needs repairing and the result lands on exactly the cap."
+    },
+    {
+      "id": "tail-keeps-the-end-not-the-start",
+      "input": {
+        "body": { "parts": [{ "repeat": "x", "times": 10000 }, { "repeat": "z", "times": 100 }] },
+        "mode": "tail"
+      },
+      "expect": [
+        { "predicate": "byteLength", "path": "", "value": 10000 },
+        { "predicate": "matches", "path": "", "value": "^\\n\\[truncated by SDK\\]x{9881}z{100}$" }
+      ],
+      "why": "The direction assertion. A tail-mode implementation that silently falls back to head mode passes every byte-length case in this file and fails only this one."
+    }
+  ]
+}

@@ -1,0 +1,781 @@
+{
+  "contract_version": "1.0.0",
+  "title": "Cronheart wire contract",
+  "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
+  "verified_on": "2026-08-20",
+  "layers": {
+    "server": "Enforced by the Cronheart service. Changing it is a server change and must bump this contract.",
+    "client-convention": "Not enforced by the server. A rule every official SDK implements identically so that behaviour is portable across languages. Changing it is an SDK-fleet change."
+  },
+  "openness": {
+    "closed": "The listed members are exhaustive for this contract version. A consumer MUST reject anything else.",
+    "open": "The list is the set known at this contract version. A consumer MUST accept an unknown member and degrade (retain the raw string, classify as 'unknown'), never throw."
+  },
+
+  "vocabularies": {
+    "ping.action": {
+      "layer": "server",
+      "direction": "write",
+      "openness": "closed",
+      "description": "Path segments an SDK is permitted to emit after /ping/{uuid}. Never build this segment from a variable: an unrecognised segment does not error, it is silently mapped to heartbeat, which marks the monitor UP.",
+      "emit": ["start", "success", "fail"],
+      "emit_no_segment_means": "heartbeat",
+      "accepted_by_server_but_not_emitted": ["run", "ok", "0", "<any ASCII digit string>"]
+    },
+    "ping.kind": {
+      "layer": "server",
+      "direction": "read",
+      "openness": "open",
+      "members": ["heartbeat", "start", "success", "fail"]
+    },
+    "monitor.status": {
+      "layer": "server",
+      "direction": "read",
+      "openness": "open",
+      "members": ["new", "up", "late", "down", "paused"],
+      "note": "Open deliberately. A hydrator that throws on an unknown status turns a server-side addition into a client outage; that exact bug is on record in a sibling SDK."
+    },
+    "schedule.kind": {
+      "layer": "server",
+      "direction": "read+write",
+      "openness": "closed",
+      "members": ["cron", "interval", "simple"],
+      "write_note": "Server-side Choice constraint; anything else is 422."
+    },
+    "channel.kind": {
+      "layer": "server",
+      "direction": "read+write",
+      "openness": "open",
+      "members": ["email", "telegram", "slack", "discord", "webhook"],
+      "write_note": "The write side is validated against exactly this list today, so a writer may treat it as closed; the read side must stay open."
+    },
+    "alert.kind": {
+      "layer": "server",
+      "direction": "read",
+      "openness": "open",
+      "members": ["late", "fail", "recovered"]
+    },
+    "plan.key": {
+      "layer": "server",
+      "direction": "read",
+      "openness": "open",
+      "members": ["free", "starter", "growth", "scale"]
+    },
+    "snooze.duration": {
+      "layer": "server",
+      "direction": "write",
+      "openness": "closed",
+      "members": ["1h", "4h", "1d", "1w"]
+    },
+    "ping.outcome": {
+      "layer": "client-convention",
+      "direction": "read",
+      "openness": "closed",
+      "members": [
+        "accepted",
+        "duplicate",
+        "paused",
+        "not-found",
+        "rate-limited",
+        "timeout",
+        "network-error",
+        "server-error",
+        "unexpected"
+      ],
+      "note": "The SDK's own outcome vocabulary. Closed because it is ours; a new member is an SDK minor release, not a server change."
+    }
+  },
+
+  "ping": {
+    "layer": "server",
+    "anonymous": true,
+    "credential": "The monitor UUID in the path is the entire authorisation token. No Authorization header is read on this route; sending one leaks an account-wide credential to every intermediary for no benefit.",
+    "routes": [
+      {
+        "template": "/ping/{uuid}",
+        "methods": ["GET", "POST", "HEAD"],
+        "uuid_pattern": "^[0-9a-fA-F-]{36}$",
+        "note": "The route pattern is looser than a UUID; a 36-character hex-and-dash string routes and is then rejected as not-found by UUID parsing. Hex case is not significant."
+      },
+      {
+        "template": "/ping/{uuid}/{action}",
+        "methods": ["GET", "POST", "HEAD"],
+        "uuid_pattern": "^[0-9a-fA-F-]{36}$",
+        "action_pattern": "^[a-zA-Z0-9_-]{1,16}$",
+        "note": "An action outside this pattern does not reach the action mapper at all: no route matches and the response is a routing 404 that is indistinguishable from an unknown monitor."
+      }
+    ],
+    "body": {
+      "captured_on_methods": ["POST"],
+      "get_and_head_capture": null,
+      "empty_body_stored_as": null,
+      "cap_bytes": 10000,
+      "cap_units": "bytes",
+      "server_truncation": "The request body is read to at most 10000 bytes with a raw byte cut, then re-cut on a UTF-8 character boundary before storage. A multi-byte character straddling the boundary is dropped whole, so the stored excerpt can be up to 3 bytes shorter than the cap.",
+      "not_rejected": "Over-cap bodies are truncated, never rejected; the response is unchanged."
+    },
+    "action_to_kind": {
+      "description": "How the server maps the optional action segment onto a stored ping kind. Evaluated only for segments that satisfy the route's action pattern.",
+      "algorithm": [
+        "no segment, an empty segment, or the exact lowercase literal 'run' maps to heartbeat",
+        "otherwise the segment is lowercased, then: 'start' maps to start; 'success', 'ok' and '0' map to success; 'fail' maps to fail; a string of ASCII digits maps to fail; everything else maps to heartbeat"
+      ],
+      "case_sensitivity": "The lowercasing step makes start / success / ok / fail / digit matching case-insensitive. The 'run' literal is compared before lowercasing and so is case-sensitive, but an uppercase 'RUN' reaches the same heartbeat result through the default arm.",
+      "digit_test": "ASCII-only. The server's digit test rejects non-ASCII decimal digits, so a segment such as an Arabic-Indic numeral is not a digit string. A port must not use a Unicode-aware digit test (Python's str.isdigit and JavaScript's /\\d/u with Unicode property escapes both disagree with the server here).",
+      "hazards": [
+        {
+          "id": "unrecognised-action-is-heartbeat",
+          "severity": "high",
+          "statement": "An unrecognised action does not error. It maps to heartbeat, which sets the monitor UP and resets its failure count. A typo in the segment converts a failure report into a success report.",
+          "sdk_rule": "Never construct the action segment from a variable. Use a closed union of literals and validate any user-supplied action before a URL exists."
+        },
+        {
+          "id": "signed-integer-is-heartbeat",
+          "severity": "high",
+          "statement": "A leading minus sign passes the route pattern but fails the digit test, so '-1' maps to heartbeat. A wrapper that forwards a shell exit status without normalising it can report success for a failed run.",
+          "sdk_rule": "Map exit status client-side: zero to the success action, non-zero to the fail action. Never interpolate the raw status into the URL."
+        },
+        {
+          "id": "non-ascii-digit-is-not-routable",
+          "severity": "medium",
+          "statement": "A non-ASCII decimal digit fails the route's action pattern, so the request 404s at routing and never reaches the mapper. The mapper would classify it as heartbeat if it did.",
+          "sdk_rule": "Both layers are ASCII-only. A port must reproduce the route pattern as an ASCII character class, not as a Unicode-aware word or digit class."
+        },
+        {
+          "id": "action-length-boundary",
+          "severity": "low",
+          "statement": "The action segment is 1 to 16 characters. A 17-character segment 404s at routing.",
+          "sdk_rule": "Validate length client-side so the failure is a local error, not an ambiguous 404."
+        },
+        {
+          "id": "digit-encoding-is-lossy",
+          "severity": "medium",
+          "statement": "Only zero versus non-zero survives. The numeric value itself is discarded; there is no exit-code column on a stored ping.",
+          "sdk_rule": "If the exit code matters to the user, put it in the request body, not the path."
+        }
+      ]
+    },
+    "dedup": {
+      "window_seconds": 2,
+      "key": ["monitor", "kind"],
+      "comparison": "integer-second",
+      "rule": "The server subtracts whole-second Unix timestamps of the incoming ping and the most recent stored ping of the same kind for the same monitor. The ping is a duplicate when the difference is at least 0 and less than 2.",
+      "hazards": [
+        {
+          "id": "not-a-millisecond-window",
+          "severity": "medium",
+          "statement": "This is not a 2000 ms window. Two pings 1.02 s apart that straddle a second boundary have a whole-second difference of 2 and are not duplicates; two pings 1.98 s apart inside one second pair are.",
+          "sdk_rule": "Any test of this behaviour must be expressed in wall-clock seconds, never as a millisecond delta."
+        },
+        {
+          "id": "dedup-precedes-paused",
+          "severity": "medium",
+          "statement": "Deduplication is evaluated before the paused check. A repeat ping of the same kind to a paused monitor returns the duplicate response (HTTP 200), not the paused response (HTTP 410).",
+          "sdk_rule": "Do not treat 200 as proof that the monitor is active."
+        },
+        {
+          "id": "paused-pings-fill-the-dedup-bucket",
+          "severity": "low",
+          "statement": "A ping to a paused monitor is still recorded, so it becomes the comparison row for the next dedup evaluation of that kind."
+        },
+        {
+          "id": "clock-skew-is-not-a-duplicate",
+          "severity": "low",
+          "statement": "A negative difference (the incoming ping is older than the stored one) is not a duplicate."
+        }
+      ]
+    },
+    "runtime_header": {
+      "name": "X-Cronheart-Runtime-Ms",
+      "format": "^[0-9]+$",
+      "format_description": "ASCII digits only. No sign, no decimal point, no exponent, no whitespace. An empty value is treated as absent.",
+      "max_value": 86400000,
+      "over_max_behaviour": "discarded",
+      "invalid_behaviour": "discarded",
+      "applied_to_kinds": "all",
+      "hazards": [
+        {
+          "id": "float-is-silently-dropped",
+          "severity": "high",
+          "statement": "A malformed value is discarded silently; the ping still succeeds. A raw high-resolution timer delta stringifies as a float and is dropped without any signal.",
+          "sdk_rule": "Round to an integer before stringifying, and clamp to the maximum rather than letting the server discard the value."
+        },
+        {
+          "id": "terminal-pings-only",
+          "severity": "high",
+          "statement": "The client value is honoured for every kind and is written to the monitor's stored last-duration field unconditionally. Sending it on a start ping or a bare heartbeat overwrites the recorded duration with a meaningless number.",
+          "sdk_rule": "Send this header only on a success or fail ping."
+        },
+        {
+          "id": "non-ascii-digit-header",
+          "severity": "medium",
+          "statement": "The header's digit test is the same ASCII-only test the action mapper uses. A value written with non-ASCII decimal digits is discarded. Unlike the action segment there is no route pattern in front of it, so this is the one place on the ping surface where a Unicode-aware digit test in a port would actually change the wire outcome.",
+          "sdk_rule": "Format the value from an integer; never pass through a locale-formatted string."
+        },
+        {
+          "id": "not-applied-to-paused",
+          "severity": "low",
+          "statement": "A ping that lands on a paused monitor is recorded with no runtime value regardless of the header."
+        }
+      ]
+    },
+    "inferred_runtime": {
+      "rule": "When no usable client header is present and the ping is a success or fail, the server infers the duration as the elapsed time since the monitor's last start ping.",
+      "max_inferred_seconds": 86400,
+      "note": "No start ping means no inferred duration. On a runtime that freezes its high-resolution clock between I/O operations, omitting the header buys nothing unless a start ping was actually sent."
+    },
+    "responses": {
+      "content_type": "text/plain; charset=utf-8",
+      "cache_control": "no-store",
+      "table": [
+        {
+          "status": 200,
+          "body": "OK",
+          "outcome": "accepted",
+          "retryable": false
+        },
+        {
+          "status": 200,
+          "body": "OK (duplicate)",
+          "outcome": "duplicate",
+          "retryable": false
+        },
+        {
+          "status": 410,
+          "body": "Monitor paused",
+          "outcome": "paused",
+          "retryable": false,
+          "config_class": true
+        },
+        {
+          "status": 404,
+          "body": "Monitor not found",
+          "outcome": "not-found",
+          "retryable": false,
+          "config_class": true,
+          "note": "Also returned by the router for a malformed action segment or a malformed UUID, so 404 does not prove the monitor is unknown."
+        },
+        {
+          "status": 429,
+          "body": "Rate limited",
+          "outcome": "rate-limited",
+          "retryable": false,
+          "headers": ["Retry-After"],
+          "note": "Deliberately not retried by the SDK; the caller reads Retry-After instead."
+        },
+        {
+          "status": "5xx",
+          "outcome": "server-error",
+          "retryable": true
+        }
+      ],
+      "hazards": [
+        {
+          "id": "duplicate-is-english-prose",
+          "severity": "high",
+          "statement": "accepted and duplicate share status 200 and carry no distinguishing header. They are separable only by the literal response body string, produced by a server-side match arm. A HEAD request has no body at all, so the distinction is unavailable there.",
+          "sdk_rule": "Compare the trimmed body against the exact literals and classify anything else at 200 as accepted. Treat the classification as advisory, never as a control-flow input. A server-side outcome header would retire this rule."
+        }
+      ]
+    },
+    "rate_limits": [
+      {
+        "scope": "per monitor UUID",
+        "limit": 30,
+        "interval_seconds": 60,
+        "policy": "sliding_window"
+      },
+      {
+        "scope": "per client IP, bucketed to /32 for IPv4 and /64 for IPv6",
+        "limit": 600,
+        "interval_seconds": 60,
+        "policy": "sliding_window"
+      }
+    ]
+  },
+
+  "body_truncation": {
+    "layer": "client-convention",
+    "description": "How every official SDK trims an over-cap ping body before sending. The server would truncate anyway; trimming client-side saves egress and makes the marker visible to the operator reading the excerpt.",
+    "cap_bytes": 10000,
+    "marker": "\n[truncated by SDK]",
+    "marker_bytes": 19,
+    "budget_bytes": 9981,
+    "modes": {
+      "head": "Keep the beginning of the body. Take at most budget_bytes from the start, cut on a code-point boundary, then append the marker.",
+      "tail": "Keep the end of the body. Take at most budget_bytes from the end, cut on a code-point boundary, then prepend the marker. Used by the process wrapper, where the last lines of stderr are the diagnostic."
+    },
+    "default_mode": "head",
+    "rules": [
+      "A body whose byte length is at most cap_bytes is sent unchanged, with no marker. The cap is inclusive.",
+      "A truncated ASCII body lands on exactly cap_bytes.",
+      "A truncated body whose cut falls inside a multi-byte character lands 1 to 3 bytes short of cap_bytes, because the straddling character is dropped whole rather than split.",
+      "The result is always valid UTF-8. Never emit a partial code-point sequence."
+    ],
+    "hazards": [
+      {
+        "id": "length-is-not-bytes",
+        "severity": "high",
+        "statement": "String length in JavaScript is UTF-16 code units and in Python is code points; neither is bytes. Using either as the budget overshoots the byte cap by up to 3x on non-ASCII output.",
+        "sdk_rule": "Measure and slice in UTF-8 bytes, then repair the boundary."
+      },
+      {
+        "id": "exact-cap-is-ascii-only",
+        "severity": "low",
+        "statement": "The 'lands on exactly the cap' property holds for ASCII only. A test that asserts equality with cap_bytes on arbitrary input is wrong."
+      }
+    ]
+  },
+
+  "retry_after": {
+    "layer": "client-convention",
+    "description": "Parsing of the Retry-After response header. The server only ever emits delta-seconds with a minimum of 1, but an intermediary may rewrite it into one of the date forms the HTTP specification also permits, so a conforming parser accepts all four forms.",
+    "accepted_forms": [
+      { "id": "delta-seconds", "pattern": "^[0-9]+$" },
+      { "id": "imf-fixdate", "example": "Wed, 20 Aug 2026 12:00:07 GMT" },
+      { "id": "rfc850-obsolete", "example": "Wednesday, 20-Aug-26 12:00:07 GMT" },
+      { "id": "asctime-obsolete", "example": "Wed Aug 20 12:00:07 2026" }
+    ],
+    "rules": [
+      "Surrounding optional whitespace is stripped before parsing.",
+      "A date form resolves to the number of whole seconds from the current time to that instant, rounded down.",
+      "A result below 0 clamps to 0. A date in the past therefore yields 0, not a negative number.",
+      "Valid results are integers in the range 0 to 2147483647 inclusive. Anything outside that range, and anything unparseable, yields no value.",
+      "A missing or empty header yields no value.",
+      "A parsed value is reported to the caller. It is never used to schedule an automatic retry: 429 is not retried."
+    ]
+  },
+
+  "api": {
+    "layer": "server",
+    "base_path": "/api/v1",
+    "auth": {
+      "scheme": "Bearer",
+      "header": "Authorization",
+      "stateless": true,
+      "csrf": false,
+      "token_prefix": "cmk_",
+      "issued_at": "the account's API tokens page, or the operator CLI"
+    },
+    "entitlement": {
+      "required_plans": ["starter", "growth", "scale"],
+      "denied_plans": ["free"],
+      "status_on_denied": 402,
+      "re_checked_per_request": true,
+      "note": "Authentication and entitlement are separate. A valid token on a downgraded account authenticates and then 402s, so tokens go inert rather than erroring oddly.",
+      "sdk_rule": "Surface a hard-coded human message for 402 that names the plan and states that ping monitoring works on every plan. Never surface the server's detail string for 401 or 402 to an end user."
+    },
+    "problem_format": {
+      "media_type": "application/problem+json",
+      "base_fields": ["type", "title", "status", "detail"],
+      "type_value": "about:blank",
+      "extensions_are_top_level": true,
+      "known_extensions": {
+        "errors": "422 only. Object mapping a snake_case field name to a human message.",
+        "upgrade_url": "402 only.",
+        "retry_after": "429 only. Mirrors the Retry-After header as an integer."
+      },
+      "hazards": [
+        {
+          "id": "no-stable-error-code",
+          "severity": "high",
+          "statement": "There is no machine-readable code on a problem response. type is always about:blank. The three distinct 409 conditions (a key still in flight, a key reused with a different body, a disabled channel kind) are separable only by their English detail strings, and the 401 detail is a translation key rather than prose.",
+          "sdk_rule": "Classify on status only. Never branch on detail, and never echo a raw detail into a user-facing message."
+        },
+        {
+          "id": "never-echo-the-raw-body",
+          "severity": "medium",
+          "statement": "A non-conforming error body may be HTML from an edge proxy, or may contain request data.",
+          "sdk_rule": "Parse problem+json tolerantly, fall back to a status-derived message, and never include the raw body in an exception message or log record."
+        }
+      ]
+    },
+    "status_to_error_class": {
+      "openness": "open",
+      "map": [
+        { "status": 400, "class": "UnexpectedResponse" },
+        { "status": 401, "class": "Authentication" },
+        { "status": 402, "class": "PlanRestriction", "carries": ["upgrade_url"] },
+        { "status": 403, "class": "Forbidden", "conditions": ["monitor limit reached", "account email unverified"] },
+        { "status": 404, "class": "NotFound", "note": "Also returned for a resource outside the token's project scope; existence is masked." },
+        { "status": 409, "class": "Conflict", "conditions": ["idempotency key in flight", "idempotency key reused with a different body", "channel kind disabled"] },
+        { "status": 422, "class": "Validation", "carries": ["errors"] },
+        { "status": 429, "class": "RateLimit", "carries": ["retry_after", "Retry-After header"] },
+        { "status": 502, "class": "UnexpectedResponse", "note": "On the channel-test route only, 502 means the downstream destination failed and is raised as a ChannelDelivery subclass so the caller can distinguish 'we could not reach your Slack' from 'our API misbehaved'." },
+        { "status": "other", "class": "UnexpectedResponse" }
+      ],
+      "transport_class": "ApiTransport",
+      "transport_conditions": ["connection failure", "timeout", "unparseable response", "pagination did not terminate"]
+    },
+    "rate_limits": {
+      "key": "per account, shared by every token the account holds regardless of token scope",
+      "policy": "sliding_window",
+      "interval_seconds": 60,
+      "by_plan": { "starter": 120, "growth": 300, "scale": 600 },
+      "headers": {
+        "X-RateLimit-Limit": "integer",
+        "X-RateLimit-Remaining": "integer, floored at 0",
+        "X-RateLimit-Reset": "Unix timestamp in seconds, not a delta"
+      },
+      "headers_absent_on": [401, 402],
+      "note": "402 short-circuits before the limiter is consumed, and 401 is produced during authentication, before the entitlement check runs at all. Neither therefore carries rate-limit headers, and a client that always reads them must tolerate their absence."
+    },
+    "scoping": {
+      "monitors": "project-scoped. A token with no project is scoped to the account's default project (its oldest). Reads, creates and every by-uuid action are confined to the resolved project; anything outside it 404s.",
+      "channels": "account-level. Every channel the account owns is visible and attachable regardless of the token's project scope.",
+      "hazards": [
+        {
+          "id": "scope-is-not-reported",
+          "severity": "high",
+          "statement": "The monitor payload carries no project identifier, and no endpoint reports which project a token resolved to. A reconciler therefore silently reconciles against whichever project the token points at and cannot name it in its output.",
+          "sdk_rule": "State the limitation in reconciler output rather than implying the whole account was considered."
+        }
+      ]
+    },
+    "identifiers": {
+      "monitor": {
+        "read_type": "string",
+        "format": "uuid",
+        "note": "The UUID is both the API identifier and the ping credential. Treat it as a secret: never log it, never put it in an exception message."
+      },
+      "channel": {
+        "read_type": "string",
+        "write_type": ["integer", "string"],
+        "hazard": {
+          "id": "read-string-write-int",
+          "severity": "medium",
+          "statement": "Channel identifiers are 64-bit and serialise as JSON strings on every read. On write they are coerced to an integer, and a value that is not numeric coerces to 0, which then fails the ownership check with a 422 naming channel 0 rather than the value sent.",
+          "sdk_rule": "Model the read side as string and the write side as string-or-number, and convert at the transport boundary. Never round-trip through a language float."
+        }
+      },
+      "ping": { "read_type": "string" },
+      "alert": { "read_type": "string" }
+    },
+    "pagination": {
+      "shapes": [
+        {
+          "id": "offset",
+          "used_by": ["GET /api/v1/monitors", "GET /api/v1/monitors/{uuid}/alerts"],
+          "request_params": ["limit", "offset"],
+          "response_keys": ["data", "total", "limit", "offset"],
+          "termination": "a page shorter than the echoed limit, or offset+len(data) reaching total"
+        },
+        {
+          "id": "cursor",
+          "used_by": ["GET /api/v1/monitors/{uuid}/pings"],
+          "request_params": ["limit", "cursor"],
+          "response_keys": ["data", "next_cursor"],
+          "termination": "next_cursor is null",
+          "cursor_note": "Opaque base64url of a timestamp and an id. Malformed cursors are ignored rather than rejected, so a corrupted cursor silently restarts from the first page."
+        },
+        {
+          "id": "none",
+          "used_by": ["GET /api/v1/channels"],
+          "request_params": [],
+          "response_keys": ["data", "total"],
+          "termination": "the single response is the whole set"
+        }
+      ],
+      "limit_clamp": {
+        "min": 1,
+        "max": 100,
+        "default": 50,
+        "coercion": "A non-numeric or missing limit coerces to 0 and is then raised to 1. A limit above 100 is lowered to 100."
+      },
+      "offset_clamp": { "min": 0, "max": null },
+      "max_pages_guard": 10000,
+      "hazards": [
+        {
+          "id": "channels-ignores-pagination",
+          "severity": "high",
+          "statement": "The channels listing accepts no pagination parameters and echoes neither limit nor offset. A generic offset iterator pointed at it re-reads the same full page forever.",
+          "sdk_rule": "The channels listing is not an iterator. Expose it as a single call returning the whole set."
+        },
+        {
+          "id": "unstable-offset-ordering",
+          "severity": "medium",
+          "statement": "Monitors and alerts are ordered by creation time descending with no tiebreaker, and creation time is stored at whole-second precision. Rows created in the same second have no defined relative order, so deep offset paging can repeat or skip a row.",
+          "sdk_rule": "Deduplicate by identifier while walking an offset listing, and cap the walk. Never assume two listings of an unchanged account are byte-identical."
+        },
+        {
+          "id": "pagination-guard-throws",
+          "severity": "low",
+          "statement": "Exhausting the page guard is an error, not a silent truncation. A pager must raise a transport-class error rather than returning a short result."
+        }
+      ]
+    },
+    "ordering": [
+      {
+        "subject": "monitor.channels[]",
+        "guarantee": "ascending by channel id, compared numerically",
+        "load_bearing": true,
+        "note": "The write path stores the caller's array order, so an unsorted projection would echo a different order than the next read returns and a reconciler would see a phantom change on every apply."
+      },
+      { "subject": "GET /api/v1/monitors", "guarantee": "created_at descending, no tiebreaker" },
+      { "subject": "GET /api/v1/channels", "guarantee": "created_at descending, no tiebreaker" },
+      { "subject": "GET /api/v1/monitors/{uuid}/alerts", "guarantee": "created_at descending, no tiebreaker" },
+      { "subject": "GET /api/v1/monitors/{uuid}/pings", "guarantee": "received_at descending then id descending; a total order, safe for keyset paging" }
+    ],
+    "idempotency": {
+      "header": "Idempotency-Key",
+      "applies_to": ["POST /api/v1/monitors", "POST /api/v1/channels"],
+      "fingerprint": "method, path and raw request body",
+      "in_flight_ttl_seconds": 60,
+      "replay_header": "Idempotency-Replayed: true",
+      "behaviours": [
+        { "condition": "same key, same fingerprint, first request still pending", "status": 409 },
+        { "condition": "same key, same fingerprint, first request finalised", "status": "the stored status", "note": "the stored body is replayed verbatim" },
+        { "condition": "same key, different fingerprint", "status": 409 },
+        { "condition": "first request failed with 4xx or 5xx", "effect": "the reservation is released, so a corrected retry proceeds" },
+        { "condition": "reservation older than the in-flight TTL", "effect": "reclaimed by one racer; the others get 409" }
+      ],
+      "hazards": [
+        {
+          "id": "zero-backoff-retry-409s",
+          "severity": "high",
+          "statement": "The reservation stays pending for the full TTL. A retry with no backoff therefore lands inside the window and gets a deterministic 409 while the resource was in fact created.",
+          "sdk_rule": "Creates are the single exception to the SDK's no-backoff retry policy: wait briefly, or on 409 re-read and reconcile rather than treating it as a failure."
+        },
+        {
+          "id": "replay-drops-location",
+          "severity": "low",
+          "statement": "A replayed create returns the stored body and status but not the original Location header.",
+          "sdk_rule": "Read the resource identifier out of the body, never out of Location."
+        },
+        {
+          "id": "fingerprint-is-byte-exact",
+          "severity": "medium",
+          "statement": "The fingerprint covers the raw body bytes, so re-serialising the same object with different key ordering or spacing is a different request under the same key and 409s.",
+          "sdk_rule": "Serialise once and retry the exact same bytes. A deterministic key derived from a canonical body makes this automatic."
+        }
+      ]
+    },
+    "constraints": {
+      "monitor.name": { "type": "string", "min_length": 2, "max_length": 120, "not_blank": true },
+      "monitor.schedule_kind": { "type": "string", "vocabulary": "schedule.kind", "not_blank": true },
+      "monitor.schedule_expr": { "type": "string", "max_length": 120, "not_blank": true },
+      "monitor.tz": {
+        "type": "string",
+        "max_length": 64,
+        "not_blank": true,
+        "default": "UTC",
+        "validation": "Must name a zone the server's timezone database can construct. Rejected as a schedule error, not as a field-format error."
+      },
+      "monitor.grace_seconds": {
+        "type": "integer",
+        "min": 0,
+        "max": 86400,
+        "default": 60,
+        "coercion": "A numeric value is truncated toward zero. A non-numeric value is ignored and the default (on create) or the current value (on update) is used."
+      },
+      "monitor.channel_ids": {
+        "type": "array",
+        "items": ["integer", "string"],
+        "default": [],
+        "semantics": "On create, absent or empty means the monitor alerts nobody. On update, present (even empty) replaces the routing wholesale; absent keeps it. A non-array value is rejected rather than ignored."
+      },
+      "schedule.cron": {
+        "dialect": "5-field",
+        "fields": ["minute", "hour", "day-of-month", "month", "day-of-week"],
+        "field_count": 5,
+        "aliases": ["@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"],
+        "alias_case_insensitive": true,
+        "whitespace": "Fields are split on any run of whitespace; repeated spaces and tabs collapse.",
+        "hazard": {
+          "id": "six-field-dialect-rejected",
+          "severity": "high",
+          "statement": "Fewer than 5 fields is rejected outright, and a 6th field is rejected as an invalid field position. The 6-field form with leading seconds that several popular schedulers accept is therefore a 422 here, reported as an invalid cron expression rather than as a dialect mismatch.",
+          "sdk_rule": "Detect the 6-field form client-side and reject it with a message that names the dialect. An adapter reading an expression out of a scheduler must do this before the monitor is ever created."
+        },
+        "note": "@reboot is not among the aliases and is rejected."
+      },
+      "schedule.interval": {
+        "type": "string",
+        "format": "^[0-9]+$",
+        "format_note": "ASCII digits only, as a string. No sign, no whitespace, no decimal point. The same ASCII-only digit test used on the ping surface, so a Unicode-aware digit test in a port would accept expressions the server rejects.",
+        "min_seconds": 30,
+        "max_seconds": 31622400,
+        "max_seconds_derivation": "366 days"
+      },
+      "schedule.simple": {
+        "openness": "closed",
+        "allowlist": [
+          "every_minute",
+          "every_5_minutes",
+          "every_10_minutes",
+          "every_15_minutes",
+          "every_30_minutes",
+          "hourly",
+          "every_2_hours",
+          "every_6_hours",
+          "daily",
+          "daily_morning",
+          "weekly",
+          "monthly"
+        ],
+        "count": 12,
+        "storage": "The token itself is stored in schedule_expr and returned unchanged on read. It is lowered to a cron expression only when the next run is computed.",
+        "hazard": {
+          "id": "simple-is-not-free-text",
+          "severity": "medium",
+          "statement": "This is a fixed token allowlist, not a natural-language parser. Free text is a 422.",
+          "sdk_rule": "Expose the allowlist as a closed union so a wrong token is a compile-time or wiring-time error."
+        }
+      },
+      "channel.label": { "type": "string", "min_length": 2, "max_length": 80, "not_blank": true },
+      "channel.kind": { "type": "string", "vocabulary": "channel.kind", "not_blank": true },
+      "channel.address": { "type": "string", "max_length": 254, "format": "email", "required_for_kinds": ["email"] },
+      "channel.chat_id": { "type": "string", "max_length": 32, "format": "^-?[0-9]+$", "required_for_kinds": ["telegram"] },
+      "channel.webhook_url": { "type": "string", "max_length": 500, "schemes": ["https"], "required_for_kinds": ["slack", "discord", "webhook"] },
+      "channel.secret": { "type": "string", "min_length": 16, "max_length": 200, "required_for_kinds": ["webhook"] },
+      "snooze.duration": { "type": "string", "vocabulary": "snooze.duration", "required": true },
+      "rotate_uuid.confirm": { "type": "string", "must_equal": "the monitor's current uuid" }
+    },
+    "read_shapes": {
+      "monitor": {
+        "keys": ["uuid", "name", "schedule_kind", "schedule_expr", "tz", "grace_seconds", "channels", "status", "next_expected_at", "snoozed_until", "last_ping_at", "created_at", "ping_url", "badge_url"],
+        "nullable": ["next_expected_at", "snoozed_until", "last_ping_at"],
+        "timestamps": "RFC 3339 with an explicit offset",
+        "absent_by_design": ["project", "failure_count", "last_duration_ms", "last_success_at", "last_started_at"]
+      },
+      "monitor.channels[]": {
+        "keys": ["id", "kind", "label"],
+        "absent_by_design": ["verified"],
+        "semantics": "Attachment, not deliverability. An attached channel that is not verified is skipped at send time, so an entry here is not a promise of delivery.",
+        "hazard": {
+          "id": "silent-monitor-needs-two-requests",
+          "severity": "high",
+          "statement": "Answering 'does this monitor alert anybody' requires intersecting the monitor's attached channels with the verified channels from a second request against the channels listing.",
+          "sdk_rule": "Refuse to create a monitor whose attached-and-verified set would be empty unless the caller opts out explicitly, and say so in reconciler and doctor output."
+        }
+      },
+      "channel": {
+        "keys": ["id", "kind", "label", "verified", "config", "created_at"],
+        "config_redaction": "The keys secret, webhook_url and url are replaced with a fixed mask when non-empty. A Slack or Discord destination URL therefore cannot be read back, only replaced.",
+        "secret_reveal": "A rotated webhook secret is returned in plaintext once, on the rotation response only."
+      },
+      "ping": {
+        "keys": ["id", "kind", "received_at", "runtime_ms"],
+        "nullable": ["runtime_ms"],
+        "absent_by_design": ["body_excerpt", "remote_ip", "user_agent"]
+      },
+      "alert": { "keys": ["id", "kind", "created_at", "dispatched_to"], "nullable": ["dispatched_to"] },
+      "account": {
+        "keys": ["plan", "monitor_budget", "api_rate_limit"],
+        "plan_keys": ["key", "label", "monitor_limit"],
+        "monitor_budget_keys": ["used", "limit", "remaining"],
+        "api_rate_limit_keys": ["limit", "remaining"],
+        "note": "Monitor budget is per account, summed across every project. Projects are an organisational boundary, not a billing one."
+      }
+    },
+    "openapi_document": {
+      "path": "/api/v1/openapi.json",
+      "auth": "none",
+      "cache_control": "public, max-age=300",
+      "covers": [
+        "monitor.name length bounds",
+        "monitor.grace_seconds range",
+        "the limit clamp and its default",
+        "read vocabularies for status, ping kind, alert kind, channel kind, schedule kind",
+        "the read-string / write-integer-or-string identifier asymmetry",
+        "the three pagination response shapes",
+        "the snooze duration allowlist"
+      ],
+      "does_not_cover": [
+        "anything about /ping: no route, no action mapping, no dedup rule, no body cap, no runtime header",
+        "the 12-token simple-schedule allowlist",
+        "the interval second bounds",
+        "the 5-field cron dialect",
+        "monitor.tz maximum length",
+        "channel address, chat id, webhook URL and secret constraints",
+        "the ordering guarantees",
+        "the idempotency semantics beyond a prose description",
+        "which statuses omit rate-limit headers"
+      ]
+    }
+  },
+
+  "non_goals": [
+    { "id": "no-exit-code-storage", "statement": "A stored ping has no exit-code field. The numeric action form conveys zero versus non-zero and nothing more." },
+    { "id": "no-project-on-monitor", "statement": "The monitor payload carries no project identifier and no endpoint reports the token's resolved project." },
+    { "id": "no-verified-on-monitor-channels", "statement": "The monitor's channel projection carries no verified flag." },
+    { "id": "no-name-lookup", "statement": "There is no exact-name filter on the monitors listing, and monitor names are not unique within a project. Resolving a name to a monitor means listing and scanning, and a duplicate name is ambiguous." },
+    { "id": "no-stable-problem-code", "statement": "Problem responses carry no machine-readable code extension." },
+    { "id": "no-ping-outcome-header", "statement": "The ping response carries no header distinguishing accepted from duplicate." },
+    { "id": "no-contract-negotiation", "statement": "The server publishes neither a contract version header nor a contract document, so a client cannot detect which contract version it is talking to." },
+    { "id": "no-ping-auth", "statement": "The ping route reads no Authorization header. An SDK must not send one." },
+    { "id": "no-server-push", "statement": "There is no subscription, long-poll or callback surface for monitor state." }
+  ],
+
+  "discrepancies": [
+    {
+      "id": "heartbeat-documented-as-success",
+      "where": "public documentation page",
+      "documented": "A bare ping with no action is equivalent to the success action.",
+      "actual": "It is recorded with kind heartbeat. The monitor-state effect is the same, but the stored kind differs and, because deduplication is keyed on kind, the two occupy different dedup buckets. A bare heartbeat and a success ping one second apart are both accepted.",
+      "impact": "A client that switches between the two forms changes both the stored history and the dedup behaviour."
+    },
+    {
+      "id": "body-cap-documented-in-kb",
+      "where": "public documentation page",
+      "documented": "Up to 10KB of output; anything past 10KB is truncated.",
+      "actual": "The cap is 10000 bytes, not 10240.",
+      "impact": "240 bytes. Only matters to a test asserting the exact boundary."
+    },
+    {
+      "id": "dedup-documented-as-a-duration",
+      "where": "public documentation page",
+      "documented": "Idempotent within a 2-second window.",
+      "actual": "Whole-second timestamp subtraction with a strict less-than-2 test, keyed on monitor and kind rather than on the request as a whole.",
+      "impact": "The effective window varies between just over 1 second and just under 2 depending on where the first ping fell inside its second."
+    },
+    {
+      "id": "simple-documented-as-free-text",
+      "where": "public API documentation page",
+      "documented": "schedule_kind simple takes an expression such as a natural-language time-of-day phrase.",
+      "actual": "A closed 12-token allowlist. The documented example is a 422.",
+      "impact": "High: the documented example does not work."
+    },
+    {
+      "id": "simple-documented-as-free-text-in-code",
+      "where": "server source documentation on the schedule-kind type",
+      "documented": "Free-form one-shot text, lowered to cron at validation time.",
+      "actual": "A fixed allowlist, and the token (not the lowered cron) is what is stored and returned.",
+      "impact": "The same error as above, repeated where a maintainer is most likely to trust it."
+    },
+    {
+      "id": "schedule-expr-storage-documented-as-cron",
+      "where": "server source documentation on the monitor's schedule expression field",
+      "documented": "For the simple kind, a lowered cron string is stored.",
+      "actual": "The allowlist token is stored verbatim.",
+      "impact": "A reconciler that expected to diff a cron string against the stored value would see a permanent difference."
+    }
+  ],
+
+  "anchors": [
+    { "id": "ping.body.cap_bytes", "pointer": "/ping/body/cap_bytes", "value": 10000 },
+    { "id": "ping.action.pattern", "pointer": "/ping/routes/1/action_pattern", "value": "^[a-zA-Z0-9_-]{1,16}$" },
+    { "id": "ping.uuid.pattern", "pointer": "/ping/routes/0/uuid_pattern", "value": "^[0-9a-fA-F-]{36}$" },
+    { "id": "ping.dedup.window_seconds", "pointer": "/ping/dedup/window_seconds", "value": 2 },
+    { "id": "ping.runtime_header.name", "pointer": "/ping/runtime_header/name", "value": "X-Cronheart-Runtime-Ms" },
+    { "id": "ping.runtime_header.max_value", "pointer": "/ping/runtime_header/max_value", "value": 86400000 },
+    { "id": "body_truncation.marker", "pointer": "/body_truncation/marker", "value": "\n[truncated by SDK]" },
+    { "id": "body_truncation.budget_bytes", "pointer": "/body_truncation/budget_bytes", "value": 9981 },
+    { "id": "api.pagination.limit_max", "pointer": "/api/pagination/limit_clamp/max", "value": 100 },
+    { "id": "api.pagination.limit_default", "pointer": "/api/pagination/limit_clamp/default", "value": 50 },
+    { "id": "api.idempotency.ttl_seconds", "pointer": "/api/idempotency/in_flight_ttl_seconds", "value": 60 },
+    { "id": "constraints.monitor.name.max", "pointer": "/api/constraints/monitor.name/max_length", "value": 120 },
+    { "id": "constraints.grace.max", "pointer": "/api/constraints/monitor.grace_seconds/max", "value": 86400 },
+    { "id": "constraints.interval.min", "pointer": "/api/constraints/schedule.interval/min_seconds", "value": 30 },
+    { "id": "constraints.interval.max", "pointer": "/api/constraints/schedule.interval/max_seconds", "value": 31622400 },
+    { "id": "constraints.simple.allowlist", "pointer": "/api/constraints/schedule.simple/allowlist" },
+    { "id": "constraints.cron.field_count", "pointer": "/api/constraints/schedule.cron/field_count", "value": 5 },
+    { "id": "vocabulary.snooze", "pointer": "/vocabularies/snooze.duration/members" },
+    { "id": "vocabulary.channel_kind", "pointer": "/vocabularies/channel.kind/members" },
+    { "id": "vocabulary.monitor_status", "pointer": "/vocabularies/monitor.status/members" },
+    { "id": "vocabulary.ping_kind", "pointer": "/vocabularies/ping.kind/members" },
+    { "id": "vocabulary.plan_key", "pointer": "/vocabularies/plan.key/members" }
+  ],
+
+  "anchors_note": "Each entry names a value an SDK is expected to hold as a constant. A per-SDK test reads this file and asserts equality, which is the only coverage several of these facts have: the published OpenAPI document describes none of the ping surface and only part of the validation surface. See contract/README.md for what that leaves uncovered."
+}

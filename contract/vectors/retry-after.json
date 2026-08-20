@@ -1,0 +1,134 @@
+{
+  "contract_version": "1.0.0",
+  "group": "http.retry_after",
+  "default_subject": "http.parseRetryAfter",
+  "description": "Retry-After parsing. The server only ever emits delta-seconds with a minimum of 1, on the rate-limited responses of both the ping route and the REST API. The date forms are here because an intermediary may rewrite the header and because the HTTP specification requires a recipient to accept all of them. The parsed value is reported to the caller and never used to schedule an automatic retry: a rate-limited response is not retried. Every case supplies its own clock, so no vector reads a real one.",
+  "case_count": 21,
+  "cases": [
+    {
+      "id": "delta-seconds",
+      "input": { "header": "5", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 5 }]
+    },
+    {
+      "id": "delta-seconds-zero",
+      "input": { "header": "0", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 0 }],
+      "why": "Zero is a valid delta and must not be confused with absent. A parser that returns a falsy value for both makes 'retry now' indistinguishable from 'no guidance'."
+    },
+    {
+      "id": "delta-seconds-leading-zeros",
+      "input": { "header": "007", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 7 }]
+    },
+    {
+      "id": "delta-seconds-surrounding-whitespace",
+      "input": { "header": "  7  ", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 7 }],
+      "why": "Optional whitespace around a header value is stripped by the framing rules, but a client reading a raw header map may still see it."
+    },
+    {
+      "id": "delta-seconds-max-in-range",
+      "input": { "header": "2147483647", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 2147483647 }]
+    },
+    {
+      "id": "delta-seconds-out-of-range",
+      "input": { "header": "2147483648", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": null }],
+      "why": "One over the range. Reporting an absurd value is worse than reporting none: it will be rendered to a user or fed to a sleep."
+    },
+    {
+      "id": "delta-seconds-negative",
+      "input": { "header": "-3", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": null }],
+      "why": "delta-seconds is a run of digits with no sign, so this is not a delta at all — unlike a past date, which is a valid header that clamps to 0."
+    },
+    {
+      "id": "delta-seconds-leading-plus",
+      "input": { "header": "+5", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": null }]
+    },
+    {
+      "id": "delta-seconds-fractional",
+      "input": { "header": "3.5", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": null }],
+      "why": "A permissive numeric parse accepts this and yields 3.5, which then reaches a caller that expects an integer."
+    },
+    {
+      "id": "delta-seconds-non-ascii-digit",
+      "input": { "header": "٥", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": null }],
+      "why": "The same ASCII-only digit rule the ping surface uses, applied here for consistency across the fleet. A language whose integer parser or digit predicate is Unicode-aware would otherwise read this as 5."
+    },
+    {
+      "id": "empty-header",
+      "input": { "header": "", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": null }]
+    },
+    {
+      "id": "absent-header",
+      "input": { "header": null, "now": "2026-08-20T12:00:00Z" },
+      "expect": [
+        { "predicate": "equals", "path": "/seconds", "value": null },
+        { "predicate": "throwsNothing" }
+      ]
+    },
+    {
+      "id": "unparseable-word",
+      "input": { "header": "soon", "now": "2026-08-20T12:00:00Z" },
+      "expect": [
+        { "predicate": "equals", "path": "/seconds", "value": null },
+        { "predicate": "throwsNothing" }
+      ],
+      "why": "Header parsing never throws. A malformed header on an error response must not turn into a second, different error."
+    },
+    {
+      "id": "imf-fixdate-future",
+      "input": { "header": "Thu, 20 Aug 2026 12:00:07 GMT", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 7 }],
+      "why": "The preferred date form."
+    },
+    {
+      "id": "imf-fixdate-equal-to-now",
+      "input": { "header": "Thu, 20 Aug 2026 12:00:00 GMT", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 0 }]
+    },
+    {
+      "id": "imf-fixdate-in-the-past",
+      "input": { "header": "Thu, 20 Aug 2026 11:59:53 GMT", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 0 }],
+      "why": "Clock skew between the server and the client routinely produces this. It clamps to 0, never to a negative number and never to null."
+    },
+    {
+      "id": "imf-fixdate-rounds-down",
+      "input": { "header": "Thu, 20 Aug 2026 12:00:07 GMT", "now": "2026-08-20T11:59:59.400Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 7 }],
+      "why": "7.6 seconds of real distance rounds down to 7 whole seconds. Rounding up here would be defensible; the contract picks down so both languages agree, and the caller is told this is a floor."
+    },
+    {
+      "id": "imf-fixdate-without-timezone",
+      "input": { "header": "Thu, 20 Aug 2026 12:00:07", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": null }],
+      "why": "The zone token is mandatory and is always GMT. A lenient date parser will read this as local time and produce an answer that is wrong by the host's UTC offset — silently correct in CI and wrong in production."
+    },
+    {
+      "id": "imf-fixdate-far-future-out-of-range",
+      "input": { "header": "Fri, 01 Jan 9999 00:00:00 GMT", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": null }],
+      "why": "The range rule applies to the date branch too, not only to the delta branch."
+    },
+    {
+      "id": "rfc850-obsolete-form",
+      "input": { "header": "Thursday, 20-Aug-26 12:00:07 GMT", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 7 }],
+      "why": "Obsolete, two-digit year, and still required to be accepted on receipt."
+    },
+    {
+      "id": "asctime-obsolete-form",
+      "input": { "header": "Wed Sep  2 12:00:07 2026", "now": "2026-08-20T12:00:00Z" },
+      "expect": [{ "predicate": "equals", "path": "/seconds", "value": 1123207 }],
+      "why": "The third required form, with the double space that pads a single-digit day. No zone token appears in it; it is GMT by definition."
+    }
+  ]
+}
