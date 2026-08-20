@@ -1,5 +1,6 @@
 import type { CreateOptions, CronheartApi, RequestOptions } from '../api/types.js'
-import { describeApiRefusal, refusesEverything } from './refusal.js'
+import { whyPruningIsUnsafe } from './prune.js'
+import { describeApiRefusal, refusesEveryCreate, refusesEverything } from './refusal.js'
 import type {
   AppliedMonitor,
   ApplyOptions,
@@ -9,6 +10,9 @@ import type {
   SyncResult,
 } from './types.js'
 
+const NO_MORE_CREATES =
+  'skipped — the refusal above is about this account rather than about one monitor, and it would refuse every remaining create of this run the same way. Nothing was created for this row.'
+
 interface Progress {
   readonly created: AppliedMonitor[]
   readonly updated: AppliedMonitor[]
@@ -16,6 +20,8 @@ interface Progress {
   readonly unchanged: AppliedMonitor[]
   readonly failures: SyncFailure[]
   stopped: boolean
+  creatingIsPointless: boolean
+  pruneSkipped: string | undefined
 }
 
 function record(progress: Progress, row: PlanRow, error: unknown): void {
@@ -27,6 +33,10 @@ function record(progress: Progress, row: PlanRow, error: unknown): void {
 
   if (refusesEverything(error)) {
     progress.stopped = true
+  }
+
+  if (row.action === 'create' && refusesEveryCreate(error)) {
+    progress.creatingIsPointless = true
   }
 }
 
@@ -61,6 +71,8 @@ export async function applySync(
     unchanged: [],
     failures: [],
     stopped: false,
+    creatingIsPointless: false,
+    pruneSkipped: undefined,
   }
 
   unresolved(plan.rows, progress)
@@ -76,6 +88,12 @@ export async function applySync(
     }
 
     if (row.action === 'create') {
+      if (progress.creatingIsPointless) {
+        progress.failures.push({ name: row.name, action: row.action, message: NO_MORE_CREATES })
+
+        continue
+      }
+
       const create: CreateOptions = { ...request, idempotencyKey: row.idempotencyKey }
 
       try {
@@ -107,12 +125,14 @@ export async function applySync(
     unchanged: progress.unchanged,
     failures: progress.failures,
     stopped: progress.stopped,
+    pruneSkipped: progress.pruneSkipped,
   }
 }
 
-// Deleting a monitor destroys its history and cannot be undone, so it takes two decisions
-// that are not the same decision: asking for pruning, and confirming it once the orphans are
-// known. Nothing is asked for when there is nothing to delete.
+// Deleting a monitor destroys its history and cannot be undone, so it takes three decisions
+// that are not the same decision: asking for pruning, the rest of the run having landed, and
+// confirming it once the orphans are known. Nothing is asked for when there is nothing to
+// delete, and nothing is asked for when there is no longer anything to replace what would go.
 async function prune(
   api: CronheartApi,
   plan: SyncPlan,
@@ -124,7 +144,16 @@ async function prune(
     row.action === 'orphan',
   )
 
-  if (options.prune === undefined || orphans.length === 0 || progress.stopped) {
+  if (options.prune === undefined || orphans.length === 0) {
+    return
+  }
+
+  // A refusal that stopped the run is a recorded failure too, so the rule below covers it.
+  const unsafe = whyPruningIsUnsafe(plan, progress.failures.length)
+
+  if (unsafe !== undefined) {
+    progress.pruneSkipped = unsafe
+
     return
   }
 

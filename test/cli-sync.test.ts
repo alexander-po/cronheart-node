@@ -180,31 +180,41 @@ describe('deleting a monitor is the one thing sync will not do on being asked on
   })
 
   it('prunes when the confirmation is given in writing', async () => {
-    store.monitors.push(monitorRow({ name: 'retired' }))
+    store.monitors.push(
+      monitorRow({ name: 'kept' }),
+      monitorRow({ name: 'retired', uuid: '00000000-0000-4000-8000-0000000000b2' }),
+    )
 
-    const config = jsonConfig([])
+    const config = jsonConfig([
+      { name: 'kept', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
     const ran = await runCli(['sync', `--config=${config}`, '--apply', '--prune', '--yes'], {
       env: envFor(),
     })
 
     expect(ran.status).toBe(0)
-    expect(store.monitors).toEqual([])
+    expect(store.monitors.map((monitor) => monitor.name)).toEqual(['kept'])
     expect(ran.stdout).toContain('retired')
   })
 
   // The interactive half of the same decision: at a terminal the confirmation is typed, and
   // anything but the word leaves every monitor where it is.
   it('asks at a terminal, and keeps the monitor when the answer is not the word', async () => {
-    store.monitors.push(monitorRow({ name: 'retired' }))
+    store.monitors.push(
+      monitorRow({ name: 'kept' }),
+      monitorRow({ name: 'retired', uuid: '00000000-0000-4000-8000-0000000000b2' }),
+    )
 
-    const config = jsonConfig([])
+    const config = jsonConfig([
+      { name: 'kept', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
     const refused = await runCliUnderTerminal(
       ['sync', `--config=${config}`, '--apply', '--prune'],
       { env: envFor(), input: 'no\n' },
     )
 
     expect(refused.stdout).toContain('retired')
-    expect(store.monitors).toHaveLength(1)
+    expect(store.monitors).toHaveLength(2)
 
     const agreed = await runCliUnderTerminal(
       ['sync', `--config=${config}`, '--apply', '--prune'],
@@ -212,7 +222,7 @@ describe('deleting a monitor is the one thing sync will not do on being asked on
     )
 
     expect(agreed.stdout).toContain('retired')
-    expect(store.monitors).toEqual([])
+    expect(store.monitors.map((monitor) => monitor.name)).toEqual(['kept'])
   })
 
   it('says what will be lost before it asks', async () => {
@@ -345,5 +355,65 @@ describe('the shapes a configuration file can be written in', () => {
 
     expect(ran.status).toBe(0)
     expect(store.monitors.map((monitor) => monitor.name)).toEqual(['a-job'])
+  })
+})
+
+describe('what the command will not delete', () => {
+  it('offers no confirmation at all once a row of the plan is a fault', async () => {
+    store.monitors.push(monitorRow({ name: 'old-name' }))
+
+    const config = jsonConfig([
+      { name: 'new-name', schedule: '0 3 * * *', channels: ['ops inbxo'] },
+    ])
+    const ran = await runCli(['sync', `--config=${config}`, '--apply', '--prune', '--yes'], {
+      env: envFor(),
+    })
+
+    expect(store.monitors.map((monitor) => monitor.name)).toEqual(['old-name'])
+    expect(methodsSeen()).not.toContain('DELETE')
+    expect(ran.status).toBe(1)
+  })
+
+  it('deletes nothing for a configuration that describes no monitors, even with --yes', async () => {
+    store.monitors.push(monitorRow({ name: 'retired' }))
+
+    const config = jsonConfig([])
+    const ran = await runCli(['sync', `--config=${config}`, '--apply', '--prune', '--yes'], {
+      env: envFor(),
+    })
+
+    expect(store.monitors).toHaveLength(1)
+    expect(methodsSeen()).not.toContain('DELETE')
+    expect(`${ran.stdout}${ran.stderr}`).toContain('describes no monitors')
+  })
+
+  // Under --yes there is nobody to ask, which is exactly why the sentence saying what is
+  // about to be destroyed has to be written anyway — it is the only record the run leaves.
+  it('says what deleting costs before it deletes, whether or not it asked', async () => {
+    store.monitors.push(monitorRow({ name: 'retired' }))
+
+    const config = jsonConfig([
+      { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
+    const ran = await runCli(['sync', `--config=${config}`, '--apply', '--prune', '--yes'], {
+      env: envFor(),
+    })
+
+    expect(store.monitors.map((monitor) => monitor.name)).toEqual(['nightly-backup'])
+    expect(ran.stdout).toContain('history')
+    expect(ran.stdout).toContain('1 of the 1 monitor(s)')
+  })
+
+  it('says why the deletion was skipped rather than leaving the orphan unexplained', async () => {
+    store.monitors.push(monitorRow({ name: 'old-name' }))
+
+    const config = jsonConfig([
+      { name: 'new-name', schedule: '0 3 * * *', channels: ['ops inbxo'] },
+    ])
+    const ran = await runCli(['sync', `--config=${config}`, '--apply', '--prune', '--yes'], {
+      env: envFor(),
+    })
+
+    expect(`${ran.stdout}${ran.stderr}`).toContain('nothing was deleted')
   })
 })

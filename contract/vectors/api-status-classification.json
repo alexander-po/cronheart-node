@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.0.0",
+  "contract_version": "2.1.0",
   "group": "api.status_classification",
   "default_subject": "api.classifyStatus",
   "description": "How a management-API response status becomes an error class. The service publishes no machine-readable code: every problem response carries type about:blank, three unrelated conditions share the 409, and the 401 detail is a translation key rather than prose. Status is therefore the only input, and these cases exist to keep it that way — several of them vary nothing but the detail string and assert the class does not move.",

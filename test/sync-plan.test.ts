@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { applySync } from '../src/sync/apply.js'
 import { planSync } from '../src/sync/plan.js'
 import { renderPlan } from '../src/sync/render.js'
 import type { PlanRow, PlannedCreate, PlannedUpdate, SyncPlan } from '../src/sync/types.js'
@@ -273,5 +274,205 @@ describe('what a plan prints', () => {
 
     expect(plan.scopeNotice).toContain('project')
     expect(renderPlan(plan)).toContain('project')
+  })
+})
+
+describe('a digits-only reference is not automatically an identifier', () => {
+  // The service's own rule for a label is a length and nothing else, so a label of digits is
+  // legal — and reading one as an identifier drops the intended recipient and pages another.
+  it('reads it as the label a channel actually carries', async () => {
+    const store = createMonitorStore(
+      [],
+      [
+        channelRow({ id: '7', label: '12', verified: true }),
+        channelRow({
+          id: '99',
+          label: 'archive',
+          verified: true,
+          created_at: '2026-08-02T09:00:00.000Z',
+        }),
+      ],
+    )
+    const plan = await planSync(apiFor(store), [
+      { name: 'a-job', schedule: '@daily', channels: ['12'] },
+    ])
+
+    expect((rowFor(plan, 'a-job') as PlannedCreate).request.channelIds).toEqual(['7'])
+  })
+
+  it('refuses it when it is one channel’s label and another channel’s identifier', async () => {
+    const store = createMonitorStore(
+      [],
+      [
+        channelRow({ id: '7', label: '12', verified: true }),
+        channelRow({
+          id: '12',
+          label: 'archive',
+          verified: true,
+          created_at: '2026-08-02T09:00:00.000Z',
+        }),
+        channelRow({
+          id: '99',
+          label: 'other',
+          verified: true,
+          created_at: '2026-08-03T09:00:00.000Z',
+        }),
+      ],
+    )
+    const plan = await planSync(apiFor(store), [
+      { name: 'ambiguous', schedule: '@daily', channels: ['12'] },
+      { name: 'unambiguous', schedule: '@daily', channels: ['archive'] },
+    ])
+
+    expect(rowFor(plan, 'ambiguous').action).toBe('refused')
+    expect(rowFor(plan, 'unambiguous').action).toBe('create')
+  })
+
+  it('still reads a reference no label answers to as the identifier it is', async () => {
+    const store = createMonitorStore([], [VERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'by-id', schedule: '@daily', channels: ['7'] },
+      { name: 'by-number', schedule: '@daily', channels: [7] },
+    ])
+
+    for (const name of ['by-id', 'by-number']) {
+      expect((rowFor(plan, name) as PlannedCreate).request.channelIds).toEqual(['7'])
+    }
+  })
+})
+
+describe('an update that would leave a monitor alerting nobody', () => {
+  // The exemption belongs to a configuration that says nothing about channels: that silence is
+  // not this run's doing. A configuration that names them and resolves to nothing verified is
+  // this run's doing, whether the monitor existed beforehand or not.
+  it('is refused when the configuration names channels and none of them is verified', async () => {
+    const store = createMonitorStore([monitorRow({ channel_ids: ['7'] })], [VERIFIED, UNVERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['pager'] },
+    ])
+
+    expect(rowFor(plan, 'nightly-backup').action).toBe('refused')
+    expect(plan.faults).toBe(true)
+  })
+
+  it('is refused before a request exists, so the routing on the service is untouched', async () => {
+    const store = createMonitorStore([monitorRow({ channel_ids: ['7'] })], [VERIFIED, UNVERIFIED])
+    const api = apiFor(store)
+    const plan = await planSync(api, [
+      { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['pager'] },
+    ])
+
+    await applySync(api, plan)
+
+    expect(store.requests.filter((request) => request.method === 'PATCH')).toEqual([])
+    expect(store.monitors[0]?.channel_ids).toEqual(['7'])
+  })
+
+  it('is allowed on an existing monitor when the configuration wrote the word none', async () => {
+    const store = createMonitorStore([monitorRow({ channel_ids: ['7'] })], [VERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'nightly-backup', schedule: '0 3 * * *', channels: 'none' },
+    ])
+
+    expect(rowFor(plan, 'nightly-backup').action).toBe('update')
+  })
+
+  it('leaves a monitor already silent before this run a report rather than a refusal', async () => {
+    const store = createMonitorStore([monitorRow({ channel_ids: ['9'] })], [UNVERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'nightly-backup', schedule: '0 4 * * *' },
+    ])
+
+    expect(rowFor(plan, 'nightly-backup').action).toBe('update')
+  })
+})
+
+describe('a monitor that cannot alert whatever is attached to it', () => {
+  // A paused monitor is never considered by the lateness scan and a live snooze suppresses
+  // delivery, so naming the channels beside either reads as a promise the service will not keep.
+  it('says a paused monitor is not scanned, rather than naming channels it will not use', async () => {
+    const store = createMonitorStore(
+      [monitorRow({ status: 'paused', channel_ids: ['7'] })],
+      [VERIFIED],
+    )
+    const plan = await planSync(apiFor(store), [
+      { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
+    const printed = renderPlan(plan)
+
+    expect(printed).toContain('paused')
+    expect(printed).not.toContain('ops inbox (email)')
+  })
+
+  it('says a live snooze suppresses delivery until it ends', async () => {
+    const store = createMonitorStore(
+      [
+        monitorRow({
+          channel_ids: ['7'],
+          snoozed_until: new Date(Date.now() + 3_600_000).toISOString(),
+        }),
+      ],
+      [VERIFIED],
+    )
+    const plan = await planSync(apiFor(store), [
+      { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
+    const printed = renderPlan(plan)
+
+    expect(printed).toContain('snooze')
+    expect(printed).not.toContain('ops inbox (email)')
+  })
+
+  it('names the channels again once the snooze has passed', async () => {
+    const store = createMonitorStore(
+      [
+        monitorRow({
+          channel_ids: ['7'],
+          snoozed_until: new Date(Date.now() - 3_600_000).toISOString(),
+        }),
+      ],
+      [VERIFIED],
+    )
+    const plan = await planSync(apiFor(store), [
+      { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
+
+    expect(renderPlan(plan)).toContain('ops inbox (email)')
+  })
+})
+
+describe('how visible a row that alerts nobody is', () => {
+  it('counts them in the tally rather than leaving the fact to the end of the longest line', async () => {
+    const store = createMonitorStore(
+      [
+        monitorRow({ name: 'silent', channel_ids: [] }),
+        monitorRow({
+          name: 'paused-one',
+          uuid: '00000000-0000-4000-8000-0000000000b2',
+          status: 'paused',
+        }),
+        monitorRow({ name: 'healthy', uuid: '00000000-0000-4000-8000-0000000000b3' }),
+      ],
+      [VERIFIED],
+    )
+    const plan = await planSync(apiFor(store), [
+      { name: 'silent', schedule: '0 3 * * *' },
+      { name: 'paused-one', schedule: '0 3 * * *' },
+      { name: 'healthy', schedule: '0 3 * * *' },
+    ])
+
+    expect(plan.silent).toBe(2)
+    expect(renderPlan(plan)).toContain('2 alert nobody')
+  })
+
+  it('marks the rows themselves, so the count can be traced to which ones', async () => {
+    const store = createMonitorStore([monitorRow({ name: 'silent', channel_ids: [] })], [VERIFIED])
+    const plan = await planSync(apiFor(store), [{ name: 'silent', schedule: '0 3 * * *' }])
+    const marked = renderPlan(plan)
+      .split('\n')
+      .filter((line) => line.includes('silent'))
+
+    expect(marked).toHaveLength(1)
+    expect(marked[0]?.startsWith('  ')).toBe(false)
   })
 })

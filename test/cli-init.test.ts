@@ -14,7 +14,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { muteEchoWhile, upsertEnvLine } from '../src/cli/init.js'
 import { type ApiServer, startApiServer } from './support/api-server.js'
 import { MONITOR_ID, type PingServer, runCli, startPingServer } from './support/cli.js'
-import { type MonitorStore, channelRow, createMonitorStore } from './support/monitor-store.js'
+import {
+  type MonitorStore,
+  channelRow,
+  createMonitorStore,
+  monitorRow,
+} from './support/monitor-store.js'
 
 function modeOf(path: string): string {
   return (statSync(path).mode & 0o777).toString(8)
@@ -225,6 +230,74 @@ describe('cronheart init and the paid path', () => {
     expect(ran.status).toBe(0)
     expect(store.monitors).toEqual([])
     expect(readFileSync(envFile(), 'utf8')).toContain(MONITOR_ID)
+  })
+
+  // Its own closing advice suggests running it again, so running it again has to be safe: a
+  // second monitor of one name is the conflict the reconciler calls unresolvable.
+  it('reuses the monitor a previous run created instead of making a second of that name', async () => {
+    const first = await runCli(
+      ['init', '--name=nightly-backup', '--schedule=0 3 * * *', `--env-path=${envFile()}`],
+      { env: paidEnv() },
+    )
+
+    // Swept, so the key that would replay the first create cannot be what stops the second:
+    // the replay is a window, and re-running the day after is the case this is about.
+    store.sweepFinalisedKeys()
+
+    const second = await runCli(
+      ['init', '--name=nightly-backup', '--schedule=0 3 * * *', `--env-path=${envFile()}`],
+      { env: paidEnv() },
+    )
+
+    expect(first.status).toBe(0)
+    expect(second.status).toBe(0)
+    expect(store.monitors).toHaveLength(1)
+    expect(readFileSync(envFile(), 'utf8')).toContain(store.monitors[0]?.uuid ?? 'no monitor')
+  })
+
+  it('refuses rather than guessing when the account already carries that name twice', async () => {
+    store.monitors.push(
+      monitorRow({ name: 'twice', uuid: '00000000-0000-4000-8000-0000000000d1' }),
+      monitorRow({ name: 'twice', uuid: '00000000-0000-4000-8000-0000000000d2' }),
+    )
+
+    const ran = await runCli(
+      ['init', '--name=twice', '--schedule=@daily', `--env-path=${envFile()}`],
+      { env: paidEnv() },
+    )
+
+    expect(ran.status).toBe(1)
+    expect(store.monitors).toHaveLength(2)
+    expect(`${ran.stdout}${ran.stderr}`).toContain('two')
+  })
+
+  // The service fingerprints the raw body bytes, so one set of channels in two orders is two
+  // bodies under one key, which it answers as a conflict.
+  it('sends the channels in the order the key was derived over', async () => {
+    store.channels.push(
+      channelRow({
+        id: '12',
+        label: 'archive',
+        verified: true,
+        created_at: '2026-08-01T09:00:00.000Z',
+      }),
+      channelRow({
+        id: '9',
+        label: 'pager',
+        verified: true,
+        created_at: '2026-08-01T09:00:00.000Z',
+      }),
+    )
+
+    await runCli(['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`], {
+      env: paidEnv(),
+    })
+
+    const created = store.requests.find(
+      (request) => request.method === 'POST' && request.path === '/api/v1/monitors',
+    )
+
+    expect((created?.body as { channel_ids?: string[] })?.channel_ids).toEqual(['7', '9', '12'])
   })
 
   it('says the plan a REST token needs in its own words, and falls back to pasting an id', async () => {

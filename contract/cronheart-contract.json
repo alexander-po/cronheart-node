@@ -1,8 +1,8 @@
 {
-  "contract_version": "2.0.0",
+  "contract_version": "2.1.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
-  "verified_on": "2026-08-20",
+  "verified_on": "2026-08-21",
   "layers": {
     "server": "Enforced by the Cronheart service. Changing it is a server change and must bump this contract.",
     "client-convention": "Not enforced by the server. A rule every official SDK implements identically so that behaviour is portable across languages. Changing it is an SDK-fleet change."
@@ -552,6 +552,9 @@
       "applies_to": ["POST /api/v1/monitors", "POST /api/v1/channels"],
       "fingerprint": "method, path and raw request body",
       "in_flight_ttl_seconds": 60,
+      "finalised_retention_hours": 24,
+      "guaranteed_replay_window_hours": 24,
+      "retention_note": "A finalised reservation is an ordinary stored row, removed by a periodic sweep on a 24-hour cutoff rather than kept. Actual survival is therefore 24 to 48 hours depending on where the create falls relative to the sweep, and only the first 24 are guaranteed.",
       "max_key_length": 255,
       "replay_header": "Idempotency-Replayed: true",
       "behaviours": [
@@ -559,7 +562,8 @@
         { "condition": "same key, same fingerprint, first request finalised", "status": "the stored status", "note": "the stored body is replayed verbatim" },
         { "condition": "same key, different fingerprint", "status": 409 },
         { "condition": "first request failed with 4xx or 5xx", "effect": "the reservation is released, so a corrected retry proceeds" },
-        { "condition": "reservation older than the in-flight TTL", "effect": "reclaimed by one racer; the others get 409" }
+        { "condition": "reservation older than the in-flight TTL", "effect": "reclaimed by one racer; the others get 409" },
+        { "condition": "reservation finalised longer ago than the retention cutoff", "effect": "the record is swept, so a repeat under the same key is executed rather than replayed" }
       ],
       "hazards": [
         {
@@ -579,6 +583,12 @@
           "severity": "high",
           "statement": "A present but empty Idempotency-Key header is read as no key at all: the request runs unguarded, and a retry under the same empty key creates a second resource rather than replaying the first.",
           "sdk_rule": "Treat a blank key as absent for both the header and the retry decision, so a create carrying one is never retried."
+        },
+        {
+          "id": "replay-is-a-window-not-a-property",
+          "severity": "medium",
+          "statement": "The anti-duplicate guarantee expires with the stored reservation. Past the retention cutoff a repeated create runs for real, and the listing is the only remaining defence — the same listing that can skip a row, because it is offset-paged over a creation-time order with no tiebreaker.",
+          "sdk_rule": "State the guarantee as a window rather than a property, and match an existing resource by name before creating rather than relying on the key alone. A test double that replays a key forever validates a stronger claim than the service makes."
         },
         {
           "id": "fingerprint-is-byte-exact",
@@ -674,7 +684,12 @@
         "keys": ["uuid", "name", "schedule_kind", "schedule_expr", "tz", "grace_seconds", "channels", "status", "next_expected_at", "snoozed_until", "last_ping_at", "created_at", "ping_url", "badge_url"],
         "nullable": ["next_expected_at", "snoozed_until", "last_ping_at"],
         "timestamps": "RFC 3339 with an explicit offset",
-        "absent_by_design": ["project", "failure_count", "last_duration_ms", "last_success_at", "last_started_at"]
+        "absent_by_design": ["project", "failure_count", "last_duration_ms", "last_success_at", "last_started_at"],
+        "delivery_suppression": {
+          "fields": ["status", "snoozed_until"],
+          "statement": "Two fields on this shape decide whether an alert is ever sent, and neither is a schedule or a routing field: a monitor whose status is paused is not considered by the lateness scan at all, and a snoozed_until in the future suppresses delivery until it passes.",
+          "sdk_rule": "A report that names a monitor's channels must say when neither can reach anybody, rather than listing channels the service will not use. Neither field is managed by a reconciler, so this is a report correction and never a diff or a refusal."
+        }
       },
       "monitor.channels[]": {
         "keys": ["id", "kind", "label"],
@@ -834,7 +849,8 @@
     { "id": "vocabulary.schedule_kind", "pointer": "/vocabularies/schedule.kind/members" },
     { "id": "api.base_path", "pointer": "/api/base_path", "value": "/api/v1" },
     { "id": "api.auth.token_prefix", "pointer": "/api/auth/token_prefix", "value": "cmk_" },
-    { "id": "api.pagination.max_pages", "pointer": "/api/pagination/max_pages_guard", "value": 10000 }
+    { "id": "api.pagination.max_pages", "pointer": "/api/pagination/max_pages_guard", "value": 10000 },
+    { "id": "api.idempotency.finalised_retention_hours", "pointer": "/api/idempotency/finalised_retention_hours", "value": 24 }
   ],
 
   "anchors_note": "Each entry names a value an SDK is expected to hold as a constant. A per-SDK test reads this file and asserts equality, which is the only coverage several of these facts have: the published OpenAPI document describes none of the ping surface and only part of the validation surface. See contract/README.md for what that leaves uncovered."

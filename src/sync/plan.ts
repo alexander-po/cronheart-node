@@ -10,6 +10,7 @@ import { defineMonitors } from './define.js'
 import { idempotencyKeyFor } from './key.js'
 import { resolveChannels, routingKeys, verifiedAmong } from './routing.js'
 import type {
+  AlertSuppression,
   DefinedMonitor,
   FieldChange,
   PlanAction,
@@ -29,9 +30,9 @@ export const SCOPE_NOTICE =
 const SAY_SO_INSTEAD =
   "Attach a channel this account has verified, or write channels: 'none' to say that a monitor nobody is alerted about is what you meant."
 
-// The web form pre-selects the account's verified channels and this surface attaches none by
-// itself, so the two ways to reach a monitor nothing ever alerts about read very differently
-// and neither is visible in what the service would answer.
+// The two ways to reach a monitor nothing ever alerts about read very differently, and
+// neither is visible in what the service would answer. Silence a configuration did not ask
+// for is refused; silence that was already there when the run started is only reported.
 function nobodyReason(routing: ResolvedRouting, channels: readonly Channel[]): string {
   if (routing.mode !== 'listed') {
     return `would alert nobody: this configuration says nothing about channels, and creating a monitor over the API attaches none — unlike the form in the dashboard, which pre-selects them. ${SAY_SO_INSTEAD}`
@@ -41,7 +42,7 @@ function nobodyReason(routing: ResolvedRouting, channels: readonly Channel[]): s
     .filter((channel) => routing.ids.includes(channel.id))
     .map((channel) => channel.label)
 
-  return `would alert nobody: ${named.join(', ')} ${named.length === 1 ? 'is attached but not verified' : 'are attached but none of them is verified'}, and the service skips an unverified channel when it sends an alert. ${SAY_SO_INSTEAD}`
+  return `would alert nobody: ${named.join(', ')} ${named.length === 1 ? 'is named here but is not verified on this account' : 'are named here and none of them is verified on this account'}, and the service skips an unverified channel when it sends an alert. ${SAY_SO_INSTEAD}`
 }
 
 const CONFLICT_REASON =
@@ -55,6 +56,11 @@ function changed(field: string, from: unknown, to: unknown): FieldChange | undef
 
 function sameSet(one: readonly string[], other: readonly string[]): boolean {
   return one.length === other.length && one.every((id) => other.includes(id))
+}
+
+function silentIn(rows: readonly PlanRow[]): number {
+  return rows.filter((row) => row.action !== 'conflict' && row.action !== 'refused' && row.alertsNobody)
+    .length
 }
 
 function countsOf(rows: readonly PlanRow[]): Readonly<Record<PlanAction, number>> {
@@ -72,6 +78,16 @@ function countsOf(rows: readonly PlanRow[]): Readonly<Record<PlanAction, number>
   }
 
   return counts
+}
+
+function suppressionOf(monitor: Monitor): AlertSuppression | undefined {
+  if (monitor.status === 'paused') {
+    return 'paused'
+  }
+
+  const until = monitor.snoozedUntil === null ? Number.NaN : Date.parse(monitor.snoozedUntil)
+
+  return Number.isNaN(until) || until <= Date.now() ? undefined : 'snoozed'
 }
 
 async function everyMonitor(api: CronheartApi, options: RequestOptions): Promise<Monitor[]> {
@@ -110,6 +126,13 @@ function alertsFor(
   }
 
   return verifiedAmong(channels, routing.mode === 'listed' ? routing.ids : attached)
+}
+
+function nobodyIsAlerted(
+  alerts: readonly RoutedChannel[],
+  suppression: AlertSuppression | undefined,
+): boolean {
+  return alerts.length === 0 || suppression !== undefined
 }
 
 function createRequestFor(monitor: DefinedMonitor, routing: ResolvedRouting): CreateMonitorRequest {
@@ -189,30 +212,35 @@ async function rowFor(
   }
 
   const existing = found[0]
+  const attached = existing === undefined ? [] : existing.channels.map((channel) => channel.id)
+  const alerts = alertsFor(routing, channels, attached)
+
+  // A configuration that names channels and resolves to nothing verified is this run asking
+  // for a monitor nobody is alerted about, whether the monitor exists yet or not. Only a
+  // create is refused for saying nothing, because on an existing monitor that silence is not
+  // this run's doing and closing it would move a field nobody wrote down.
+  if (
+    alerts.length === 0 &&
+    (routing.mode === 'listed' || (existing === undefined && routing.mode === 'unmanaged'))
+  ) {
+    return { action: 'refused', name: monitor.name, reason: nobodyReason(routing, channels) }
+  }
 
   if (existing === undefined) {
-    const alerts = alertsFor(routing, channels, [])
-
-    // The web form pre-selects the account's verified channels and this surface does not, so
-    // a create that says nothing about channels makes a monitor nothing ever alerts about.
-    if (alerts.length === 0 && routing.mode !== 'none') {
-      return { action: 'refused', name: monitor.name, reason: nobodyReason(routing, channels) }
-    }
-
     const request = createRequestFor(monitor, routing)
 
     return {
       action: 'create',
       name: monitor.name,
       alerts,
-      alertsNobody: alerts.length === 0,
+      alertsNobody: nobodyIsAlerted(alerts, undefined),
+      suppression: undefined,
       request,
       idempotencyKey: await idempotencyKeyFor(request),
     }
   }
 
-  const attached = existing.channels.map((channel) => channel.id)
-  const alerts = alertsFor(routing, channels, attached)
+  const suppression = suppressionOf(existing)
   const changes = differencesFrom(monitor, existing, routing)
 
   if (changes.length === 0) {
@@ -221,7 +249,8 @@ async function rowFor(
       name: monitor.name,
       uuid: existing.uuid,
       alerts,
-      alertsNobody: alerts.length === 0,
+      alertsNobody: nobodyIsAlerted(alerts, suppression),
+      suppression,
     }
   }
 
@@ -231,7 +260,8 @@ async function rowFor(
     uuid: existing.uuid,
     changes,
     alerts,
-    alertsNobody: alerts.length === 0,
+    alertsNobody: nobodyIsAlerted(alerts, suppression),
+    suppression,
     request: updateRequestFor(monitor, changes, routing),
   }
 }
@@ -268,13 +298,15 @@ export async function planSync(
 
     const attached = monitor.channels.map((channel) => channel.id)
     const alerts = verifiedAmong(channels, attached)
+    const suppression = suppressionOf(monitor)
 
     rows.push({
       action: 'orphan',
       name: monitor.name,
       uuid: monitor.uuid,
       alerts,
-      alertsNobody: alerts.length === 0,
+      alertsNobody: nobodyIsAlerted(alerts, suppression),
+      suppression,
     })
   }
 
@@ -283,6 +315,9 @@ export async function planSync(
   return {
     rows,
     counts,
+    described: config.monitors.length,
+    onService: existing.length,
+    silent: silentIn(rows),
     drift: counts.create > 0 || counts.update > 0,
     faults: counts.conflict > 0 || counts.refused > 0,
     scopeNotice: SCOPE_NOTICE,

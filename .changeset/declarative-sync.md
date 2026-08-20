@@ -17,9 +17,10 @@ exact-name filter and no uniqueness constraint. So two monitors of one name in
 the file is an error at parse time, before a credential is read; two on the
 service is a conflict, reported and skipped; the offset listing is deduplicated
 and treated as advisory; and every create carries a deterministic
-`sync-<sha256>` key derived from its own request, so a repeated run cannot mint
-a duplicate even when the listing failed to report the monitor. The key is
-derived with Web Crypto — the entry imports nothing from `node:`.
+`sync-<sha256>` key derived from its own request, so a repeated run inside the
+service's replay window cannot mint a duplicate even when the listing failed to
+report the monitor. That window is what the service underwrites and no more.
+The key is derived with Web Crypto — the entry imports nothing from `node:`.
 
 Two ways a reconciler can switch off someone's alerting are closed
 structurally. The routing field replaces wholesale when present and is left

@@ -10,8 +10,6 @@ import type { Channel as ApiChannel } from '../api/types.js'
 
 export const ROUTING_MODES: readonly RoutingMode[] = ['listed', 'none', 'unmanaged']
 
-const CHANNEL_ID = /^[0-9]+$/
-
 export function routingFrom(value: unknown, monitor: string): DefinedRouting {
   if (value === undefined || value === 'unmanaged') {
     return { mode: 'unmanaged' }
@@ -61,16 +59,30 @@ export type ChannelLookup =
   | { readonly ok: true; readonly ids: readonly string[] }
   | { readonly ok: false; readonly reason: string }
 
-function matching(channels: readonly ApiChannel[], reference: ChannelReference): readonly ApiChannel[] {
+// The service's rule for a label is a length and nothing else, so a label of digits is legal
+// and a reference cannot be classified by its shape. Both readings are taken, and a reference
+// that answers to two different channels is refused for the reason a repeated label is.
+function matching(
+  channels: readonly ApiChannel[],
+  reference: ChannelReference,
+): { readonly found: readonly ApiChannel[]; readonly labelled: number } {
   const written = String(reference)
+  const labelled = channels.filter((channel) => channel.label === written)
+  const identified = channels.filter(
+    (channel) => channel.id === written && !labelled.includes(channel),
+  )
 
-  return CHANNEL_ID.test(written)
-    ? channels.filter((channel) => channel.id === written)
-    : channels.filter((channel) => channel.label === written)
+  return { found: [...labelled, ...identified], labelled: labelled.length }
 }
 
-// Identifiers are compared as the decimal strings every read reports; anything else is read
-// as a label, because a number is the one thing a label cannot be confused with.
+function ambiguity(reference: ChannelReference, found: readonly ApiChannel[], labelled: number): string {
+  const written = JSON.stringify(String(reference))
+
+  return labelled === found.length
+    ? `${found.length} channels of this account are labelled ${written}, so there is no way to tell which was meant — give this monitor's channels by identifier instead`
+    : `${written} is the label of one channel of this account and the identifier of another, so there is no way to tell which was meant — rename one of them, or name the one you meant by the label the other does not answer to`
+}
+
 export function resolveChannels(
   channels: readonly ApiChannel[],
   references: readonly ChannelReference[],
@@ -78,7 +90,7 @@ export function resolveChannels(
   const ids: string[] = []
 
   for (const reference of references) {
-    const found = matching(channels, reference)
+    const { found, labelled } = matching(channels, reference)
 
     if (found.length === 0) {
       return {
@@ -88,10 +100,7 @@ export function resolveChannels(
     }
 
     if (found.length > 1) {
-      return {
-        ok: false,
-        reason: `${found.length} channels of this account are named ${JSON.stringify(String(reference))}, so there is no way to tell which was meant — name it by identifier instead`,
-      }
+      return { ok: false, reason: ambiguity(reference, found, labelled) }
     }
 
     const only = found[0]

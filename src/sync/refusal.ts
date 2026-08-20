@@ -38,6 +38,12 @@ export function describeApiRefusal(error: unknown, what: string): string {
   return error.message
 }
 
+// The create endpoint answers this for a spent monitor budget and an unverified account
+// address, and both hold for every remaining create while saying nothing about an update.
+export function refusesEveryCreate(error: unknown): boolean {
+  return isCronheartApiError(error) && error.kind === 'forbidden'
+}
+
 // Refusals that will refuse every remaining request the same way. Carrying on past one turns
 // a single cause into one failure per monitor and hides which of them was the cause.
 export function refusesEverything(error: unknown): boolean {

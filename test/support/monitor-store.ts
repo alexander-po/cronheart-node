@@ -3,6 +3,8 @@
 // uniqueness constraint, the channels listing reads no pagination parameters, an attached
 // channel is projected without its verified flag and sorted by identifier, and a create
 // carrying an idempotency key replays the stored response rather than making a second row.
+// A finalised reservation is swept on a cutoff rather than kept, so the far side of that
+// window is reachable from here rather than the replay lasting forever.
 export interface StoredMonitor {
   uuid: string
   name: string
@@ -13,6 +15,7 @@ export interface StoredMonitor {
   channel_ids: string[]
   created_at: string
   status: string
+  snoozed_until: string | null
 }
 
 export interface StoredChannel {
@@ -47,6 +50,7 @@ export interface MonitorStore {
   // refused on entitlement. The check-in route is unaffected, which is the whole point of it.
   denyWithPlanRestriction: boolean
   nextUuid: string | undefined
+  sweepFinalisedKeys(): void
   handle(request: StoreRequest): StoreReply
 }
 
@@ -78,7 +82,7 @@ function monitorJson(monitor: StoredMonitor, channels: readonly StoredChannel[])
     })),
     status: monitor.status,
     next_expected_at: null,
-    snoozed_until: null,
+    snoozed_until: monitor.snoozed_until,
     last_ping_at: null,
     created_at: monitor.created_at,
     ping_url: `https://cronheart.example/ping/${monitor.uuid}`,
@@ -119,6 +123,9 @@ export function createMonitorStore(
     hideListing: false,
     denyWithPlanRestriction: false,
     nextUuid: undefined,
+    sweepFinalisedKeys() {
+      replayed.clear()
+    },
     get requests() {
       return requests
     },
@@ -199,6 +206,7 @@ export function createMonitorStore(
           channel_ids: idsFrom(body['channel_ids']) ?? [],
           created_at: new Date(1_760_000_000_000 + minted * 1000).toISOString(),
           status: 'new',
+          snoozed_until: null,
         }
         store.nextUuid = undefined
         store.monitors.push(created)
@@ -278,6 +286,7 @@ export function monitorRow(overrides: Partial<StoredMonitor> = {}): StoredMonito
     channel_ids: ['7'],
     created_at: '2026-08-01T09:15:00.000Z',
     status: 'up',
+    snoozed_until: null,
     ...overrides,
   }
 }

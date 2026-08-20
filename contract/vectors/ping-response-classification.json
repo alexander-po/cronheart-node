@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.0.0",
+  "contract_version": "2.1.0",
   "group": "ping.response_classification",
   "default_subject": "ping.classifyResponse",
   "description": "How a ping response becomes an outcome. Every row of /ping/responses/table appears here, and a per-SDK test asserts that: a row nothing covers fails the suite rather than going unpinned. The whole surface is one status line plus, at 2xx only, one English sentence — accepted and duplicate are the same status with no distinguishing header, so a wording change on the far side silently turns every duplicate into an accepted check-in. That is why the literal is anchored rather than copied.",

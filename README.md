@@ -460,18 +460,22 @@ client-side, and every consequence of that is deliberate:
   so a deep walk can repeat a row or skip one. Repeats are dropped by
   identifier; the listing is treated as advisory, not as truth.
 - Every create carries a deterministic `sync-<sha256>` idempotency key derived
-  from the request, so a repeated run cannot mint a duplicate even when the
-  listing failed to report the monitor. Web Crypto derives it — this entry
-  imports nothing from `node:`. No Web Crypto means the create is refused, not
-  sent unguarded.
+  from the request, so a repeated run **inside the service's replay window**
+  cannot mint a duplicate even when the listing failed to report the monitor.
+  That window is what the service underwrites and no more: the reservation a
+  finished create leaves behind is swept on a 24-hour cutoff, so a re-run a day
+  or two later executes for real and the listing — the thing that can skip a
+  row — is the only defence left. Web Crypto derives the key; this entry
+  imports nothing from `node:`, and no Web Crypto means the create is refused
+  rather than sent unguarded.
 
 The monitor payload carries **no project identity**, and reads and creates are
 confined to whichever project the API token is scoped to. Sync says so in its
 output rather than implying it considered the whole account.
 
-### Two ways a reconciler can silently switch off your alerting
+### Three ways a reconciler can silently switch off your alerting
 
-Both are made structurally impossible rather than documented:
+All three are made structurally impossible rather than documented:
 
 **The routing field replaces wholesale when present — even when empty — and is
 left alone when absent.** So `channels` has three states, written down rather
@@ -485,11 +489,23 @@ of the union against it.
 **A monitor with no attached, verified channel alerts nobody.** The dashboard's
 form pre-selects the account's verified channels; the REST surface attaches
 none. So a create whose channels are empty — or all unverified — is **refused**
-unless the file wrote `'none'`, and every plan row prints what it will alert,
-so `nightly-backup → alerts: (nobody)` is visible before `--apply`, not after
-an incident. Sync cannot diff a channel's destination — the service redacts
-`webhook_url`, `url` and `secret` — only its ownership and label, and it does
-not pretend otherwise.
+unless the file wrote `'none'`. The same refusal covers an *update*: a file
+that names channels and resolves to nothing verified is this run silencing the
+monitor, whether it existed beforehand or not. Silence that was already there
+when the run started is reported instead, because closing it would move a field
+nobody wrote down. Rows that alert nobody are marked `!` and counted in the
+tally, so the fact is read at a glance rather than at the end of the longest
+line — and a monitor that is paused or snoozed says so in place of a channel
+list, since the service scans neither for lateness. Sync cannot diff a
+channel's destination — the service redacts `webhook_url`, `url` and `secret` —
+only its ownership and label, and it does not pretend otherwise.
+
+**A channel named by digits is not assumed to be an identifier.** The service's
+rule for a label is a length and nothing else, so `"911"` and `"2026"` are
+legal labels. A reference is matched against both labels and identifiers; one
+that answers to two different channels is refused for the same reason a
+repeated label is, rather than quietly paging whichever the shape happened to
+select.
 
 ### Pruning
 
@@ -499,6 +515,22 @@ Deleting a monitor destroys its check-in history irreversibly, so an orphan is
 *and* a confirmation (`--yes`, or typing `delete` at a terminal). Under
 `--check`, orphans only count as a difference when `--prune` says the file is
 meant to be the whole of the account.
+
+Deleting is conditional on the half of the run that would replace what it
+deletes. Two rules, both refusals rather than warnings:
+
+- **Nothing is deleted while anything else in the run failed** — a refusal the
+  plan raised, a create the service rejected, a request that never landed. The
+  irreversible half does not proceed on the strength of a half that did not.
+  The confirmation is not even offered, and the run says why.
+- **Nothing is deleted for a file that describes no monitors at all.** A glob
+  that matched nothing, a truncated write and a list built from an unset
+  variable all arrive looking exactly like an instruction to empty the project,
+  and an empty file is far more often the first three. There is no proportion
+  threshold for the same reason a threshold would be guesswork: instead the
+  confirmation states how many of how many would go, and it is printed before
+  any delete whether or not anybody is there to answer it — under `--yes` that
+  line is the only record the run leaves.
 
 `--print-env` emits the `CRONHEART_<NAME>_UUID` lines — the thing that closes
 the gap between "sync created these" and "my jobs can address them". It is the

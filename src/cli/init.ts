@@ -28,11 +28,15 @@ import {
 import { EXIT_OK, EXIT_PROBLEM, EXIT_USAGE } from './exit.js'
 import type { Io } from './io.js'
 import { openManagementClient } from './managed.js'
+import type { CronheartApi, Monitor } from '../api/types.js'
 
 const FLAGS = ['name', 'uuid', 'schedule', 'env-path', 'print-env']
 
 const NOBODY_TO_ALERT =
   'this account has no verified notification channel, so a monitor created now would alert nobody when a run goes missing. Add one and verify it first — the REST surface attaches no channel by itself, unlike the form in the dashboard'
+
+const TWO_OF_ONE_NAME =
+  'two or more monitors of this project already carry that name, and nothing here can tell which one was meant — a name is all this command has to go on, and the service enforces no uniqueness on one. Give the id of the one you meant with --uuid, or rename them where they can be seen'
 
 
 const DASHBOARD = 'https://cronheart.com/dashboard'
@@ -234,9 +238,36 @@ type Created =
   | { readonly kind: 'usage'; readonly problem: string }
   | { readonly kind: 'degraded'; readonly notice: string }
 
+async function named(api: CronheartApi, name: string): Promise<readonly Monitor[]> {
+  const found: Monitor[] = []
+
+  for await (const monitor of api.monitors.iterate()) {
+    if (monitor.name === name) {
+      found.push(monitor)
+    }
+  }
+
+  return found
+}
+
+function alertsOf(
+  attached: readonly { readonly id: string }[],
+  verified: readonly { id: string; kind: string; label: string }[],
+): string {
+  const reaching = verified.filter((channel) =>
+    attached.some((entry) => entry.id === channel.id),
+  )
+
+  return reaching.length === 0
+    ? '(nobody)'
+    : reaching.map((channel) => `${channel.label} (${channel.kind})`).join(', ')
+}
+
 // Everything the dashboard's own form does that this surface does not do by itself: the
 // account's verified channels are read and attached, because a monitor with none of them
-// alerts nobody when a run goes missing, and nothing about the create would say so.
+// alerts nobody when a run goes missing, and nothing about the create would say so. The
+// closing advice here is to run this again, so running it again has to reuse rather than
+// make a second monitor of one name — which is the state the reconciler cannot resolve.
 async function createThroughTheApi(
   ask: (missing: readonly string[]) => Promise<Record<string, string>>,
   given: { readonly name: string | undefined; readonly schedule: string | undefined },
@@ -280,12 +311,41 @@ async function createThroughTheApi(
       name,
       scheduleKind: schedule.kind,
       scheduleExpr: schedule.expr,
-      channelIds: verified.map((channel) => channel.id),
+      // Sorted the way the key is derived over: the service fingerprints the raw bytes, so a
+      // listing that came back in another order would be a second body under one key.
+      channelIds: [...verified]
+        .map((channel) => channel.id)
+        .sort((one, other) => Number(one) - Number(other)),
     }
   } catch (error) {
     return {
       kind: 'usage',
       problem: isSyncConfigurationError(error) ? error.message : String(error),
+    }
+  }
+
+  let already: readonly Monitor[]
+
+  try {
+    already = await named(opened.api, name)
+  } catch (error) {
+    return { kind: 'degraded', notice: describeApiRefusal(error, 'creating a monitor here') }
+  }
+
+  if (already.length > 1) {
+    return { kind: 'refused', problem: TWO_OF_ONE_NAME }
+  }
+
+  const only = already[0]
+
+  if (only !== undefined) {
+    io.out(`  ${JSON.stringify(only.name)} is already here — using it rather than making a second\n`)
+
+    return {
+      kind: 'created',
+      name,
+      uuid: only.uuid,
+      alerts: alertsOf(only.channels, verified),
     }
   }
 

@@ -61,6 +61,10 @@ export interface MonitorConfig {
   readonly monitors: readonly DefinedMonitor[]
 }
 
+// Neither is a managed field, and both stop an alert regardless of routing: the lateness scan
+// skips a paused monitor outright, and a live snooze suppresses delivery until it ends.
+export type AlertSuppression = 'paused' | 'snoozed'
+
 export interface RoutedChannel {
   readonly id: string
   readonly kind: string
@@ -78,6 +82,7 @@ export interface PlannedCreate {
   readonly name: string
   readonly alerts: readonly RoutedChannel[]
   readonly alertsNobody: boolean
+  readonly suppression: AlertSuppression | undefined
   readonly request: CreateMonitorRequest
   readonly idempotencyKey: string
 }
@@ -89,6 +94,7 @@ export interface PlannedUpdate {
   readonly changes: readonly FieldChange[]
   readonly alerts: readonly RoutedChannel[]
   readonly alertsNobody: boolean
+  readonly suppression: AlertSuppression | undefined
   readonly request: UpdateMonitorRequest
 }
 
@@ -98,6 +104,7 @@ export interface PlannedUnchanged {
   readonly uuid: string
   readonly alerts: readonly RoutedChannel[]
   readonly alertsNobody: boolean
+  readonly suppression: AlertSuppression | undefined
 }
 
 export interface PlannedOrphan {
@@ -106,6 +113,7 @@ export interface PlannedOrphan {
   readonly uuid: string
   readonly alerts: readonly RoutedChannel[]
   readonly alertsNobody: boolean
+  readonly suppression: AlertSuppression | undefined
 }
 
 export interface PlannedConflict {
@@ -134,6 +142,12 @@ export type PlanAction = PlanRow['action']
 export interface SyncPlan {
   readonly rows: readonly PlanRow[]
   readonly counts: Readonly<Record<PlanAction, number>>
+  // Zero described is not an instruction to empty the account — far more often it is a glob
+  // that matched nothing — so pruning reads this rather than the orphan count, which cannot
+  // tell the two apart.
+  readonly described: number
+  readonly onService: number
+  readonly silent: number
   // Changes the configuration asks for. Orphans are not counted here: reporting one is not
   // the same as asking for it to be deleted, and only --prune makes that a difference.
   readonly drift: boolean
@@ -177,4 +191,6 @@ export interface SyncResult {
   readonly failures: readonly SyncFailure[]
   // True when a refusal that would refuse every remaining request ended the run early.
   readonly stopped: boolean
+  // Why pruning was asked for and not done.
+  readonly pruneSkipped: string | undefined
 }

@@ -4,6 +4,7 @@ import { applySync } from '../sync/apply.js'
 import { defineMonitors } from '../sync/define.js'
 import { isSyncConfigurationError } from '../sync/errors.js'
 import { planSync } from '../sync/plan.js'
+import { destructionNotice, whyPruningIsUnsafe } from '../sync/prune.js'
 import { describeApiRefusal } from '../sync/refusal.js'
 import { envLinesFor, renderPlan, renderResult } from '../sync/render.js'
 import type { AppliedMonitor, MonitorConfig, SyncPlan, SyncResult } from '../sync/types.js'
@@ -38,11 +39,7 @@ function modeOf(args: ParsedArgs): Mode {
   }
 }
 
-async function askToDelete(io: Io, names: readonly string[]): Promise<boolean> {
-  io.out(
-    `  ${names.length} monitor(s) would be deleted: ${names.join(', ')}\n  Deleting a monitor destroys its check-in history, and nothing here can bring it back.\n`,
-  )
-
+async function askToDelete(io: Io): Promise<boolean> {
   if (process.stdin.isTTY !== true) {
     io.err(`cronheart: ${NO_TERMINAL_TO_ASK}\n`)
 
@@ -140,21 +137,40 @@ async function reconcile(
   }
 
   const orphans = plan.rows.filter((row) => row.action === 'orphan').map((row) => row.name)
-  const confirm = mode.yes ? () => true : () => askToDelete(io, orphans)
+  const pruning = mode.prune && orphans.length > 0
+  // Read here as well as inside the apply, so a confirmation is never offered for a deletion
+  // that would not be carried out — and so the reason is on screen before the question is.
+  const unsafe = pruning ? whyPruningIsUnsafe(plan, plan.counts.conflict + plan.counts.refused) : undefined
+
+  if (pruning && unsafe === undefined) {
+    // Written whether or not anybody is there to read it: under --yes this is the only record
+    // the run leaves of what it was about to destroy.
+    io.out(`\n${destructionNotice(orphans, plan.onService)}`)
+  }
+
+  const confirm = mode.yes ? () => true : () => askToDelete(io)
   const result = await applySync(
     opened.api,
     plan,
-    mode.prune && orphans.length > 0 ? { prune: { confirm } } : {},
+    pruning && unsafe === undefined ? { prune: { confirm } } : {},
   )
 
   io.out('\n')
+
+  if (unsafe !== undefined) {
+    io.out(`  nothing was deleted — ${unsafe}\n`)
+  }
+
   io.out(renderResult(result))
 
   if (mode.printEnv) {
     printEnv(io, appliedMonitors(result), plan)
   }
 
-  return result.failures.length > 0 || (mode.prune && result.deleted.length < orphans.length)
+  return result.failures.length > 0 ||
+    unsafe !== undefined ||
+    result.pruneSkipped !== undefined ||
+    (mode.prune && result.deleted.length < orphans.length)
     ? EXIT_PROBLEM
     : EXIT_OK
 }

@@ -4,6 +4,7 @@ export { SyncConfigurationError, isSyncConfigurationError } from './sync/errors.
 export { planSync } from './sync/plan.js'
 export { envLinesFor, renderPlan, renderResult } from './sync/render.js'
 export type {
+  AlertSuppression,
   AppliedMonitor,
   ApplyOptions,
   ChannelReference,

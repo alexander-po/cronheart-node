@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applySync } from '../src/sync/apply.js'
 import { planSync } from '../src/sync/plan.js'
+import { renderResult } from '../src/sync/render.js'
 import type { MonitorDefinition, PlannedCreate } from '../src/sync/types.js'
 import { channelRow, createMonitorStore, monitorRow } from './support/monitor-store.js'
 import { apiFor, bodiesSentTo, transportFor } from './support/sync-api.js'
@@ -246,12 +247,22 @@ describe('deleting a monitor destroys its history, so nothing does it by default
   })
 
   it('deletes it only when pruning was asked for and confirmed', async () => {
-    const store = createMonitorStore([monitorRow({ name: 'retired' })], [VERIFIED])
+    const store = createMonitorStore(
+      [
+        monitorRow({ name: 'kept' }),
+        monitorRow({ name: 'retired', uuid: '00000000-0000-4000-8000-0000000000b2' }),
+      ],
+      [VERIFIED],
+    )
     const api = apiFor(store)
-    const result = await applySync(api, await planSync(api, config()), { prune: CONFIRMED })
+    const plan = await planSync(
+      api,
+      config({ name: 'kept', schedule: '0 3 * * *', channels: ['ops inbox'] }),
+    )
+    const result = await applySync(api, plan, { prune: CONFIRMED })
 
     expect(result.deleted.map((entry) => entry.name)).toEqual(['retired'])
-    expect(store.monitors).toEqual([])
+    expect(store.monitors.map((monitor) => monitor.name)).toEqual(['kept'])
   })
 
   it('asks once, whatever the plan carries, and never asks when there is nothing to delete', async () => {
@@ -335,5 +346,241 @@ describe('what stops a run and what does not', () => {
     expect(result.stopped).toBe(false)
     expect(result.failures.map((failure) => failure.name)).toEqual(['one'])
     expect(result.created.map((entry) => entry.name)).toEqual(['two'])
+  })
+})
+
+describe('what pruning waits for', () => {
+  // Deleting is the irreversible half, and it is only ever safe once the half that would
+  // replace what it deletes has landed. A refusal the plan itself raised is that half failing
+  // before a request existed, which is the case a run is least likely to look at.
+  it('deletes nothing when the row that would have replaced the orphan was refused', async () => {
+    const store = createMonitorStore([monitorRow({ name: 'old-name' })], [VERIFIED])
+    const api = apiFor(store)
+    const plan = await planSync(
+      api,
+      config({ name: 'new-name', schedule: '0 3 * * *', channels: ['ops inbxo'] }),
+    )
+    const result = await applySync(api, plan, { prune: CONFIRMED })
+
+    expect(result.deleted).toEqual([])
+    expect(store.monitors.map((monitor) => monitor.name)).toEqual(['old-name'])
+    expect(store.requests.filter((request) => request.method === 'DELETE')).toEqual([])
+  })
+
+  it('deletes nothing when the create that would have replaced the orphan was refused on the wire', async () => {
+    const store = createMonitorStore([monitorRow({ name: 'old-name' })], [VERIFIED])
+    const straight = transportFor(store)
+    const api = apiFor(store, {
+      fetch: (url, init) =>
+        init.method === 'POST'
+          ? Promise.resolve({
+              status: 422,
+              headers: { get: () => null },
+              body: { cancel: () => Promise.resolve() },
+              text: () => Promise.resolve(JSON.stringify({ status: 422, errors: { name: 'no' } })),
+            })
+          : straight(url, init),
+    })
+    const plan = await planSync(
+      api,
+      config({ name: 'new-name', schedule: '0 3 * * *', channels: ['ops inbox'] }),
+    )
+    const result = await applySync(api, plan, { prune: CONFIRMED })
+
+    expect(result.deleted).toEqual([])
+    expect(store.monitors.map((monitor) => monitor.name)).toEqual(['old-name'])
+  })
+
+  it('does not even ask when the constructive half of the plan failed', async () => {
+    const store = createMonitorStore([monitorRow({ name: 'old-name' })], [VERIFIED])
+    const api = apiFor(store)
+    const plan = await planSync(
+      api,
+      config({ name: 'new-name', schedule: '0 3 * * *', channels: ['ops inbxo'] }),
+    )
+    let asked = 0
+
+    await applySync(api, plan, {
+      prune: {
+        confirm: () => {
+          asked += 1
+
+          return true
+        },
+      },
+    })
+
+    expect(asked).toBe(0)
+  })
+
+  // A glob that matched nothing, a truncated write and a list built from an unset variable all
+  // arrive here as the same document, and none of them is an instruction to empty the account.
+  it('deletes nothing for a configuration that describes no monitors at all', async () => {
+    const store = createMonitorStore(
+      [
+        monitorRow({ name: 'one', uuid: '00000000-0000-4000-8000-000000000001' }),
+        monitorRow({ name: 'two', uuid: '00000000-0000-4000-8000-000000000002' }),
+      ],
+      [VERIFIED],
+    )
+    const api = apiFor(store)
+    const result = await applySync(api, await planSync(api, config()), { prune: CONFIRMED })
+
+    expect(result.deleted).toEqual([])
+    expect(store.monitors).toHaveLength(2)
+    expect(result.pruneSkipped).toContain('describes no monitors')
+  })
+
+  it('still prunes when every row the configuration described landed', async () => {
+    const store = createMonitorStore(
+      [
+        monitorRow({ name: 'kept' }),
+        monitorRow({ name: 'retired', uuid: '00000000-0000-4000-8000-000000000002' }),
+      ],
+      [VERIFIED],
+    )
+    const api = apiFor(store)
+    const plan = await planSync(
+      api,
+      config({ name: 'kept', schedule: '0 3 * * *', channels: ['ops inbox'] }),
+    )
+    const result = await applySync(api, plan, { prune: CONFIRMED })
+
+    expect(result.deleted.map((entry) => entry.name)).toEqual(['retired'])
+    expect(store.monitors.map((monitor) => monitor.name)).toEqual(['kept'])
+  })
+})
+
+describe('a refusal that is account-wide for creates alone', () => {
+  it('stops the remaining creates instead of collecting one identical refusal per monitor', async () => {
+    const store = createMonitorStore([], [VERIFIED])
+    const api = apiFor(store)
+    const plan = await planSync(
+      api,
+      config(
+        { name: 'one', schedule: '@daily', channels: ['ops inbox'] },
+        { name: 'two', schedule: '@daily', channels: ['ops inbox'] },
+        { name: 'three', schedule: '@daily', channels: ['ops inbox'] },
+      ),
+    )
+    const straight = transportFor(store)
+    let creates = 0
+    const denying = apiFor(store, {
+      fetch: (url, init) => {
+        if (init.method !== 'POST') {
+          return straight(url, init)
+        }
+
+        creates += 1
+
+        return Promise.resolve({
+          status: 403,
+          headers: { get: () => null },
+          body: { cancel: () => Promise.resolve() },
+          text: () => Promise.resolve(JSON.stringify({ status: 403 })),
+        })
+      },
+    })
+    const result = await applySync(denying, plan)
+
+    expect(creates).toBe(1)
+    expect(result.failures.map((failure) => failure.name)).toEqual(['one', 'two', 'three'])
+    expect(result.failures.slice(1).map((failure) => failure.message).join(' ')).toContain('skipped')
+    expect(result.stopped).toBe(false)
+  })
+
+  it('leaves the updates of the same run alone, because the refusal is about creating', async () => {
+    const store = createMonitorStore([monitorRow({ name: 'existing' })], [VERIFIED])
+    const api = apiFor(store)
+    const plan = await planSync(
+      api,
+      config(
+        { name: 'fresh', schedule: '@daily', channels: ['ops inbox'] },
+        { name: 'existing', schedule: '0 4 * * *', channels: ['ops inbox'] },
+      ),
+    )
+    const straight = transportFor(store)
+    const denying = apiFor(store, {
+      fetch: (url, init) =>
+        init.method === 'POST'
+          ? Promise.resolve({
+              status: 403,
+              headers: { get: () => null },
+              body: { cancel: () => Promise.resolve() },
+              text: () => Promise.resolve(JSON.stringify({ status: 403 })),
+            })
+          : straight(url, init),
+    })
+    const result = await applySync(denying, plan)
+
+    expect(result.updated.map((entry) => entry.name)).toEqual(['existing'])
+    expect(store.monitors[0]?.schedule_expr).toBe('0 4 * * *')
+  })
+})
+
+describe('how long a create cannot be repeated for', () => {
+  // The key reserves a row that a sweep deletes on a cutoff, so a repeat past that cutoff is
+  // executed rather than replayed. Beyond the window the listing is the only defence, and the
+  // listing is the thing that can skip a row.
+  it('replays a repeated create only while the reservation the key made is still there', async () => {
+    const store = createMonitorStore([], [VERIFIED])
+    const definition = config({
+      name: 'nightly-backup',
+      schedule: '0 3 * * *',
+      channels: ['ops inbox'],
+    })
+    const api = apiFor(store)
+
+    await applySync(api, await planSync(api, definition))
+    store.hideListing = true
+
+    await applySync(api, await planSync(api, definition))
+
+    expect(store.monitors).toHaveLength(1)
+
+    store.sweepFinalisedKeys()
+
+    await applySync(api, await planSync(api, definition))
+
+    expect(store.monitors).toHaveLength(2)
+  })
+
+  it('is still guarded by the listing once the reservation is gone', async () => {
+    const store = createMonitorStore([], [VERIFIED])
+    const definition = config({
+      name: 'nightly-backup',
+      schedule: '0 3 * * *',
+      channels: ['ops inbox'],
+    })
+    const api = apiFor(store)
+
+    await applySync(api, await planSync(api, definition))
+    store.sweepFinalisedKeys()
+    const second = await applySync(api, await planSync(api, definition))
+
+    expect(store.monitors).toHaveLength(1)
+    expect(second.created).toEqual([])
+    expect(second.unchanged.map((entry) => entry.name)).toEqual(['nightly-backup'])
+  })
+})
+
+describe('the order a result is read in', () => {
+  // A run whose reason and whose deletion are both on screen has to put the reason first: the
+  // deletion is the line that reads as success, and reading it first frames the rest as detail.
+  it('puts what failed above what was applied', () => {
+    const printed = renderResult({
+      created: [],
+      updated: [],
+      deleted: [{ name: 'retired', uuid: '00000000-0000-4000-8000-0000000000c1' }],
+      unchanged: [],
+      failures: [{ name: 'replacement', action: 'refused', message: 'no channel of this account' }],
+      stopped: false,
+      pruneSkipped: undefined,
+    })
+    const lines = printed.split('\n')
+
+    expect(lines.findIndex((line) => line.includes('replacement'))).toBeLessThan(
+      lines.findIndex((line) => line.includes('deleted 1')),
+    )
   })
 })
