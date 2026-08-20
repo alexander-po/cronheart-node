@@ -1,7 +1,6 @@
-// Hard-coded, never composed from a response: the server's own detail string is a translation
-// key on one status and product prose on another, so relaying it shows a reader either.
-export const PAID_ONLY_NOTICE =
-  'The REST API needs the Starter plan or above (HTTP 402). Check-ins work on every plan, Free included — see https://cronheart.com/pricing'
+export { PAID_ONLY_NOTICE } from '../api/tier.js'
+
+import { PAID_ONLY_NOTICE } from '../api/tier.js'
 
 export const MANAGEMENT_CLIENT_PENDING =
   'creating a monitor from the command line needs the management client, which is not in this release'

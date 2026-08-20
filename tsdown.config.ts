@@ -27,7 +27,6 @@ export default defineConfig([
   {
     entry: {
       index: 'src/index.ts',
-      api: 'src/api.ts',
       sync: 'src/sync.ts',
       testing: 'src/testing.ts',
       croner: 'src/integrations/croner.ts',

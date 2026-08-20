@@ -77,3 +77,64 @@ export async function exercise(): Promise<string[]> {
 
   return [...outcomes, String(rows)]
 }
+
+import {
+  ApiValidationError,
+  CronheartApiError,
+  SNOOZE_DURATIONS,
+  createCronheartApi,
+  isCronheartApiError,
+} from 'cronheart/api'
+import type {
+  Channel,
+  CreateMonitorRequest,
+  CronheartApi,
+  Monitor,
+  MonitorPage,
+  RateLimitSnapshot,
+  SnoozeDuration,
+} from 'cronheart/api'
+
+const create: CreateMonitorRequest = {
+  name: 'nightly-backup',
+  scheduleKind: 'cron',
+  scheduleExpr: '0 3 * * *',
+  graceSeconds: 300,
+  channelIds: ['12', 13],
+}
+
+export async function reconcile(apiKey: string | undefined): Promise<string[]> {
+  const management: CronheartApi = createCronheartApi({
+    apiKey,
+    baseUrl: 'https://cronheart.com',
+    timeoutMs: 8000,
+    retries: 1,
+  })
+  const first: MonitorPage = await management.monitors.list({ limit: 10 })
+  const verified = new Set(
+    (await management.channels.list()).data
+      .filter((channel: Channel) => channel.verified)
+      .map((channel) => channel.id),
+  )
+  const names: string[] = []
+
+  for await (const monitor of management.monitors.iterate()) {
+    names.push(monitor.channels.some((one) => verified.has(one.id)) ? monitor.name : '(silent)')
+  }
+
+  try {
+    const made: Monitor = await management.monitors.create(create, { idempotencyKey: 'a-key' })
+    const nap: SnoozeDuration = SNOOZE_DURATIONS[0]
+    await management.monitors.snooze(made.uuid, nap)
+  } catch (error) {
+    if (isCronheartApiError(error) && error.kind === 'validation') {
+      names.push(Object.keys((error as ApiValidationError).errors).join(','))
+    } else if (CronheartApiError.isCronheartApiError(error)) {
+      names.push(error.kind)
+    }
+  }
+
+  const seen: RateLimitSnapshot | undefined = management.rateLimit
+
+  return [...names, String(first.total), String(seen?.resetAt ?? 'unknown')]
+}

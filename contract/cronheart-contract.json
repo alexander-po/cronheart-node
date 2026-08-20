@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.3.0",
+  "contract_version": "1.4.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-20",
@@ -811,7 +811,11 @@
     { "id": "vocabulary.channel_kind", "pointer": "/vocabularies/channel.kind/members" },
     { "id": "vocabulary.monitor_status", "pointer": "/vocabularies/monitor.status/members" },
     { "id": "vocabulary.ping_kind", "pointer": "/vocabularies/ping.kind/members" },
-    { "id": "vocabulary.plan_key", "pointer": "/vocabularies/plan.key/members" }
+    { "id": "vocabulary.plan_key", "pointer": "/vocabularies/plan.key/members" },
+    { "id": "vocabulary.schedule_kind", "pointer": "/vocabularies/schedule.kind/members" },
+    { "id": "api.base_path", "pointer": "/api/base_path", "value": "/api/v1" },
+    { "id": "api.auth.token_prefix", "pointer": "/api/auth/token_prefix", "value": "cmk_" },
+    { "id": "api.pagination.max_pages", "pointer": "/api/pagination/max_pages_guard", "value": 10000 }
   ],
 
   "anchors_note": "Each entry names a value an SDK is expected to hold as a constant. A per-SDK test reads this file and asserts equality, which is the only coverage several of these facts have: the published OpenAPI document describes none of the ping surface and only part of the validation surface. See contract/README.md for what that leaves uncovered."

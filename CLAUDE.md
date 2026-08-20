@@ -47,6 +47,14 @@ containerise the CI jobs.
 > The ping client **never throws**. The management client **always throws**
 > typed errors.
 
+For the management half that means one base type — `CronheartApiError` — that a
+transport failure, a JSON parse failure and a hydration failure all arrive as,
+so a single `catch` is exhaustive; a `kind` discriminant and a `Symbol.for`
+brand rather than `instanceof`, which two copies of the package break silently;
+and every public method `async` (every iterator a generator), so a request this
+client refuses to compose rejects rather than throwing synchronously out of
+something whose signature promised a promise.
+
 Sharpened: validation errors surface at wiring time; nothing surfaces at ping
 time. A bad monitor name at boot should crash the deploy. A failed ping at 3am
 must never touch the job it is monitoring.
@@ -80,7 +88,12 @@ arrow, a default export and a class method are all visible to it.
   entry but the CLI.
 - The management client is not at the root. The ping path ships into production
   bundles and function zips; the management path ships into CLIs. Splitting on
-  the entry point makes the size guarantee structural.
+  the entry point makes the size guarantee structural — and the split is a
+  separate `tsdown` run, not merely a separate entry in one, because a chunk
+  shared with the root puts part of the ping path behind import glue every
+  consumer of the check-in client then pays for. Measured at 266 gzipped bytes,
+  against a budget with 21 to spare. The command-line tool is split for the same
+  reason, so `build` is three `tsdown` invocations in order.
 - The SDK version and the contract version are injected at build time — from
   `package.json` and `contract/cronheart-contract.json` — and each appears in
   exactly one place per build format. Never hardcode either in source: a test

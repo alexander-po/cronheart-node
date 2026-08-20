@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.3.0",
+  "contract_version": "1.4.0",
   "group": "http.retry_after",
   "default_subject": "http.parseRetryAfter",
   "description": "Retry-After parsing. The server only ever emits delta-seconds with a minimum of 1, on the rate-limited responses of both the ping route and the REST API. The date forms are here because an intermediary may rewrite the header and because the HTTP specification requires a recipient to accept all of them. The parsed value is reported to the caller and never used to schedule an automatic retry: a rate-limited response is not retried. Every case supplies its own clock, so no vector reads a real one.",

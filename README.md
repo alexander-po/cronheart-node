@@ -266,12 +266,101 @@ is an availability regression — use it to try the tool, not to run one.
 
 ## Management API
 
-`cronheart/api` will wrap the REST API — creating, reading and reconciling
-monitors and notification channels — and `cronheart/sync` will reconcile a
-declared set of monitors against the server. Both are separate entry points so
-the ping path stays small in production bundles.
+`cronheart/api` wraps the REST API: monitors, notification channels and the
+account's plan and budget. It needs an API key, which needs the **Starter plan
+or above** — check-ins work on every plan, Free included, and nothing in this
+section is required to be monitored.
 
-_Not implemented yet._
+```ts
+import { createCronheartApi, isCronheartApiError } from 'cronheart/api'
+
+const api = createCronheartApi({ apiKey: process.env.CRONHEART_API_KEY })
+
+const monitor = await api.monitors.create({
+  name: 'nightly-backup',
+  scheduleKind: 'cron',
+  scheduleExpr: '0 3 * * *',
+  channelIds: ['12'],
+})
+
+for await (const one of api.monitors.iterate()) {
+  console.log(one.name, one.status)
+}
+```
+
+`api.monitors.*`, `api.channels.*` and `api.account.get()`. The key is read
+from `CRONHEART_API_KEY` when you pass none.
+
+**It always throws.** The check-in client never does; this one runs in CLIs and
+admin scripts, where a silent failure is worse than a loud one. Every failure —
+a refused request, a connection that never opened, a body that is not JSON, a
+response this client cannot read — arrives as a `CronheartApiError`, so one
+`catch` is exhaustive. Discriminate on `error.kind`
+(`'authentication' | 'plan-restriction' | 'not-found' | 'validation' |
+'rate-limit' | 'conflict' | 'transport' | …`) rather than on `instanceof`:
+two copies of this package in one dependency tree have different classes, and
+`instanceof` answers false across them without saying so. `isCronheartApiError`
+is a brand check that survives that.
+
+The key is validated when the client is built, so a value read out of a file
+with its newline still attached fails at process start rather than inside a
+running job. It travels in the `Authorization` header and nowhere else — never
+a query string — and this package refuses to send it over plain `http` to
+anything but loopback. It appears in no message, no log line, no `toJSON` and
+no error `cause`; the fault matrix asserts that across every route, and a
+deliberately-leaking control proves the assertion can fail.
+
+### Paging has three shapes and they are not interchangeable
+
+| Listing | Shape | This package |
+| --- | --- | --- |
+| monitors, alerts | offset | `list()` for one page, `iterate()` for an async iterator |
+| pings | opaque cursor | `pings()` for one page, `iteratePings()` for an async iterator |
+| channels | **none at all** | `channels.list()` returns the whole set — and is deliberately not an iterator |
+
+The channels listing reads no pagination parameters and echoes none back, so a
+generic offset walk pointed at it cannot even tell one request's worth from the
+whole set, and never terminates.
+
+The two offset listings order by creation time **with no tiebreaker**, and
+creation time is stored to the whole second. Rows created in the same second
+have no defined relative order, so a deep walk can repeat a row or skip one.
+`iterate()` drops repeats by identifier; it cannot recover a skip. Do not build
+anything that depends on two walks of an unchanged account agreeing.
+
+### Two more things the wire does that will surprise you
+
+**Channel identifiers read as strings and are written as integers**, and a
+value that is not numeric is coerced to zero server-side — which then fails as
+"unknown channel 0" rather than naming what you sent. Pass them as the strings
+the listing gave you; this package converts at the boundary and refuses a
+non-numeric one before the request exists. Never parse one into a number: they
+are 64-bit and a JavaScript number loses the far end of the range.
+
+**A monitor's `channels[]` carries no `verified` flag**, and a channel's
+`config` comes back with the destination masked. So "does this monitor alert
+anybody?" needs a second call to `api.channels.list()` and an intersection, and
+a reconciler can compare ownership and labels but never destinations. The
+monitor payload also carries no project identity, though reads and creates are
+scoped to the key's project — so a caller cannot tell which project it just
+reconciled.
+
+### Retries
+
+Reads and updates are retried on a connection failure or a 5xx, within one
+overall time budget. `4xx` is never retried and `429` deliberately is not, so
+you can read the guidance it came with. **A create is retried only when you
+pass an `idempotencyKey`**, and it is the one request that waits between
+attempts: the key reserves a row for 60 seconds, so a retry sent immediately is
+refused as a conflict while the resource was in fact created. A `409` on a
+create says so — read the resource back before deciding it was not created.
+Rotations and channel tests are never retried at all.
+
+`cronheart/sync` will reconcile a declared set of monitors against the server.
+Both are separate entry points so the ping path stays small in production
+bundles.
+
+_`cronheart/sync` is not implemented yet._
 
 ## Runtime support
 
@@ -281,7 +370,9 @@ the only entry point that reaches for Node built-ins, and a test enforces the
 split. The ping entry is 8.4 KB gzipped before your bundler's minifier sees
 it, and CI fails on a regression past 8.5 KB. The CLI is bundled apart from the
 library entries so that it cannot pull the ping path into a shared chunk and
-charge every consumer for import glue it has no use for.
+charge every consumer for import glue it has no use for. The management client
+is bundled apart for the same reason, and for the same measured reason: sharing
+a chunk with the root cost the ping entry 266 bytes.
 
 ## Development
 

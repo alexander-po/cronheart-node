@@ -15,8 +15,14 @@ export const INVARIANTS = [
   'overhead-stays-bounded',
   'no-unhandled-rejection',
   'no-identifier-in-the-output',
+  'no-credential-in-the-output',
   'no-response-body-left-open',
 ] as const
+
+export interface Secrets {
+  readonly monitorId: string
+  readonly apiKey: string
+}
 
 export type Invariant = (typeof INVARIANTS)[number]
 
@@ -66,6 +72,9 @@ export interface Observation {
   readonly output: string
   readonly undrainedBodies: number
   readonly stack: string | undefined
+  // Values the entry point handed back rather than printed: a management call reports a
+  // failure by throwing it at its caller, and a caller that inspects it is the surface.
+  readonly recorded: readonly unknown[]
 }
 
 type Writer = (chunk: string | Uint8Array) => boolean
@@ -137,12 +146,18 @@ export async function observe(
   const boundMs = entryPoint.pings * BUDGET_MS + OVERHEAD_ALLOWANCE_MS
   const cap = delay(boundMs + HARD_CAP_ALLOWANCE_MS)
   const capture = captureOutput()
+  const recorded: unknown[] = []
   clearWarnings()
   const startedAt = Date.now()
 
   const { value: settlement, unhandled } = await captureUnhandledRejections(async () => {
     const attempt = entryPoint
-      .invoke({ client, fault: instance, host: host.call })
+      .invoke({
+        client,
+        fault: instance,
+        host: host.call,
+        record: (value: unknown) => recorded.push(value),
+      })
       .then((returned) => ({ kind: 'returned' as const, returned }))
       .catch((thrown: unknown) => ({ kind: 'threw' as const, thrown }))
 
@@ -168,6 +183,7 @@ export async function observe(
     output: capture.lines.join('\n'),
     undrainedBodies: instance.undrainedBodies(),
     stack: stackOf(thrown),
+    recorded,
   }
 }
 
@@ -179,19 +195,36 @@ function stackOf(value: unknown): string | undefined {
   }
 }
 
-function describeQuietly(value: unknown): string {
+// Every surface a caught error is read through, not only the one a console prints: a value
+// can reach a log line through toJSON, through an enumerable field, or through a cause.
+function describeQuietly(value: unknown, depth = 0): string {
   const parts: string[] = []
 
   for (const read of [
     () => String(value),
     () => (value instanceof Error ? value.message : ''),
     () => stackOf(value) ?? '',
+    () => JSON.stringify(value) ?? '',
+    () =>
+      typeof value === 'object' && value !== null
+        ? Object.entries(value)
+            .map(([key, member]) => `${key}=${String(member)}`)
+            .join(' ')
+        : '',
   ]) {
     try {
       parts.push(read())
     } catch {
       parts.push('')
     }
+  }
+
+  if (depth < 3 && value instanceof Error) {
+    try {
+      if (value.cause !== undefined) {
+        parts.push(describeQuietly(value.cause, depth + 1))
+      }
+    } catch {}
   }
 
   return parts.join('\n')
@@ -210,6 +243,12 @@ function sdkAuthoredText(observation: Observation, host: Host): string {
     written.push(describeQuietly(observation.thrown))
   }
 
+  for (const value of observation.recorded) {
+    if (value !== host.expected) {
+      written.push(describeQuietly(value))
+    }
+  }
+
   return written.join('\n')
 }
 
@@ -218,7 +257,7 @@ const TOKEN_SHAPED = /cmk_[A-Za-z0-9]/
 export function violations(
   observation: Observation,
   host: Host,
-  monitorId: string,
+  secrets: Secrets,
 ): Invariant[] {
   const found: Invariant[] = []
 
@@ -247,8 +286,12 @@ export function violations(
 
   const written = sdkAuthoredText(observation, host)
 
-  if (mentions(written, monitorId) || TOKEN_SHAPED.test(written)) {
+  if (mentions(written, secrets.monitorId)) {
     found.push('no-identifier-in-the-output')
+  }
+
+  if (written.includes(secrets.apiKey) || TOKEN_SHAPED.test(written)) {
+    found.push('no-credential-in-the-output')
   }
 
   if (observation.undrainedBodies > 0) {

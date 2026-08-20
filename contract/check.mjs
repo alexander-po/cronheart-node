@@ -27,6 +27,13 @@ const publishedUrl =
     ? new URL('../dist/index.mjs', import.meta.url)
     : pathToFileURL(process.argv[4])
 
+// Both published entry points are swept, not only the root: the management client is a
+// separate bundle, so a wire literal added there would otherwise never be accounted for.
+const managementUrl =
+  process.argv[5] === undefined
+    ? new URL('../dist/api.mjs', import.meta.url)
+    : pathToFileURL(process.argv[5])
+
 const contract = JSON.parse(readFileSync(contractUrl, 'utf8'))
 
 function resolvePointer(pointer) {
@@ -97,6 +104,23 @@ const HELD_AS_CONSTANTS = {
   'retry_after.max_seconds': 'RETRY_AFTER_MAX_SECONDS',
   'vocabulary.ping_kind': 'PING_ACTIONS',
   'vocabulary.ping_outcome': 'PING_OUTCOMES',
+  'api.base_path': 'API_BASE_PATH',
+  'api.auth.token_prefix': 'API_TOKEN_PREFIX',
+  'api.pagination.limit_max': 'API_PAGE_LIMIT_MAX',
+  'api.pagination.limit_default': 'API_PAGE_LIMIT_DEFAULT',
+  'api.pagination.max_pages': 'API_MAX_PAGES',
+  'api.idempotency.ttl_seconds': 'API_IDEMPOTENCY_TTL_SECONDS',
+  'constraints.monitor.name.max': 'MONITOR_NAME_MAX_LENGTH',
+  'constraints.grace.max': 'MONITOR_GRACE_SECONDS_MAX',
+  'constraints.interval.min': 'INTERVAL_SECONDS_MIN',
+  'constraints.interval.max': 'INTERVAL_SECONDS_MAX',
+  'constraints.simple.allowlist': 'SIMPLE_SCHEDULES',
+  'constraints.cron.field_count': 'CRON_FIELD_COUNT',
+  'vocabulary.snooze': 'SNOOZE_DURATIONS',
+  'vocabulary.channel_kind': 'CHANNEL_KINDS',
+  'vocabulary.monitor_status': 'MONITOR_STATUSES',
+  'vocabulary.plan_key': 'PLAN_KEYS',
+  'vocabulary.schedule_kind': 'SCHEDULE_KINDS',
 }
 
 const DEFERRED = {
@@ -106,19 +130,6 @@ const DEFERRED = {
     'the SDK accepts only the canonical 8-4-4-4-12 shape, which this looser route pattern strictly contains, so testing both would decide nothing the narrower test has not already decided',
   'ping.dedup.window_seconds':
     'server behaviour the ping path neither implements nor compensates for',
-  'api.pagination.limit_max': 'management client',
-  'api.pagination.limit_default': 'management client',
-  'api.idempotency.ttl_seconds': 'management client',
-  'constraints.monitor.name.max': 'management client',
-  'constraints.grace.max': 'management client',
-  'constraints.interval.min': 'management client',
-  'constraints.interval.max': 'management client',
-  'constraints.simple.allowlist': 'management client',
-  'constraints.cron.field_count': 'management client',
-  'vocabulary.snooze': 'management client',
-  'vocabulary.channel_kind': 'management client',
-  'vocabulary.monitor_status': 'management client',
-  'vocabulary.plan_key': 'management client',
 }
 
 // The other direction: a wire literal the SDK holds and the contract does not state is
@@ -227,14 +238,15 @@ if (failures.length > 0) {
 const valueAssertions = outcomes.filter((outcome) => outcome.assertsValue).length
 const anchorsModule = await moduleAt(anchorsUrl)
 const publishedModule = await moduleAt(publishedUrl)
+const managementModule = await moduleAt(managementUrl)
 
-if (anchorsModule === undefined || publishedModule === undefined) {
+if (anchorsModule === undefined || publishedModule === undefined || managementModule === undefined) {
   report(['build/ or dist/ is missing — build before checking the contract against the SDK'])
 }
 
 const drift = [
   ...compareAgainstSdk(anchors, anchorsModule),
-  ...compareAgainstLedgers([anchorsModule, publishedModule], anchorIds),
+  ...compareAgainstLedgers([anchorsModule, publishedModule, managementModule], anchorIds),
 ]
 
 if (drift.length > 0) {

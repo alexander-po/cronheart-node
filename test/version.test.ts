@@ -46,24 +46,32 @@ describe('version single-sourcing', () => {
     expect(offenders.map((file) => file.pathname.split('/src/')[1])).toEqual([])
   })
 
-  // The CLI is bundled apart from the library entries so that it cannot pull the ping path
-  // into a shared chunk, which makes it a third artifact rather than a third format.
+  // The command-line tool and the management client are each bundled apart from the library
+  // entries so that neither can pull the check-in path into a shared chunk. That makes them
+  // artifacts in their own right rather than further formats, and each carries its own copy.
   it('is injected into exactly one place per built artifact', () => {
     const dist = new URL('dist/', repoRoot)
-    const cliFiles = new Set(wholeGraph(dist, 'cli.mjs').names)
-    const belongsToCli = (file: URL): boolean =>
-      cliFiles.has(String(file.pathname.split('/').pop()))
+    const nameOf = (file: URL): string => String(file.pathname.split('/').pop())
+    const graphs = {
+      cli: new Set(wholeGraph(dist, 'cli.mjs').names),
+      apiEsm: new Set(wholeGraph(dist, 'api.mjs').names),
+      apiCjs: new Set(wholeGraph(dist, 'api.cjs').names),
+    }
     const esm = filesUnder(dist, '.mjs')
+    const cjs = filesUnder(dist, '.cjs')
     const artifacts = [
-      esm.filter((file) => !belongsToCli(file)),
-      esm.filter(belongsToCli),
-      filesUnder(dist, '.cjs'),
+      esm.filter((file) => !graphs.cli.has(nameOf(file)) && !graphs.apiEsm.has(nameOf(file))),
+      esm.filter((file) => graphs.apiEsm.has(nameOf(file))),
+      esm.filter((file) => graphs.cli.has(nameOf(file))),
+      cjs.filter((file) => !graphs.apiCjs.has(nameOf(file))),
+      cjs.filter((file) => graphs.apiCjs.has(nameOf(file))),
     ]
+    const one = artifacts.map(() => 1)
 
-    expect(artifacts.map((files) => files.length > 0)).toEqual([true, true, true])
+    expect(artifacts.map((files) => files.length > 0)).toEqual(artifacts.map(() => true))
 
     for (const version of injectedVersions) {
-      expect(artifacts.map((files) => literalCount(files, version))).toEqual([1, 1, 1])
+      expect(artifacts.map((files) => literalCount(files, version))).toEqual(one)
     }
   })
 

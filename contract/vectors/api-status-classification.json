@@ -1,0 +1,115 @@
+{
+  "contract_version": "1.4.0",
+  "group": "api.status_classification",
+  "default_subject": "api.classifyStatus",
+  "description": "How a management-API response status becomes an error class. The service publishes no machine-readable code: every problem response carries type about:blank, three unrelated conditions share the 409, and the 401 detail is a translation key rather than prose. Status is therefore the only input, and these cases exist to keep it that way — several of them vary nothing but the detail string and assert the class does not move.",
+  "case_count": 19,
+  "cases": [
+    {
+      "id": "bad-request",
+      "input": { "status": 400, "detail": "Malformed JSON body." },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "UnexpectedResponse" }],
+      "why": "A 400 means this client composed something the service could not read, which is a defect here rather than a condition a caller can act on."
+    },
+    {
+      "id": "unauthorized",
+      "input": { "status": 401, "detail": null },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Authentication" }]
+    },
+    {
+      "id": "unauthorized-with-a-translation-key-for-a-detail",
+      "input": { "status": 401, "detail": "security.api.token_invalid" },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Authentication" }],
+      "why": "no-stable-error-code"
+    },
+    {
+      "id": "payment-required",
+      "input": { "status": 402, "detail": "Your plan does not include API access." },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "PlanRestriction" }]
+    },
+    {
+      "id": "forbidden-monitor-limit",
+      "input": { "status": 403, "detail": "Monitor limit reached." },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Forbidden" }]
+    },
+    {
+      "id": "forbidden-email-unverified",
+      "input": { "status": 403, "detail": "Verify your email address first." },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Forbidden" }],
+      "why": "no-stable-error-code"
+    },
+    {
+      "id": "not-found",
+      "input": { "status": 404, "detail": null },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "NotFound" }]
+    },
+    {
+      "id": "conflict-key-in-flight",
+      "input": { "status": 409, "detail": "A request with this Idempotency-Key is already in progress." },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Conflict" }],
+      "why": "no-stable-error-code"
+    },
+    {
+      "id": "conflict-key-reused",
+      "input": { "status": 409, "detail": "This Idempotency-Key was already used with a different request." },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Conflict" }],
+      "why": "no-stable-error-code"
+    },
+    {
+      "id": "conflict-channel-kind-disabled",
+      "input": { "status": 409, "detail": "That channel kind is currently disabled." },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Conflict" }],
+      "why": "no-stable-error-code"
+    },
+    {
+      "id": "conflict-with-no-detail-at-all",
+      "input": { "status": 409, "detail": null },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Conflict" }],
+      "why": "A classifier that read the prose would have nothing to read here and would have to guess."
+    },
+    {
+      "id": "unprocessable",
+      "input": { "status": 422, "detail": "Validation failed." },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Validation" }]
+    },
+    {
+      "id": "too-many-requests",
+      "input": { "status": 429, "detail": null },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "RateLimit" }]
+    },
+    {
+      "id": "bad-gateway-on-a-channel-test",
+      "input": { "status": 502, "detail": null, "deliversDownstream": true },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "ChannelDelivery" }],
+      "why": "On the channel-test route a 502 means the caller's own destination refused the delivery, which is not the API misbehaving."
+    },
+    {
+      "id": "bad-gateway-anywhere-else",
+      "input": { "status": 502, "detail": null },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "UnexpectedResponse" }],
+      "why": "The same status on any other route carries none of that meaning, so the route decides and the status alone does not."
+    },
+    {
+      "id": "internal-server-error",
+      "input": { "status": 500, "detail": null },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "UnexpectedResponse" }]
+    },
+    {
+      "id": "service-unavailable",
+      "input": { "status": 503, "detail": null },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "UnexpectedResponse" }]
+    },
+    {
+      "id": "a-status-nobody-modelled",
+      "input": { "status": 418, "detail": null },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "UnexpectedResponse" }],
+      "why": "An unmapped status must still arrive as the one type a caller catches, never as a raw runtime error."
+    },
+    {
+      "id": "a-redirect-that-was-not-followed",
+      "input": { "status": 301, "detail": null },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "UnexpectedResponse" }],
+      "why": "Redirects are not followed, so a moved base URL surfaces as an answer this client refuses to read rather than as a silent success against another host."
+    }
+  ]
+}

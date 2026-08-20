@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { afterAll, describe, expect, it } from 'vitest'
 import { ENTRY_POINTS, REGISTRY } from './support/entry-points.js'
-import { FAULTS, MONITOR_ID } from './support/faults.js'
+import { API_KEY, FAULTS, MONITOR_ID } from './support/faults.js'
 import { hosts, observe, violations } from './support/fault-harness.js'
 import { HOSTILE_INPUTS, hostileHosts } from './support/hostile.js'
 
@@ -32,7 +32,25 @@ const NEEDS_NO_CASE: Readonly<Record<string, string>> = {
   InvalidBaseUrlError: 'an error class',
   InvalidMonitorIdError: 'an error class',
   UnknownMonitorError: 'an error class',
+  isCronheartApiError: 'a brand check over a value the caller already holds',
+  CronheartApiError: 'an error class',
+  ApiResponseError: 'an error class',
+  ApiAuthenticationError: 'an error class',
+  ApiChannelDeliveryError: 'an error class',
+  ApiConfigurationError: 'an error class',
+  ApiConflictError: 'an error class',
+  ApiForbiddenError: 'an error class',
+  ApiHydrationError: 'an error class',
+  ApiInvalidRequestError: 'an error class',
+  ApiNotFoundError: 'an error class',
+  ApiPlanRestrictionError: 'an error class',
+  ApiRateLimitError: 'an error class',
+  ApiTransportError: 'an error class',
+  ApiUnexpectedResponseError: 'an error class',
+  ApiValidationError: 'an error class',
 }
+
+const SECRETS = { monitorId: MONITOR_ID, apiKey: API_KEY }
 
 function callablesIn(namespace: object): string[] {
   return Object.entries(namespace).flatMap(([name, value]: [string, unknown]) => {
@@ -96,7 +114,7 @@ describe.each(ENTRY_POINTS)('$id survives', (entryPoint) => {
 
       const observation = await observe(entryPoint, fault, host)
 
-      expect(violations(observation, host, MONITOR_ID)).toEqual([])
+      expect(violations(observation, host, SECRETS)).toEqual([])
     })
   })
 })
@@ -108,7 +126,7 @@ describe.each(ENTRY_POINTS)('$id survives what the host hands in', (entryPoint) 
 
       const observation = await observe(entryPoint, fault, host)
 
-      expect(violations(observation, host, MONITOR_ID)).toEqual([])
+      expect(violations(observation, host, SECRETS)).toEqual([])
     })
   })
 })

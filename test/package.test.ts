@@ -72,7 +72,7 @@ describe('the negative control never ships', () => {
     expect(built.map(({ name }) => name)).toContain('index.d.mts')
     expect(
       built
-        .filter(({ source }) => /__selftest__|unsafelyMonitored/.test(source))
+        .filter(({ source }) => /__selftest__|unsafelyMonitored|unsafelyManaged/.test(source))
         .map(({ name }) => name),
     ).toEqual([])
   })

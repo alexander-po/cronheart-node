@@ -1,4 +1,18 @@
 import { afterAll, describe, expect, it } from 'vitest'
+import { errorForStatus } from '../src/api/classify.js'
+import {
+  ApiAuthenticationError,
+  ApiChannelDeliveryError,
+  ApiConflictError,
+  ApiForbiddenError,
+  ApiNotFoundError,
+  ApiPlanRestrictionError,
+  ApiRateLimitError,
+  ApiTransportError,
+  ApiUnexpectedResponseError,
+  ApiValidationError,
+} from '../src/api/errors.js'
+import { EMPTY_PROBLEM } from '../src/api/problem.js'
 import { truncateBody } from '../src/ping/body.js'
 import { classifyStatus, isAccepted } from '../src/ping/outcome.js'
 import { parseRetryAfter } from '../src/transport/retry-after.js'
@@ -30,6 +44,20 @@ const SDK_SUBJECTS: Readonly<Record<string, Subject>> = {
 
     return { outcome, ok: isAccepted(outcome) }
   },
+  'api.classifyStatus': (input) => {
+    const { status, detail, deliversDownstream } = input as {
+      status: number
+      detail: string | null
+      deliversDownstream?: boolean
+    }
+
+    throw errorForStatus(
+      status,
+      { ...EMPTY_PROBLEM, detail: detail ?? undefined },
+      { method: 'GET', path: '/api/v1/monitors', deliversDownstream },
+      undefined,
+    )
+  },
   'http.parseRetryAfter': (input) => {
     const { header, now } = input as { header: string | null; now: string }
 
@@ -46,7 +74,19 @@ const SERVER_MODEL_SUBJECTS: Readonly<Record<string, Subject>> = {
 
 const adapter: Adapter = {
   subjects: { ...SDK_SUBJECTS, ...SERVER_MODEL_SUBJECTS },
-  errorClasses: { InvalidAction: InvalidActionError },
+  errorClasses: {
+    InvalidAction: InvalidActionError,
+    Authentication: ApiAuthenticationError,
+    PlanRestriction: ApiPlanRestrictionError,
+    Forbidden: ApiForbiddenError,
+    NotFound: ApiNotFoundError,
+    Conflict: ApiConflictError,
+    Validation: ApiValidationError,
+    RateLimit: ApiRateLimitError,
+    ChannelDelivery: ApiChannelDeliveryError,
+    UnexpectedResponse: ApiUnexpectedResponseError,
+    ApiTransport: ApiTransportError,
+  },
 }
 
 type Side = 'sdk' | 'serverModel'
@@ -80,6 +120,7 @@ const skipped: string[] = []
 describe('conformance vectors', () => {
   it('finds every vector group, so a file that stops loading cannot pass as an empty suite', () => {
     expect(files.map((file) => file.group)).toEqual([
+      'api.status_classification',
       'body.truncation',
       'ping.action_to_kind',
       'ping.response_classification',
@@ -88,7 +129,7 @@ describe('conformance vectors', () => {
   })
 
   it('counts the cases that exercise this SDK apart from the ones that only model the server', () => {
-    expect(declared).toEqual({ sdk: 63, serverModel: 35 })
+    expect(declared).toEqual({ sdk: 82, serverModel: 35 })
   })
 
   describe.each(files)('$group', (file) => {

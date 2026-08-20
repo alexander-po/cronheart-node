@@ -20,16 +20,33 @@ const RULES = [
     id: 'throw-outside-guarded-layer',
     test: (line) => /\bthrow\b/.test(line),
     allows: (relative) =>
-      relative.startsWith('transport/') || relative.startsWith('wiring/'),
+      relative.startsWith('transport/') ||
+      relative.startsWith('wiring/') ||
+      relative.startsWith('api/'),
     explains:
-      'a check-in must never reject; wiring-time validation throws, the ping path returns an outcome',
+      'a check-in must never reject; wiring-time validation and the management client throw, the ping path returns an outcome',
   },
   {
     id: 'promise-reject-outside-guarded-layer',
     test: (line) => /\bPromise\s*\.\s*reject\s*\(/.test(line),
-    allows: (relative) => relative.startsWith('transport/') || REJECTS_BY_DESIGN.has(relative),
+    allows: (relative) =>
+      relative.startsWith('transport/') ||
+      relative.startsWith('api/') ||
+      REJECTS_BY_DESIGN.has(relative),
     explains:
       'a rejected promise is a throw from an async function; rethrow() is the one place a host error is handed back',
+  },
+  {
+    id: 'ping-path-imports-the-management-client',
+    test: (line) => /from '[^']*\bapi(?:\/|\.js')/.test(line),
+    allows: (relative) =>
+      relative === 'api.ts' ||
+      relative === 'contract-anchors.ts' ||
+      relative.startsWith('api/') ||
+      relative.startsWith('cli/'),
+    reads: 'literals',
+    explains:
+      'the management client always throws and is a separate bundle; anything on the check-in path that reached it would inherit both',
   },
   {
     id: 'transport-imports-wiring',

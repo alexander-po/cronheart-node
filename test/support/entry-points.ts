@@ -1,12 +1,17 @@
 import { unsafelyMonitored } from '../../src/integrations/__selftest__.js'
+import { unsafelyManaged } from '../../src/api/__selftest__.js'
+import { createCronheartApi } from '../../src/api/client.js'
+import { isCronheartApiError } from '../../src/api/errors.js'
+import type { CronheartApi, CronheartApiOptions } from '../../src/api/types.js'
 import type { CheckInThunk, PingClient } from '../../src/ping/types.js'
 import { CronheartConfigurationError } from '../../src/wiring/errors.js'
-import { BASE_URL, type FaultInstance, MONITOR_ID } from './faults.js'
+import { API_KEY, BASE_URL, BUDGET_MS, type FaultInstance, MONITOR_ID } from './faults.js'
 
 export interface InvocationContext {
   readonly client: PingClient
   readonly fault: FaultInstance
   readonly host: () => unknown
+  record(value: unknown): void
 }
 
 export interface EntryPoint {
@@ -15,6 +20,51 @@ export interface EntryPoint {
   readonly pings: number
   readonly unsafe: boolean
   invoke(context: InvocationContext): Promise<unknown>
+}
+
+function managementOptions(fault: FaultInstance): CronheartApiOptions {
+  return {
+    apiKey: API_KEY,
+    baseUrl: typeof fault.clientOptions.baseUrl === 'string' ? fault.clientOptions.baseUrl : BASE_URL,
+    env: {},
+    retries: 0,
+    timeoutMs: BUDGET_MS,
+    fetch: fault.clientOptions.fetch,
+    signal: fault.clientOptions.signal,
+  }
+}
+
+// The management client is the inverse of the check-in client: it is supposed to throw, so
+// the case swallows exactly the type it promises and rethrows anything else. An escape that
+// is not a branded error therefore breaks the same invariant a check-in would break, and
+// everything it hands back is recorded so the leak rules read it too.
+async function managed(
+  context: InvocationContext,
+  call: (api: CronheartApi) => Promise<unknown>,
+): Promise<void> {
+  let api: CronheartApi
+
+  try {
+    api = createCronheartApi(managementOptions(context.fault))
+  } catch (error) {
+    context.record(error)
+
+    if (!isCronheartApiError(error)) {
+      throw error
+    }
+
+    return
+  }
+
+  try {
+    context.record(await call(api))
+  } catch (error) {
+    context.record(error)
+
+    if (!isCronheartApiError(error)) {
+      throw error
+    }
+  }
 }
 
 export const ENTRY_POINTS: readonly EntryPoint[] = [
@@ -78,7 +128,47 @@ export const ENTRY_POINTS: readonly EntryPoint[] = [
       return value
     },
   },
+  {
+    id: 'api.monitors.list',
+    exports: ['createCronheartApi'],
+    pings: 1,
+    unsafe: false,
+    invoke: async (context) => {
+      await managed(context, (api) => api.monitors.list())
+
+      return context.host()
+    },
+  },
+  {
+    id: 'api.monitors.create',
+    exports: [],
+    pings: 1,
+    unsafe: false,
+    invoke: async (context) => {
+      await managed(context, (api) =>
+        api.monitors.create(
+          { name: 'nightly-backup', scheduleKind: 'cron', scheduleExpr: '0 3 * * *' },
+          { idempotencyKey: 'a-key-the-caller-chose' },
+        ),
+      )
+
+      return context.host()
+    },
+  },
 ]
+
+export const UNSAFE_MANAGEMENT_ENTRY_POINT: EntryPoint = {
+  id: '__selftest__/management',
+  exports: [],
+  pings: 1,
+  unsafe: true,
+  invoke: async (context) => {
+    const value = await unsafelyManaged(managementOptions(context.fault))
+    context.record(value)
+
+    return context.host()
+  },
+}
 
 export const UNSAFE_ENTRY_POINT: EntryPoint = {
   id: '__selftest__',
@@ -92,4 +182,8 @@ export const UNSAFE_ENTRY_POINT: EntryPoint = {
     ),
 }
 
-export const REGISTRY: readonly EntryPoint[] = [...ENTRY_POINTS, UNSAFE_ENTRY_POINT]
+export const REGISTRY: readonly EntryPoint[] = [
+  ...ENTRY_POINTS,
+  UNSAFE_ENTRY_POINT,
+  UNSAFE_MANAGEMENT_ENTRY_POINT,
+]

@@ -37,6 +37,10 @@ Python port a port rather than a second design.
   (`closed`) or tolerate it (`open`). Read vocabularies are mostly open on purpose: a
   hydrator that throws on an unrecognised status turns a server-side addition into a
   client outage.
+- The **deferral ledger** in `check.mjs` records anchors no SDK constant holds, each with
+  a reason. A reason that names an unbuilt part of the SDK is a debt, not an exemption: the
+  entries reading "management client" came due when that client shipped, and the three that
+  remain are ping-surface facts the client neither implements nor compensates for.
 - `hazards` carry an `id`, a `statement` of what the server does, and an `sdk_rule` for
   what we do about it. Vector cases reference hazard ids in their `why` field, so every
   hazard that is testable can be traced to the case that pins it.
@@ -104,7 +108,7 @@ Four more gaps worth naming:
 
 | Script | Status | Does |
 | --- | --- | --- |
-| `contract:check` | **shipped** | Validates `cronheart-contract.json`: every `anchors` pointer resolves, every stated `value` equals what it resolves to, ids are unique, and the validated count matches the entry count. Also compares anchors against the SDK's own constants — read from a build-time module that is never published — and sweeps both that module and the published root for a wire literal no anchor states. Fails on any anchor that is neither held nor named in the deferral ledger. |
+| `contract:check` | **shipped** | Validates `cronheart-contract.json`: every `anchors` pointer resolves, every stated `value` equals what it resolves to, ids are unique, and the validated count matches the entry count. Also compares anchors against the SDK's own constants — read from a build-time module that is never published — and sweeps that module and **both** published entry points, the check-in client and the management client, for a wire literal no anchor states. Fails on any anchor that is neither held nor named in the deferral ledger. |
 | `contract:vectors` | **shipped** | Runs every case in `vectors/` through the adapter. Fails on an unknown predicate, an unknown non-optional subject, or an executed-case count that disagrees with the files. Reports the SDK-exercising cases apart from the server-model ones — see below. |
 | `contract:check` diff classification | planned | Classifying a diff against the previous version using `CLASSIFICATION.md` needs a previous version to diff against. |
 
