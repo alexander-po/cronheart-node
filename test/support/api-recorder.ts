@@ -29,6 +29,8 @@ export interface ApiStub {
   readonly rejectWith?: unknown
   readonly hang?: boolean | undefined
   readonly delayMs?: number | undefined
+  // A body that arrives and then refuses to be read — the one shape that can leave one open.
+  readonly readRejectsWith?: unknown
 }
 
 export type ApiResponder = (request: RecordedRequest, attempt: number) => ApiStub
@@ -83,6 +85,10 @@ export function createApiRecorder(initial?: ApiResponder | ApiStub): ApiRecorder
           },
         },
         text: async () => {
+          if ('readRejectsWith' in stub) {
+            throw stub.readRejectsWith
+          }
+
           state.consumed = true
 
           return text
@@ -225,6 +231,9 @@ export const EVERY_CALL: readonly Call[] = [
   { id: 'channels.rotateSecret', run: (api) => api.channels.rotateSecret(CHANNEL_ID) },
   { id: 'channels.test', run: (api) => api.channels.test(CHANNEL_ID) },
   { id: 'account.get', run: (api) => api.account.get() },
+  // Makes no request, so it answers under every failure mode; swept anyway, because the
+  // reading it hands back is built from response headers.
+  { id: 'rateLimit', run: async (api) => api.rateLimit() },
 ]
 
 export const FAILURE_MODES: readonly { id: string; stub: ApiStub }[] = [

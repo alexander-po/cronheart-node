@@ -178,6 +178,32 @@ describe('response bodies', () => {
 
     expect(recorder.undrainedBodies).toBe(0)
   })
+
+  it('counts a body nobody asked for, so the reading above is a result and not a constant', async () => {
+    recorder.respondWith({ status: 200, body: 'OK' })
+
+    await recorder.fetch(`${BASE}/ping/${MONITOR_ID}`, {
+      method: 'POST',
+      headers: {},
+      signal: new AbortController().signal,
+    })
+
+    expect(recorder.undrainedBodies).toBe(1)
+  })
+
+  it('cancels a body whose read rejects, which is the only way one is ever left open', async () => {
+    recorder.respondWith({
+      body: PING_DUPLICATE_BODY,
+      readRejectsWith: new Error('the body cannot be read'),
+    })
+
+    const result = await client().ping('job')
+
+    // The stub carries the duplicate body, so an outcome of accepted is the read having
+    // rejected rather than the option being quietly ignored.
+    expect(result.outcome).toBe('accepted')
+    expect(recorder.undrainedBodies).toBe(0)
+  })
 })
 
 describe('the runtime header', () => {

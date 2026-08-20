@@ -94,9 +94,10 @@ Four more gaps worth naming:
   401 are distinguishable only by a `detail` field, which for 401 is a translation key.
   The SDK classifies on status alone, so a server-side change to *which* condition
   produces a 409 is invisible to every check here.
-- **Ordering guarantees are asserted, not enforced.** Two of the three offset listings
+- **Ordering guarantees are asserted, not enforced.** The monitor and channel listings
   order by a second-precision timestamp with no tiebreaker. A drift job cannot observe
-  a lost tiebreaker; only a live listing with colliding timestamps can.
+  a tiebreaker being lost — including from the two listings that have one today — only
+  a live listing with colliding timestamps can.
 - **`client-convention` facts have no server side to drift from.** They change when we
   change them, which is why the classification table reads a vocabulary's `layer` before
   its `openness`: widening one we own is an SDK minor release, not a coordinated major.

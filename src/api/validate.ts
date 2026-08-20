@@ -109,6 +109,12 @@ export function assertChannelDestination(value: unknown, field: string): asserts
   }
 }
 
+export function refuseMissingChannelField(field: string, kind: string): never {
+  refuse(
+    `A ${kind} channel needs ${field}. The service refuses one without it, so it is refused here rather than sent.`,
+  )
+}
+
 export function assertScheduleKind(value: unknown): asserts value is ScheduleKind {
   if (typeof value !== 'string' || !SCHEDULE_KINDS.includes(value as ScheduleKind)) {
     refuse(`scheduleKind must be one of ${oneOf(SCHEDULE_KINDS)}.`)
@@ -127,12 +133,16 @@ export function assertSnoozeDuration(value: unknown): asserts value is SnoozeDur
   }
 }
 
+// Counted in characters, as the service counts them: a string's length here is code units,
+// which makes one emoji two and puts the two bounds wrong in opposite directions.
 function assertBounded(value: unknown, field: string, min: number, max: number): asserts value is string {
   if (typeof value !== 'string' || value.trim() === '') {
     refuse(`${field} must be a non-empty string.`)
   }
 
-  if (value.length < min || value.length > max) {
+  const characters = [...value].length
+
+  if (characters < min || characters > max) {
     refuse(`${field} must be between ${min} and ${max} characters.`)
   }
 }
@@ -145,8 +155,32 @@ export function assertChannelLabel(value: unknown): asserts value is string {
   assertBounded(value, 'label', CHANNEL_LABEL_MIN_LENGTH, CHANNEL_LABEL_MAX_LENGTH)
 }
 
+// The service reports an unknown zone against the schedule expression, so it reaches the
+// caller as a broken cron expression. Deciding it here is what lets the refusal name tz.
+function namesAZone(value: string): boolean {
+  const formats = (globalThis as { Intl?: typeof Intl }).Intl?.DateTimeFormat
+
+  if (typeof formats !== 'function') {
+    return true
+  }
+
+  try {
+    new formats('en-US', { timeZone: value })
+
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function assertTimezone(value: unknown): asserts value is string {
   assertBounded(value, 'tz', 1, TIMEZONE_MAX_LENGTH)
+
+  if (!namesAZone(value)) {
+    refuse(
+      `tz must name a time zone, such as UTC or Europe/Berlin. The service reports an unknown zone against the schedule expression rather than against tz, so this is refused here instead.`,
+    )
+  }
 }
 
 export function assertGraceSeconds(value: unknown): asserts value is number {

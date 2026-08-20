@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.5.0",
+  "contract_version": "2.0.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-20",
@@ -511,7 +511,7 @@
         "min": 1,
         "max": 100,
         "default": 50,
-        "coercion": "A non-numeric or missing limit coerces to 0 and is then raised to 1. A limit above 100 is lowered to 100."
+        "coercion": "A missing limit takes the default of 50. A limit that is present but not numeric coerces to 0 and is then raised to 1, so an unparseable value yields single-row pages rather than the default. A limit above 100 is lowered to 100."
       },
       "offset_clamp": { "min": 0, "max": null },
       "max_pages_guard": 10000,
@@ -525,8 +525,8 @@
         {
           "id": "unstable-offset-ordering",
           "severity": "medium",
-          "statement": "Monitors and alerts are ordered by creation time descending with no tiebreaker, and creation time is stored at whole-second precision. Rows created in the same second have no defined relative order, so deep offset paging can repeat or skip a row.",
-          "sdk_rule": "Deduplicate by identifier while walking an offset listing, and cap the walk. Never assume two listings of an unchanged account are byte-identical."
+          "statement": "The monitor and channel listings are ordered by creation time descending with no tiebreaker, and creation time is stored at whole-second precision. Rows created in the same second have no defined relative order, so deep offset paging over monitors can repeat or skip a row. The alert listing is not affected: it breaks the tie on the identifier, which makes it a total order.",
+          "sdk_rule": "Deduplicate by identifier while walking the monitor listing, and cap every walk. Never assume two monitor listings of an unchanged account are byte-identical. The alert listing needs no deduplication."
         },
         {
           "id": "pagination-guard-throws",
@@ -544,7 +544,7 @@
       },
       { "subject": "GET /api/v1/monitors", "guarantee": "created_at descending, no tiebreaker" },
       { "subject": "GET /api/v1/channels", "guarantee": "created_at descending, no tiebreaker" },
-      { "subject": "GET /api/v1/monitors/{uuid}/alerts", "guarantee": "created_at descending, no tiebreaker" },
+      { "subject": "GET /api/v1/monitors/{uuid}/alerts", "guarantee": "created_at descending then id descending; a total order, so its offset pages neither repeat nor skip" },
       { "subject": "GET /api/v1/monitors/{uuid}/pings", "guarantee": "received_at descending then id descending; a total order, safe for keyset paging" }
     ],
     "idempotency": {
@@ -809,12 +809,23 @@
     { "id": "api.pagination.limit_default", "pointer": "/api/pagination/limit_clamp/default", "value": 50 },
     { "id": "api.idempotency.ttl_seconds", "pointer": "/api/idempotency/in_flight_ttl_seconds", "value": 60 },
     { "id": "api.idempotency.max_key_length", "pointer": "/api/idempotency/max_key_length", "value": 255 },
+    { "id": "constraints.monitor.name.min", "pointer": "/api/constraints/monitor.name/min_length", "value": 2 },
     { "id": "constraints.monitor.name.max", "pointer": "/api/constraints/monitor.name/max_length", "value": 120 },
+    { "id": "constraints.schedule_expr.max", "pointer": "/api/constraints/monitor.schedule_expr/max_length", "value": 120 },
+    { "id": "constraints.tz.max", "pointer": "/api/constraints/monitor.tz/max_length", "value": 64 },
+    { "id": "constraints.channel.label.min", "pointer": "/api/constraints/channel.label/min_length", "value": 2 },
+    { "id": "constraints.channel.label.max", "pointer": "/api/constraints/channel.label/max_length", "value": 80 },
+    { "id": "constraints.channel.address.required_for", "pointer": "/api/constraints/channel.address/required_for_kinds", "value": ["email"] },
+    { "id": "constraints.channel.chat_id.required_for", "pointer": "/api/constraints/channel.chat_id/required_for_kinds", "value": ["telegram"] },
+    { "id": "constraints.channel.webhook_url.required_for", "pointer": "/api/constraints/channel.webhook_url/required_for_kinds", "value": ["slack", "discord", "webhook"] },
+    { "id": "constraints.channel.secret.required_for", "pointer": "/api/constraints/channel.secret/required_for_kinds", "value": ["webhook"] },
+    { "id": "constraints.grace.min", "pointer": "/api/constraints/monitor.grace_seconds/min", "value": 0 },
     { "id": "constraints.grace.max", "pointer": "/api/constraints/monitor.grace_seconds/max", "value": 86400 },
     { "id": "constraints.interval.min", "pointer": "/api/constraints/schedule.interval/min_seconds", "value": 30 },
     { "id": "constraints.interval.max", "pointer": "/api/constraints/schedule.interval/max_seconds", "value": 31622400 },
     { "id": "constraints.simple.allowlist", "pointer": "/api/constraints/schedule.simple/allowlist" },
     { "id": "constraints.cron.field_count", "pointer": "/api/constraints/schedule.cron/field_count", "value": 5 },
+    { "id": "constraints.cron.aliases", "pointer": "/api/constraints/schedule.cron/aliases", "value": ["@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"] },
     { "id": "vocabulary.snooze", "pointer": "/vocabularies/snooze.duration/members" },
     { "id": "vocabulary.channel_kind", "pointer": "/vocabularies/channel.kind/members" },
     { "id": "vocabulary.monitor_status", "pointer": "/vocabularies/monitor.status/members" },

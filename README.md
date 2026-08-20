@@ -339,6 +339,18 @@ where it also asserts that no monitor identifier reaches a message: a request
 is reported as `GET /api/v1/monitors/{uuid}`, never with the identifier in it,
 because that identifier is the check-in capability.
 
+A request the service is certain to refuse is refused here instead, with a
+message that names the field the value came from: a channel missing the key its
+kind needs, a time zone the runtime cannot name — the service reports that one
+against the schedule expression — and a name or label outside its bounds,
+counted in characters as the service counts them rather than in UTF-16 code
+units, so one emoji is one. Every one of those bounds is exported from
+`cronheart/api`, so a form you validate yourself can read the same numbers.
+
+`api.rateLimit()` is what the last answered request reported, and it is a
+function so that it keeps working when it is destructured off the client the way
+every other member does.
+
 ### Paging has three shapes and they are not interchangeable
 
 | Listing | Shape | This package |
@@ -351,11 +363,14 @@ The channels listing reads no pagination parameters and echoes none back, so a
 generic offset walk pointed at it cannot even tell one request's worth from the
 whole set, and never terminates.
 
-The two offset listings order by creation time **with no tiebreaker**, and
+The monitor listing orders by creation time **with no tiebreaker**, and
 creation time is stored to the whole second. Rows created in the same second
 have no defined relative order, so a deep walk can repeat a row or skip one.
 `iterate()` drops repeats by identifier; it cannot recover a skip. Do not build
-anything that depends on two walks of an unchanged account agreeing.
+anything that depends on two walks of an unchanged account agreeing. The alert
+listing breaks the tie on the identifier and is a total order, so `iterateAlerts()`
+needs none of that — the channels listing, which has no paging at all, is the
+other one with no tiebreaker.
 
 ### Two more things the wire does that will surprise you
 

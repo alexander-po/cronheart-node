@@ -247,3 +247,84 @@ describe('a failure names the route without naming the monitor', () => {
     expect(recorder.requests[0]?.url).toContain(MONITOR_UUID)
   })
 })
+
+describe('what this client refuses before a guaranteed rejection reaches the wire', () => {
+  it('refuses a timezone the runtime cannot name, and says which field it is', async () => {
+    const { api, recorder } = apiWith({ json: MONITOR_JSON })
+
+    await expect(
+      api.monitors.create({
+        name: 'nightly-backup',
+        scheduleKind: 'cron',
+        scheduleExpr: '0 3 * * *',
+        tz: 'Mars/Olympus_Mons',
+      }),
+    ).rejects.toThrow(/tz/)
+    expect(recorder.requests).toHaveLength(0)
+  })
+
+  it('sends a timezone the runtime does know', async () => {
+    const { api, recorder } = apiWith({ json: MONITOR_JSON })
+
+    await api.monitors.create({
+      name: 'nightly-backup',
+      scheduleKind: 'cron',
+      scheduleExpr: '0 3 * * *',
+      tz: 'America/New_York',
+    })
+
+    expect(recorder.requests).toHaveLength(1)
+  })
+
+  it.each([
+    ['email', { kind: 'email', label: 'ops inbox' }, /address/],
+    ['telegram', { kind: 'telegram', label: 'ops chat' }, /chatId/],
+    ['slack', { kind: 'slack', label: 'ops room' }, /webhookUrl/],
+    ['discord', { kind: 'discord', label: 'ops room' }, /webhookUrl/],
+    [
+      'webhook',
+      { kind: 'webhook', label: 'ops sink', webhookUrl: 'https://sink.example/hook' },
+      /secret/,
+    ],
+  ] as const)('refuses a %s channel that is missing the field that kind needs', async (
+    _kind,
+    request,
+    named,
+  ) => {
+    const { api, recorder } = apiWith({ json: CHANNEL_JSON })
+
+    await expect(api.channels.create(request)).rejects.toThrow(named)
+    expect(recorder.requests).toHaveLength(0)
+  })
+
+  it('counts a name the way the service counts it, in characters and not in code units', async () => {
+    const { api, recorder } = apiWith({ json: MONITOR_JSON })
+    const create = (name: string) =>
+      api.monitors.create({ name, scheduleKind: 'cron', scheduleExpr: '0 3 * * *' })
+
+    // One character to the service; two code units here. The bound is 2 characters.
+    await expect(create('\u{1F600}')).rejects.toThrow(/characters/)
+
+    await create('\u{1F600}'.repeat(120))
+
+    expect(recorder.requests).toHaveLength(1)
+  })
+
+  it('refuses a fractional value where the service states a whole number', async () => {
+    const { api } = apiWith({ json: { ...MONITOR_JSON, grace_seconds: 60.5 } })
+
+    await expect(api.monitors.get(MONITOR_UUID)).rejects.toThrow(/grace_seconds/)
+  })
+
+  it('hands back a rate-limit reading that survives being destructured off the client', async () => {
+    const { api } = apiWith({
+      json: MONITOR_JSON,
+      headers: { 'x-ratelimit-limit': '120', 'x-ratelimit-remaining': '7' },
+    })
+    const { monitors, rateLimit } = api
+
+    await monitors.get(MONITOR_UUID)
+
+    expect(rateLimit()).toEqual({ limit: 120, remaining: 7, resetAt: undefined })
+  })
+})

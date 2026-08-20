@@ -5,6 +5,7 @@ import {
   RUNTIME_HEADER_MAX_VALUE,
   RUNTIME_HEADER_NAME,
 } from '../constants.js'
+import { nonNegativeOr, positiveOr } from '../numbers.js'
 import { attemptsFor } from '../transport/attempts.js'
 import { TransportFailure, send as transportSend } from '../transport/send.js'
 import { parseRetryAfter } from '../transport/retry-after.js'
@@ -45,16 +46,6 @@ interface CallShape {
   readonly transportOnly?: boolean | undefined
   readonly runtimeMs?: number | undefined
   readonly bodyFallback?: (() => string | undefined) | undefined
-}
-
-function positiveOr(value: number | undefined, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
-}
-
-function nonNegativeOr(value: number | undefined, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? Math.floor(value)
-    : fallback
 }
 
 function ignore(): void {}

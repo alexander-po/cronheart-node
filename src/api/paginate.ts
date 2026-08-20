@@ -9,10 +9,11 @@ function exhausted(what: string): ApiTransportError {
   )
 }
 
-// Two rows created in the same second have no defined relative order, and the listing has
-// no tiebreaker, so a deep walk can hand back a row twice or skip one entirely. Skipping is
-// not fixable from here; repeats are, and are dropped by identity. Do not build anything on
-// the assumption that two walks of an unchanged account agree.
+// Two monitors created in the same second have no defined relative order, because that
+// listing has no tiebreaker, so a deep walk can hand back a row twice or skip one entirely.
+// Skipping is not fixable from here; repeats are, and are dropped by identity. Do not build
+// anything on the assumption that two monitor walks of an unchanged account agree. Alerts
+// share this walk and are a total order, so for them the dropping is a no-op, not a need.
 export async function* offsetWalk<T>(
   what: string,
   identify: (item: T) => string,

@@ -55,7 +55,6 @@ export interface RequestDescriptor {
   // The path only. A query string would carry a pagination cursor into every log line, and
   // a credential must never be in one to begin with.
   readonly path: string
-  readonly deliversDownstream?: boolean | undefined
 }
 
 // Symbol.for rather than a private symbol, and unversioned: two copies of this package in
@@ -257,8 +256,8 @@ export class ApiChannelDeliveryError extends ApiResponseError {
 
   declare readonly kind: 'channel-delivery'
 
-  constructor(message: string, request: RequestDescriptor, problem: ProblemDetails) {
-    super('channel-delivery', message, { status: 502, request, problem })
+  constructor(message: string, details: ApiErrorDetails) {
+    super('channel-delivery', message, { ...details, status: 502 })
   }
 }
 

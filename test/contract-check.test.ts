@@ -66,4 +66,18 @@ describe('the contract check', () => {
     expect(run.output).toContain('recorded in a ledger but the contract has no anchor by that name')
     expect(run.output).toContain('fixture.value')
   })
+
+  it('reads the source, so declining to export a wire literal is not a way past the sweep', () => {
+    const run = check(
+      'contract/cronheart-contract.json',
+      'build/contract-anchors.mjs',
+      'dist/index.mjs',
+      'dist/api.mjs',
+      'test/fixtures/contract/source-with-an-unanchored-literal',
+    )
+
+    expect(run.status).toBe(1)
+    expect(run.output).toContain('A_LITERAL_NOBODY_ANCHORED — the source declares it')
+    expect(run.output).toContain('contract check FAILED — 1 problem(s)')
+  })
 })

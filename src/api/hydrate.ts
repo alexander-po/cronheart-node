@@ -55,8 +55,8 @@ function optionalText(source: Source, key: string, what: string): string | null 
 function integer(source: Source, key: string, what: string): number {
   const value = source[key]
 
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    refuse(what, `has no numeric ${key}`)
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    refuse(what, `has no whole-number ${key}`)
   }
 
   return value
@@ -69,8 +69,8 @@ function optionalInteger(source: Source, key: string, what: string): number | nu
     return null
   }
 
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    refuse(what, `has a ${key} that is neither a number nor null`)
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    refuse(what, `has a ${key} that is neither a whole number nor null`)
   }
 
   return value

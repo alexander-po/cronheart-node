@@ -54,8 +54,7 @@ const SDK_SUBJECTS: Readonly<Record<string, Subject>> = {
     throw errorForStatus(
       status,
       { ...EMPTY_PROBLEM, detail: detail ?? undefined },
-      { method: 'GET', path: '/api/v1/monitors', deliversDownstream },
-      undefined,
+      { request: { method: 'GET', path: '/api/v1/monitors' }, deliversDownstream },
     )
   },
   'http.parseRetryAfter': (input) => {

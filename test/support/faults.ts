@@ -145,33 +145,6 @@ function recorded(
   })
 }
 
-const bodyThatRefusesToBeRead = (): { fetch: FetchLike; undrainedBodies: () => number } => {
-  let open = 0
-
-  return {
-    fetch: () => {
-      open += 1
-
-      const response: PingHttpResponse = {
-        status: 200,
-        headers: { get: () => null },
-        bodyUsed: false,
-        body: {
-          cancel: () => {
-            open -= 1
-
-            return Promise.resolve()
-          },
-        },
-        text: () => Promise.reject(new Error('the body cannot be read')),
-      }
-
-      return Promise.resolve(response)
-    },
-    undrainedBodies: () => open,
-  }
-}
-
 export const FAULTS: readonly Fault[] = [
   recorded('transport-accepts', {}),
   recorded('transport-reports-a-duplicate', { body: PING_DUPLICATE_BODY }),
@@ -205,7 +178,9 @@ export const FAULTS: readonly Fault[] = [
   fault('transport-resolves-a-bare-object', () => ({
     fetch: () => Promise.resolve({} as unknown as PingHttpResponse),
   })),
-  fault('transport-body-refuses-to-be-read', bodyThatRefusesToBeRead),
+  recorded('transport-body-refuses-to-be-read', {
+    readRejectsWith: new Error('the body cannot be read'),
+  }),
   fault('the-monitor-name-resolves-to-nothing', () => ({ monitor: 'a-name-nothing-defines' })),
   fault('the-configured-id-is-not-an-id', () => ({
     monitor: 'from-the-environment',

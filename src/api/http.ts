@@ -1,4 +1,5 @@
 import { RETRY_FLOOR_DELAY_MS } from '../constants.js'
+import { positiveOr } from '../numbers.js'
 import { type Attempts } from '../transport/attempts.js'
 import { countdown } from '../timer.js'
 import { errorForStatus } from './classify.js'
@@ -27,6 +28,7 @@ export interface Endpoint {
   readonly body?: unknown
   readonly idempotencyKey?: string | undefined
   readonly deliversDownstream?: boolean | undefined
+  readonly separatelyThrottled?: boolean | undefined
 }
 
 export interface SessionSettings {
@@ -73,10 +75,6 @@ function queryOf(query: Endpoint['query']): string {
   const encoded = params.toString()
 
   return encoded === '' ? '' : `?${encoded}`
-}
-
-function positiveOr(value: number | undefined, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
 }
 
 // The monitor identifier is the check-in capability, and a descriptor is read back through
@@ -170,8 +168,12 @@ export function createSession(settings: SessionSettings): Session {
       throw errorForStatus(
         answered.status,
         retryAfter === undefined ? problem : { ...problem, retryAfterSeconds: retryAfter },
-        where,
-        rateLimit,
+        {
+          request: where,
+          rateLimit,
+          deliversDownstream: endpoint.deliversDownstream,
+          separatelyThrottled: endpoint.separatelyThrottled,
+        },
       )
     }
 
@@ -191,8 +193,10 @@ export function createSession(settings: SessionSettings): Session {
   }
 
   // A create is retried only when the caller supplied an idempotency key, and it is the one
-  // request that waits between attempts: the reservation the key takes stays pending, so a
-  // retry sent immediately is refused as a conflict while the resource was in fact created.
+  // request that waits between attempts. The wait spaces the attempts; it is far shorter
+  // than the reservation the key holds, and deliberately so, since a wait long enough to
+  // outlast that reservation would outlast the request's whole time budget. A 409 from
+  // inside the window is therefore resolved by reading the resource back, never by waiting.
   function delayFor(attemptNumber: number, wire: Wire): number {
     return wire.idempotencyKey === undefined
       ? RETRY_FLOOR_DELAY_MS
@@ -232,11 +236,7 @@ export function createSession(settings: SessionSettings): Session {
     },
     send: async (endpoint, options) => {
       const path = `${API_BASE_PATH}${endpoint.path}`
-      const where: RequestDescriptor = {
-        method: endpoint.method,
-        path: forDisplay(path),
-        deliversDownstream: endpoint.deliversDownstream,
-      }
+      const where: RequestDescriptor = { method: endpoint.method, path: forDisplay(path) }
 
       // Encoding is inside the seal too: a body the caller handed in is the last place a
       // rejection this client did not author could come from.

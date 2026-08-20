@@ -18,6 +18,7 @@ import {
   MONITOR_UUID,
   type RecordedRequest,
   apiWith,
+  createApiRecorder,
 } from './support/api-recorder.js'
 import { ofKind } from './support/errors.js'
 
@@ -252,8 +253,8 @@ describe('rate-limit reporting', () => {
 
     await api.account.get()
 
-    expect(api.rateLimit).toEqual({ limit: 120, remaining: 7, resetAt: 1787227200 })
-    expect(api.rateLimit?.resetAt).toBeGreaterThan(Date.now() / 1000 - 86400 * 365 * 50)
+    expect(api.rateLimit()).toEqual({ limit: 120, remaining: 7, resetAt: 1787227200 })
+    expect(api.rateLimit()?.resetAt).toBeGreaterThan(Date.now() / 1000 - 86400 * 365 * 50)
   })
 
   it('keeps the last reading through the two statuses that carry no headers at all', async () => {
@@ -267,7 +268,7 @@ describe('rate-limit reporting', () => {
     await api.account.get()
     await api.account.get().catch(() => undefined)
 
-    expect(api.rateLimit).toEqual({ limit: 120, remaining: 7, resetAt: 1787227200 })
+    expect(api.rateLimit()).toEqual({ limit: 120, remaining: 7, resetAt: 1787227200 })
   })
 
   it('reports the retry guidance a limited response carried, from the header or the body', async () => {
@@ -373,6 +374,30 @@ describe('when a request may be sent again', () => {
     await api.monitors.list().catch(() => undefined)
 
     expect(recorder.requests).toHaveLength(2)
+    expect(recorder.undrainedBodies).toBe(0)
+  })
+
+  it('counts a body nobody asked for, so the reading above is a result and not a constant', async () => {
+    const recorder = createApiRecorder({ json: ACCOUNT_JSON })
+
+    await recorder.fetch(`${BASE_URL}/api/v1/account`, {
+      method: 'GET',
+      headers: {},
+      signal: new AbortController().signal,
+    })
+
+    expect(recorder.undrainedBodies).toBe(1)
+  })
+
+  it('cancels a body whose read rejects, which is the only way one is ever left open', async () => {
+    const { api, recorder } = apiWith({
+      json: ACCOUNT_JSON,
+      readRejectsWith: new Error('the body cannot be read'),
+    })
+
+    // The stub carries a body that hydrates, so a hydration failure is the read having
+    // rejected rather than the option being quietly ignored.
+    await expect(api.account.get()).rejects.toThrow(ApiHydrationError)
     expect(recorder.undrainedBodies).toBe(0)
   })
 })

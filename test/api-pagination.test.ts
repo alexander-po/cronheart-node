@@ -103,7 +103,7 @@ describe('offset listings', () => {
     await expect(collect(api.monitors.iterate())).rejects.toThrow(/page size/i)
   })
 
-  it('walks alerts the same way, since they share the shape and the missing tiebreaker', async () => {
+  it('walks alerts the same way, though their order is total and needs no deduplication', async () => {
     const { api } = apiWith((request) =>
       query(request).get('offset') === '0'
         ? { json: { data: [ALERT_JSON], total: 2, limit: 1, offset: 0 } }

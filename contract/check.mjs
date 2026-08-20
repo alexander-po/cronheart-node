@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
 
@@ -33,6 +33,18 @@ const managementUrl =
   process.argv[5] === undefined
     ? new URL('../dist/api.mjs', import.meta.url)
     : pathToFileURL(process.argv[5])
+
+// The source is swept alongside the built modules, because a module export is a decision a
+// constant can decline to take part in: the seven bounds this sweep first went red on were
+// all exported from their own file and simply never re-exported here. A sixth argument adds
+// a second tree to the sweep rather than replacing src/, so a fixture proving the sweep can
+// fail contributes exactly its own failures.
+const sourceRoots = [
+  new URL('../src/', import.meta.url),
+  ...(process.argv[6] === undefined ? [] : [pathToFileURL(`${process.argv[6].replace(/\/*$/, '/')}`)]),
+]
+
+const SOURCE_CONSTANT = /^(?:export\s+)?const\s+([A-Z][A-Z0-9_]*)\b/gm
 
 const contract = JSON.parse(readFileSync(contractUrl, 'utf8'))
 
@@ -111,12 +123,23 @@ const HELD_AS_CONSTANTS = {
   'api.pagination.max_pages': 'API_MAX_PAGES',
   'api.idempotency.ttl_seconds': 'API_IDEMPOTENCY_TTL_SECONDS',
   'api.idempotency.max_key_length': 'API_IDEMPOTENCY_KEY_MAX_LENGTH',
+  'constraints.monitor.name.min': 'MONITOR_NAME_MIN_LENGTH',
   'constraints.monitor.name.max': 'MONITOR_NAME_MAX_LENGTH',
+  'constraints.schedule_expr.max': 'SCHEDULE_EXPR_MAX_LENGTH',
+  'constraints.tz.max': 'TIMEZONE_MAX_LENGTH',
+  'constraints.channel.label.min': 'CHANNEL_LABEL_MIN_LENGTH',
+  'constraints.channel.label.max': 'CHANNEL_LABEL_MAX_LENGTH',
+  'constraints.channel.address.required_for': 'CHANNEL_ADDRESS_KINDS',
+  'constraints.channel.chat_id.required_for': 'CHANNEL_CHAT_ID_KINDS',
+  'constraints.channel.webhook_url.required_for': 'CHANNEL_WEBHOOK_URL_KINDS',
+  'constraints.channel.secret.required_for': 'CHANNEL_SECRET_KINDS',
+  'constraints.grace.min': 'MONITOR_GRACE_SECONDS_MIN',
   'constraints.grace.max': 'MONITOR_GRACE_SECONDS_MAX',
   'constraints.interval.min': 'INTERVAL_SECONDS_MIN',
   'constraints.interval.max': 'INTERVAL_SECONDS_MAX',
   'constraints.simple.allowlist': 'SIMPLE_SCHEDULES',
   'constraints.cron.field_count': 'CRON_FIELD_COUNT',
+  'constraints.cron.aliases': 'CRON_ALIASES',
   'vocabulary.snooze': 'SNOOZE_DURATIONS',
   'vocabulary.channel_kind': 'CHANNEL_KINDS',
   'vocabulary.monitor_status': 'MONITOR_STATUSES',
@@ -133,12 +156,108 @@ const DEFERRED = {
     'server behaviour the ping path neither implements nor compensates for',
 }
 
-// The other direction: a wire literal the SDK holds and the contract does not state is
-// how a fact stops being checked without anyone deciding that it should.
+// The other direction: a wire literal the SDK holds and the contract does not state is how
+// a fact stops being checked without anyone deciding that it should. Grouped by the reason
+// rather than one line each, because the reason is what a reader has to agree with.
 const UNANCHORED = {
-  CONTRACT_VERSION: 'the version of this file, not a fact stated inside it',
-  SDK_VERSION: 'the package version',
+  'the version stamps this package carries, not facts stated inside the contract': [
+    'CONTRACT_VERSION',
+    'SDK_VERSION',
+  ],
+  'budgets, timeouts and retry counts this client picks for itself and sends to nobody': [
+    'BODY_RELEASE_BUDGET_MS',
+    'BUFFERED_STDIO_POLL_MS',
+    'COMPACTION_SLACK_BYTES',
+    'CREATE_RETRY_BASE_DELAY_MS',
+    'DEFAULT_API_RETRIES',
+    'DEFAULT_API_TIMEOUT_MS',
+    'DEFAULT_FLUSH_TIMEOUT_MS',
+    'DEFAULT_KILL_AFTER_MS',
+    'DEFAULT_RETRIES',
+    'DEFAULT_TIMEOUT_MS',
+    'IN_STEP_MS',
+    'LINGER_BUDGET_MS',
+    'LONGEST_HELD_TIMEOUT_MS',
+    'MAX_OUTPUT_TAIL_BYTES',
+    'MAX_RETRIES',
+    'MAX_TIMER_MS',
+    'REDACTION_REACH_BYTES',
+    'RETRY_FLOOR_DELAY_MS',
+    'STDERR_DRAIN_BUDGET_MS',
+    'STDIN_CAP_BYTES',
+    'TERMINAL_CHECK_IN_BUDGET_MS',
+  ],
+  'shapes this client reads with, each narrower than or absent from what the contract states': [
+    'ASCII_DIGITS',
+    'ASCTIME',
+    'BUILT_IN_SECRETS',
+    'CANONICAL_SHAPE',
+    'CHANNEL_ID',
+    'CONFIGURATION_OUTCOMES',
+    'CONFIGURED_MONITOR',
+    'DELTA_SECONDS',
+    'DURATION',
+    'EMITTABLE',
+    'IDEMPOTENCY_KEY',
+    'IDENTIFIER_SEGMENT',
+    'IMF_FIXDATE',
+    'LOOPBACK',
+    'MONITOR_UUID',
+    'MONTHS',
+    'OPENS_LIKE_AN_ID',
+    'PING_PATH',
+    'RFC_850',
+    'SCALE',
+    'TOKEN_BODY',
+    'TRUTHY',
+    'USER_AGENT',
+  ],
+  'the command line’s own vocabulary — flags, exit codes, signals and the variables it reads': [
+    'API_KEY_OPTION',
+    'API_KEY_VARIABLE',
+    'DASHBOARD',
+    'DEFAULT_ENV_FILE',
+    'EXAMPLE_BINARY',
+    'EXIT_INTERNAL',
+    'EXIT_NOT_EXECUTABLE',
+    'EXIT_NOT_FOUND',
+    'EXIT_OK',
+    'EXIT_PROBLEM',
+    'EXIT_TIMED_OUT',
+    'EXIT_USAGE',
+    'FLAGS',
+    'FORWARDED_SIGNALS',
+    'OWNER_ONLY',
+    'REDACT_ENV',
+    'REDACT_FLAG',
+    'SECRET_FIELD',
+    'SIGNAL_EXIT_BASE',
+    'SIGNALS_REACH_A_GROUP',
+    'WITHHELD_FROM_THE_CHILD',
+  ],
+  'sentences this package writes, which no service states and no reader parses': [
+    'CANCELLED',
+    'DOCTOR_HELP',
+    'EMPTY_PROBLEM',
+    'ENVIRONMENT',
+    'HELP',
+    'INIT_HELP',
+    'MANAGEMENT_CLIENT_PENDING',
+    'NOT_CHECKED',
+    'NOT_STARTED',
+    'OUT_OF_BUDGET',
+    'PAGES',
+    'PAID_ONLY_NOTICE',
+    'PING_HELP',
+    'REASONS',
+    'REDACTION',
+    'RUN_HELP',
+    'UNREACHABLE',
+  ],
+  'keys and markers internal to this package': ['BRAND', 'CLIENT_KEY', 'EXPIRED', 'MARKER', 'STORE_KEY'],
 }
+
+const unanchoredNames = new Set(Object.values(UNANCHORED).flat())
 
 async function moduleAt(url) {
   return existsSync(url) ? import(url.href) : undefined
@@ -181,20 +300,54 @@ function sdkLiterals(modules) {
   ]
 }
 
-function compareAgainstLedgers(modules, anchorIds) {
+function sourceFiles(root) {
+  return existsSync(root)
+    ? readdirSync(root).flatMap((name) => {
+        const child = new URL(name, root)
+
+        return statSync(child).isDirectory()
+          ? sourceFiles(new URL(`${name}/`, root))
+          : name.endsWith('.ts')
+            ? [child]
+            : []
+      })
+    : []
+}
+
+function declaredConstants(roots) {
+  return [
+    ...new Set(
+      roots.flatMap((root) =>
+        sourceFiles(root).flatMap((file) =>
+          [...readFileSync(file, 'utf8').matchAll(SOURCE_CONSTANT)].map(([, name]) => name),
+        ),
+      ),
+    ),
+  ]
+}
+
+function compareAgainstLedgers(modules, roots, anchorIds) {
   const held = new Set(Object.values(HELD_AS_CONSTANTS))
   const literals = sdkLiterals(modules)
+  const declared = declaredConstants(roots)
+  const accounted = (name) => held.has(name) || unanchoredNames.has(name)
 
   return [
     ...literals
-      .filter((name) => !held.has(name) && !Object.hasOwn(UNANCHORED, name))
+      .filter((name) => !accounted(name))
       .map(
         (name) =>
           `${name} — the SDK holds it, no contract anchor states it, and it is not recorded as unanchored`,
       ),
-    ...Object.keys(UNANCHORED)
-      .filter((name) => !literals.includes(name))
-      .map((name) => `${name} — recorded as unanchored but the SDK no longer exports it`),
+    ...declared
+      .filter((name) => !accounted(name) && !literals.includes(name))
+      .map(
+        (name) =>
+          `${name} — the source declares it, no contract anchor states it, and it is not recorded as unanchored`,
+      ),
+    ...[...unanchoredNames]
+      .filter((name) => !literals.includes(name) && !declared.includes(name))
+      .map((name) => `${name} — recorded as unanchored but the source no longer declares it`),
     ...[...Object.keys(HELD_AS_CONSTANTS), ...Object.keys(DEFERRED)]
       .filter((id) => !anchorIds.has(id))
       .map((id) => `${id} — recorded in a ledger but the contract has no anchor by that name`),
@@ -247,7 +400,7 @@ if (anchorsModule === undefined || publishedModule === undefined || managementMo
 
 const drift = [
   ...compareAgainstSdk(anchors, anchorsModule),
-  ...compareAgainstLedgers([anchorsModule, publishedModule, managementModule], anchorIds),
+  ...compareAgainstLedgers([anchorsModule, publishedModule, managementModule], sourceRoots, anchorIds),
 ]
 
 if (drift.length > 0) {
@@ -256,8 +409,8 @@ if (drift.length > 0) {
 
 const held = Object.keys(HELD_AS_CONSTANTS).length
 const deferred = Object.keys(DEFERRED).length
-const unanchored = Object.keys(UNANCHORED).length
+const unanchored = unanchoredNames.size
 
 process.stdout.write(
-  `contract ${contract.contract_version} — ${validated.size} anchor(s) resolved, ${valueAssertions} value assertion(s), ${held} held by the SDK, ${deferred} deferred, ${unanchored} SDK literal(s) recorded as unanchored — ok\n`,
+  `contract ${contract.contract_version} — ${validated.size} anchor(s) resolved, ${valueAssertions} value assertion(s), ${held} held by the SDK, ${deferred} deferred, ${unanchored} constant(s) recorded as unanchored — ok\n`,
 )

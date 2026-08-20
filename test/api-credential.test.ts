@@ -15,7 +15,13 @@ import { callablesIn } from './support/surface.js'
 const BASE = 'https://api.example'
 
 // A delete reads no body, so a 200 carrying an unhydratable shape is a successful delete.
-const ANSWERED_ANYWAY = ['channels.delete / wrong-shape', 'monitors.delete / wrong-shape']
+const MAKES_NO_REQUEST = 'rateLimit'
+
+const ANSWERED_ANYWAY = [
+  'channels.delete / wrong-shape',
+  'monitors.delete / wrong-shape',
+  ...FAILURE_MODES.map((mode) => `${MAKES_NO_REQUEST} / ${mode.id}`),
+].sort()
 
 // Derived the way the fault matrix derives its registry: a sweep compared against the ids
 // of the very list it iterates cannot notice a route that was never added to that list.
@@ -147,7 +153,7 @@ describe('the credential travels in one place only', () => {
     const routes = await everyRouteOnTheBuiltClient()
     const leaks = await describeEverySurfaceOf()
 
-    expect(leaks.routesThatFailed).toEqual(routes)
+    expect(leaks.routesThatFailed).toEqual(routes.filter((route) => route !== MAKES_NO_REQUEST))
     expect(leaks.surfacesInspected).toBe(
       FAILURE_MODES.length * routes.length * SURFACES_PER_VALUE,
     )

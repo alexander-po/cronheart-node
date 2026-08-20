@@ -51,10 +51,22 @@ describe('the source guard', () => {
       'attempt-count-derived-outside-the-bound ping/hot.ts',
       'fetch-outside-transport ping/hot.ts',
       'fetch-outside-transport ping/hot.ts',
+      'ping-path-imports-the-management-client ping/dynamic.ts',
       'ping-path-imports-the-management-client ping/hot.ts',
+      'ping-path-imports-the-management-client ping/quoted.ts',
+      'ping-path-imports-the-management-client ping/relay.ts',
+      'ping-path-imports-the-management-client ping/required.ts',
+      'ping-path-imports-the-management-client ping/side-effect.ts',
+      'ping-path-reaches-the-management-client ping/warm.ts',
       'promise-reject-outside-guarded-layer ping/hot.ts',
       'throw-outside-guarded-layer ping/hot.ts',
       'transport-imports-wiring transport/net.ts',
     ])
+  })
+
+  it('names the route when the management client is reached through another module', () => {
+    const run = guard('test/fixtures/source-guard/dirty')
+
+    expect(run.output).toContain('ping/warm.ts → ping/relay.ts → api/manage.ts')
   })
 })

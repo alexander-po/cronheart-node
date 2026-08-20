@@ -20,6 +20,8 @@ export interface StubResponse {
   readonly delayMs?: number | undefined
   readonly hang?: boolean | undefined
   readonly rejectWith?: unknown
+  // A body that arrives and then refuses to be read — the one shape that can leave one open.
+  readonly readRejectsWith?: unknown
 }
 
 export type Responder = (request: RecordedPing, attempt: number) => StubResponse
@@ -27,6 +29,7 @@ export type Responder = (request: RecordedPing, attempt: number) => StubResponse
 export interface PingRecorder {
   readonly fetch: FetchLike
   readonly pings: readonly RecordedPing[]
+  // Neither read nor cancelled. Only a stub whose read rejects can leave one here.
   readonly undrainedBodies: number
   respondWith(responder: Responder | StubResponse): void
   reset(): void
@@ -86,6 +89,10 @@ export function createPingRecorder(initial?: Responder | StubResponse): PingReco
           },
         },
         text: async () => {
+          if ('readRejectsWith' in stub) {
+            return Promise.reject(stub.readRejectsWith)
+          }
+
           state.consumed = true
 
           return stub.body ?? 'OK'

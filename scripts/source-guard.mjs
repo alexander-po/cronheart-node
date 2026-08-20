@@ -9,6 +9,26 @@ const REJECTS_BY_DESIGN = new Set([
   'integrations/__selftest__.ts',
 ])
 
+// Every form a specifier can take. Quote style is not normalised in this repository, and a
+// dynamic import costs more at runtime than the type-only one the old rule happened to catch.
+const SPECIFIER_LEAD = "(?:\\bfrom\\s*|\\bimport\\s*\\(?\\s*|\\brequire\\s*\\(\\s*)"
+
+const MANAGEMENT_SPECIFIER = new RegExp(`${SPECIFIER_LEAD}["'][^"']*\\bapi(?:/|\\.js["'])`)
+
+const MODULE_SPECIFIER = new RegExp(`${SPECIFIER_LEAD}["'](\\.[^"']*)["']`, 'g')
+
+const MANAGEMENT_ROOT = 'api/'
+
+function mayReachManagement(relative) {
+  return (
+    relative === 'api.ts' ||
+    relative === 'cli.ts' ||
+    relative === 'contract-anchors.ts' ||
+    relative.startsWith(MANAGEMENT_ROOT) ||
+    relative.startsWith('cli/')
+  )
+}
+
 const RULES = [
   {
     id: 'fetch-outside-transport',
@@ -38,12 +58,8 @@ const RULES = [
   },
   {
     id: 'ping-path-imports-the-management-client',
-    test: (line) => /from '[^']*\bapi(?:\/|\.js')/.test(line),
-    allows: (relative) =>
-      relative === 'api.ts' ||
-      relative === 'contract-anchors.ts' ||
-      relative.startsWith('api/') ||
-      relative.startsWith('cli/'),
+    test: (line) => MANAGEMENT_SPECIFIER.test(line),
+    allows: mayReachManagement,
     reads: 'literals',
     explains:
       'the management client always throws and is a separate bundle; anything on the check-in path that reached it would inherit both',
@@ -178,16 +194,88 @@ function sourceFiles(root) {
   })
 }
 
+function resolveSpecifier(relative, specifier) {
+  const segments = relative.split('/').slice(0, -1)
+
+  for (const part of specifier.replace(/\.js$/, '.ts').split('/')) {
+    if (part === '..') {
+      segments.pop()
+    } else if (part !== '.' && part !== '') {
+      segments.push(part)
+    }
+  }
+
+  return segments.join('/')
+}
+
+function edgesOf(literals) {
+  return literals.flatMap((line, offset) =>
+    [...line.matchAll(MODULE_SPECIFIER)].map(([, specifier]) => ({
+      specifier: String(specifier),
+      line: offset + 1,
+    })),
+  )
+}
+
+function reachesManagement(modules) {
+  const violations = []
+
+  for (const [relative, module] of modules) {
+    if (mayReachManagement(relative)) {
+      continue
+    }
+
+    const seen = new Set([relative])
+    const queue = module.edges.map((edge) => ({ path: [relative], edge, from: edge.line }))
+
+    while (queue.length > 0) {
+      const { path, edge, from } = queue.shift()
+      const target = resolveSpecifier(path[path.length - 1], edge.specifier)
+
+      if (!modules.has(target) || seen.has(target)) {
+        continue
+      }
+
+      seen.add(target)
+      const route = [...path, target]
+
+      if (target.startsWith(MANAGEMENT_ROOT)) {
+        // A direct import is already named line by line, and counting it twice would say
+        // the rule found two things when it found one.
+        if (route.length > 2) {
+          violations.push({
+            rule: 'ping-path-reaches-the-management-client',
+            file: relative,
+            line: from,
+            explains: `the management client is reached along ${route.join(' → ')}, so this file inherits a client that always throws`,
+          })
+        }
+
+        break
+      }
+
+      for (const next of modules.get(target).edges) {
+        queue.push({ path: route, edge: next, from })
+      }
+    }
+  }
+
+  return violations
+}
+
 export function findViolations(root) {
   const rootPath = fileURLToPath(root)
+  const modules = new Map()
 
-  return sourceFiles(root).flatMap((file) => {
+  const perLine = sourceFiles(root).flatMap((file) => {
     const relative = fileURLToPath(file).slice(rootPath.length)
     const source = readFileSync(file, 'utf8')
     const views = {
       code: stripped(source, false).split('\n'),
       literals: stripped(source, true).split('\n'),
     }
+
+    modules.set(relative, { edges: edgesOf(views.literals) })
 
     return views.code.flatMap((line, offset) =>
       RULES.filter(
@@ -202,6 +290,8 @@ export function findViolations(root) {
       })),
     )
   })
+
+  return [...perLine, ...reachesManagement(modules)]
 }
 
 function main() {

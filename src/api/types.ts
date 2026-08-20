@@ -262,5 +262,5 @@ export interface CronheartApi {
   readonly account: AccountApi
   // What the most recent answered request reported. Absent until one has been, and stale
   // rather than missing after a status the service omits the headers from.
-  readonly rateLimit: RateLimitSnapshot | undefined
+  rateLimit(): RateLimitSnapshot | undefined
 }

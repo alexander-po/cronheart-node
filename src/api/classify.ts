@@ -15,6 +15,15 @@ import {
 import { PAID_ONLY_NOTICE } from './tier.js'
 import type { ProblemDetails, RateLimitSnapshot } from './types.js'
 
+// Kept apart from the descriptor a caller sees on the error: which route this was is a
+// routing decision of this client's, not part of describing the request.
+export interface ResponseContext {
+  readonly request: RequestDescriptor
+  readonly rateLimit?: RateLimitSnapshot | undefined
+  readonly deliversDownstream?: boolean | undefined
+  readonly separatelyThrottled?: boolean | undefined
+}
+
 function where(request: RequestDescriptor): string {
   return `${request.method} ${request.path}`
 }
@@ -38,9 +47,9 @@ function retryGuidance(seconds: number | undefined): string {
 export function errorForStatus(
   status: number,
   problem: ProblemDetails,
-  request: RequestDescriptor,
-  rateLimit: RateLimitSnapshot | undefined,
+  context: ResponseContext,
 ): AnyCronheartApiError {
+  const { request, rateLimit } = context
   const details = { status, problem, request, rateLimit }
   const at = where(request)
 
@@ -84,17 +93,20 @@ export function errorForStatus(
   }
 
   if (status === 429) {
+    // Two routes carry throttles of their own and answer with the account's rate-limit
+    // headers regardless, so on those the reading beside a refusal still reads healthy.
     return new ApiRateLimitError(
-      `The account's API rate limit is exhausted (HTTP 429) on ${at}. ${retryGuidance(problem.retryAfterSeconds)} The limit is per account and shared by every key it holds.`,
+      context.separatelyThrottled === true
+        ? `This request was refused as too frequent (HTTP 429) on ${at}. ${retryGuidance(problem.retryAfterSeconds)} This route carries a throttle of its own, so the rate-limit reading beside this describes the account's API limit and not the allowance that refused it.`
+        : `The account's API rate limit is exhausted (HTTP 429) on ${at}. ${retryGuidance(problem.retryAfterSeconds)} The limit is per account and shared by every key it holds.`,
       details,
     )
   }
 
-  if (status === 502 && request.deliversDownstream === true) {
+  if (status === 502 && context.deliversDownstream === true) {
     return new ApiChannelDeliveryError(
       `The channel's own destination refused the test delivery (HTTP 502) on ${at}. This is the destination failing, not the API.`,
-      request,
-      problem,
+      details,
     )
   }
 

@@ -134,7 +134,7 @@ export async function reconcile(apiKey: string | undefined): Promise<string[]> {
     }
   }
 
-  const seen: RateLimitSnapshot | undefined = management.rateLimit
+  const seen: RateLimitSnapshot | undefined = management.rateLimit()
 
   return [...names, String(first.total), String(seen?.resetAt ?? 'unknown')]
 }

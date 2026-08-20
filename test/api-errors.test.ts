@@ -24,7 +24,18 @@ import { ofKind } from './support/errors.js'
 const WHERE = { method: 'GET', path: '/api/v1/monitors' } as const
 
 function classify(status: number, problem = {}) {
-  return errorForStatus(status, { ...blankProblem, ...problem }, WHERE, undefined)
+  return errorForStatus(status, { ...blankProblem, ...problem }, { request: WHERE })
+}
+
+const CHANNEL_TEST = { method: 'POST', path: '/api/v1/channels/{id}/test' } as const
+
+function classifyDownstream(status: number, problem = {}) {
+  return errorForStatus(status, { ...blankProblem, ...problem }, {
+    request: CHANNEL_TEST,
+    deliversDownstream: true,
+    separatelyThrottled: true,
+    rateLimit: { limit: 120, remaining: 119, resetAt: 1787227200 },
+  })
 }
 
 const blankProblem = {
@@ -75,7 +86,7 @@ describe('the error hierarchy', () => {
       new ApiHydrationError('x').kind,
       new ApiConfigurationError('x').kind,
       new ApiInvalidRequestError('x').kind,
-      new ApiChannelDeliveryError('x', WHERE, blankProblem).kind,
+      new ApiChannelDeliveryError('x', { request: WHERE, problem: blankProblem }).kind,
     ]
 
     expect(new Set(kinds).size).toBe(kinds.length)
@@ -217,7 +228,7 @@ describe('what a caller can read once it has discriminated', () => {
     )
 
     expect(new Set(refusals)).toEqual(new Set(['response']))
-    expect(new ApiChannelDeliveryError('x', WHERE, blankProblem).group).toBe('response')
+    expect(new ApiChannelDeliveryError('x', { request: WHERE, problem: blankProblem }).group).toBe('response')
   })
 
   it('puts everything the server never answered outside that group', () => {
@@ -225,5 +236,32 @@ describe('what a caller can read once it has discriminated', () => {
     expect(new ApiHydrationError('x').group).toBe('hydration')
     expect(new ApiConfigurationError('x').group).toBe('configuration')
     expect(new ApiInvalidRequestError('x').group).toBe('invalid-request')
+  })
+})
+
+describe('what a refusal says about which limit it came from', () => {
+  it('names the account limit only where the account limit is the one that can refuse', () => {
+    expect(classify(429, { retryAfterSeconds: 30 }).message).toContain(
+      "The account's API rate limit is exhausted",
+    )
+  })
+
+  it('does not blame the account limit on a route that carries a throttle of its own', () => {
+    const limited = classifyDownstream(429, { retryAfterSeconds: 30 })
+
+    expect(limited.message).not.toContain("The account's API rate limit is exhausted")
+    expect(limited.message).toContain('a throttle of its own')
+    expect(limited.message).toContain('Retry after 30 s.')
+  })
+
+  it('keeps the rate-limit reading on a channel delivery failure, as every other refusal does', () => {
+    const refused = classifyDownstream(502)
+
+    expect(refused).toBeInstanceOf(ApiChannelDeliveryError)
+    expect(refused.rateLimit).toEqual({ limit: 120, remaining: 119, resetAt: 1787227200 })
+  })
+
+  it('describes the request without the flag that decided how to classify it', () => {
+    expect(Object.keys(classifyDownstream(502).request ?? {})).toEqual(['method', 'path'])
   })
 })

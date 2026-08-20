@@ -59,6 +59,14 @@ export const CHANNEL_LABEL_MIN_LENGTH = 2
 
 export const CHANNEL_LABEL_MAX_LENGTH = 80
 
+export const CHANNEL_ADDRESS_KINDS = ['email'] as const
+
+export const CHANNEL_CHAT_ID_KINDS = ['telegram'] as const
+
+export const CHANNEL_WEBHOOK_URL_KINDS = ['slack', 'discord', 'webhook'] as const
+
+export const CHANNEL_SECRET_KINDS = ['webhook'] as const
+
 export const CRON_ALIASES = [
   '@yearly',
   '@annually',

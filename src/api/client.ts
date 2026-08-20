@@ -1,10 +1,15 @@
 import { DEFAULT_BASE_URL } from '../constants.js'
 import { attemptsFor } from '../transport/attempts.js'
+import { nonNegativeOr, positiveOr } from '../numbers.js'
 import { ambientEnv, numberFrom, readEnv } from '../ping/env.js'
 import { userAgent } from '../version.js'
 import { assertApiBaseUrl, assertApiKey, assertUserAgent } from './config.js'
 import {
   API_PAGE_LIMIT_DEFAULT,
+  CHANNEL_ADDRESS_KINDS,
+  CHANNEL_CHAT_ID_KINDS,
+  CHANNEL_SECRET_KINDS,
+  CHANNEL_WEBHOOK_URL_KINDS,
   DEFAULT_API_RETRIES,
   DEFAULT_API_TIMEOUT_MS,
 } from './constants.js'
@@ -63,21 +68,12 @@ import {
   channelIdsFor,
   pageLimit,
   pageOffset,
+  refuseMissingChannelField,
 } from './validate.js'
 
 const API_KEY_VARIABLE = 'CRONHEART_API_KEY'
 
 const API_KEY_OPTION = 'the apiKey option'
-
-function positiveOr(value: number | undefined, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
-}
-
-function nonNegativeOr(value: number | undefined, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? Math.floor(value)
-    : fallback
-}
 
 function monitorBodyFrom(request: CreateMonitorRequest | UpdateMonitorRequest, partial: boolean) {
   const body: Record<string, unknown> = {}
@@ -129,16 +125,22 @@ function channelBodyFrom(request: CreateChannelRequest) {
 
   const body: Record<string, unknown> = { kind: request.kind, label: request.label }
 
-  for (const [key, field, value] of [
-    ['address', 'address', request.address],
-    ['chat_id', 'chatId', request.chatId],
-    ['webhook_url', 'webhookUrl', request.webhookUrl],
-    ['secret', 'secret', request.secret],
+  for (const [key, field, value, neededBy] of [
+    ['address', 'address', request.address, CHANNEL_ADDRESS_KINDS],
+    ['chat_id', 'chatId', request.chatId, CHANNEL_CHAT_ID_KINDS],
+    ['webhook_url', 'webhookUrl', request.webhookUrl, CHANNEL_WEBHOOK_URL_KINDS],
+    ['secret', 'secret', request.secret, CHANNEL_SECRET_KINDS],
   ] as const) {
-    if (value !== undefined) {
-      assertChannelDestination(value, field)
-      body[key] = value
+    if (value === undefined) {
+      if ((neededBy as readonly string[]).includes(request.kind)) {
+        refuseMissingChannelField(field, request.kind)
+      }
+
+      continue
     }
+
+    assertChannelDestination(value, field)
+    body[key] = value
   }
 
   return body
@@ -370,6 +372,8 @@ function build(configuration: CronheartApiOptions): CronheartApi {
           retry: 'with-idempotency-key',
           body: channelBodyFrom(request),
           idempotencyKey: options?.idempotencyKey,
+          // An email channel spends a verification-mail allowance of its own.
+          separatelyThrottled: true,
         },
         options,
         channelFrom,
@@ -401,6 +405,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
           path: channelAt(id, '/test'),
           retry: 'never',
           deliversDownstream: true,
+          separatelyThrottled: true,
         },
         options,
         channelTestFrom,
@@ -412,12 +417,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
       read<Account>({ method: 'GET', path: '/account', retry: 'safe' }, options, accountFrom),
   }
 
-  return {
-    monitors,
-    channels,
-    account,
-    get rateLimit() {
-      return session.rateLimit
-    },
-  }
+  // A function rather than an accessor: every other member of this object survives being
+  // destructured off it, which is the whole reason the client is a factory.
+  return { monitors, channels, account, rateLimit: () => session.rateLimit }
 }
