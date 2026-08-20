@@ -9,10 +9,10 @@ for [cronheart.com](https://cronheart.com).
 [![CI](https://github.com/alexander-po/cronheart-node/actions/workflows/ci.yml/badge.svg)](https://github.com/alexander-po/cronheart-node/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **Pre-release.** The ping path is implemented; the CLI, the management API,
-> the reconciler and the scheduler adapters are not, and nothing is published
-> to npm yet. Every section below marked _Not implemented yet_ has no behaviour
-> behind it — this README documents only what ships.
+> **Pre-release.** The ping path and the CLI are implemented; the management
+> API, the reconciler and the scheduler adapters are not, and nothing is
+> published to npm yet. Every section below marked _Not implemented yet_ has no
+> behaviour behind it — this README documents only what ships.
 
 ## Why
 
@@ -135,17 +135,62 @@ _Not implemented yet._
 
 ## CLI
 
-The package ships a `cronheart` binary for wrapping a command, sending a
-one-off ping, and diagnosing a misconfigured setup.
+```bash
+cronheart init                                    # paste a monitor id, write the env var, verify it
+cronheart run --name=nightly-backup -- ./backup.sh
+cronheart ping nightly-backup --action=fail --body=-
+cronheart doctor
+```
 
-_Not implemented yet — the binary currently only reports its own version._
+`run` wraps a command. It opens with a `start` check-in, then reports success
+or failure with the exit status and the tail of the command's stderr as the
+body — and **exits with the command's own exit status**. A check-in that fails
+writes one line to stderr and changes nothing else: a monitoring outage must
+never turn a working job into a failing one.
+
+stderr is teed rather than captured — every byte still reaches the parent, so a
+crontab's `2>> log` keeps working while the last `--stderr-bytes` of it ride
+along with the check-in. The excerpt is cut on a character boundary even when
+the operating system split a character across two reads.
+
+Three exit statuses are the wrapper's own rather than the command's, and each
+is a case where there is no command status to report: `64` for a usage error,
+which happens before anything is spawned; `124` when `--timeout` expires,
+matching `timeout(1)`; and `127` / `126` when the command cannot be started at
+all. `SIGINT` and `SIGTERM` are forwarded to the command and escalate to
+`SIGKILL` after `--kill-after` (5s by default); the check-in body says the run
+was signalled.
+
+`ping` sends one check-in and exits `0` even when the check-in fails, for the
+same reason `run` does; `--strict` turns a failed check-in into exit `1`.
+`--action` is validated against a closed set of literals before a URL exists,
+because the server maps an action it does not recognise to a plain heartbeat —
+which marks the monitor *up*.
+
+`doctor` reports the configuration it resolved, which environment variable
+answered for each monitor, the result of a real check-in and the clock skew
+against the server. It never prints a monitor id: that id is the whole
+credential for the check-in route.
+
+`init` writes `CRONHEART_<NAME>_UUID` for a monitor and verifies it with a
+check-in. Creating the monitor from the command line needs the REST API, which
+is Starter-and-above, so on the free path `init` links to the dashboard and
+takes a pasted id instead. Its destination flag is `--env-path` rather than
+`--env-file`, because Node reads `--env-file` as one of its own options
+wherever it appears on the line.
 
 ## Not a Node project?
 
 The CLI wraps any command, so a crontab entry, a systemd timer or a shell
-script can check in without a Node codebase around it.
+script checks in without a Node codebase around it.
 
-_Not implemented yet._
+```cron
+*/5 * * * * cronheart run --name=cleanup -- /usr/local/bin/cleanup.sh
+```
+
+Install it globally and pin the version. `npx` re-resolves the package on
+every run and needs a warm cache at cron time, which for a monitoring wrapper
+is an availability regression — use it to try the tool, not to run one.
 
 ## Management API
 
@@ -161,8 +206,10 @@ _Not implemented yet._
 Node 22 or newer, zero runtime dependencies. The root entry imports nothing
 from `node:`, which is what keeps non-Node runtimes on the table; the CLI is
 the only entry point that reaches for Node built-ins, and a test enforces the
-split. The ping entry is 8.1 KB gzipped before your bundler's minifier sees
-it, and CI fails on a regression past 8.5 KB.
+split. The ping entry is 8.4 KB gzipped before your bundler's minifier sees
+it, and CI fails on a regression past 8.5 KB. The CLI is bundled apart from the
+library entries so that it cannot pull the ping path into a shared chunk and
+charge every consumer for import glue it has no use for.
 
 ## Development
 

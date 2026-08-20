@@ -44,7 +44,7 @@ function withoutTrailingPartial(bytes: Uint8Array): Uint8Array {
   return start + sequenceLength(lead) > bytes.length ? bytes.subarray(0, start) : bytes
 }
 
-function withoutLeadingPartial(bytes: Uint8Array): Uint8Array {
+export function withoutLeadingPartial(bytes: Uint8Array): Uint8Array {
   let start = 0
 
   while (start < bytes.length && isContinuation(bytes[start])) {

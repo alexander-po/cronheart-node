@@ -39,6 +39,7 @@ jobs:
       # flags a real consumer uses — the guard that the published type surface
       # is usable, not merely present.
       - run: pnpm run typecheck:fixture
+      - run: pnpm run guard
       - run: pnpm run publint
       - run: pnpm run attw
       - run: pnpm run size

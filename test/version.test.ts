@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { wholeGraph } from './support/module-graph.js'
 
 const repoRoot = new URL('../', import.meta.url)
 const pkg = JSON.parse(
@@ -45,14 +46,24 @@ describe('version single-sourcing', () => {
     expect(offenders.map((file) => file.pathname.split('/src/')[1])).toEqual([])
   })
 
-  it('is injected into exactly one place per build format', () => {
+  // The CLI is bundled apart from the library entries so that it cannot pull the ping path
+  // into a shared chunk, which makes it a third artifact rather than a third format.
+  it('is injected into exactly one place per built artifact', () => {
     const dist = new URL('dist/', repoRoot)
+    const cliFiles = new Set(wholeGraph(dist, 'cli.mjs').names)
+    const belongsToCli = (file: URL): boolean =>
+      cliFiles.has(String(file.pathname.split('/').pop()))
     const esm = filesUnder(dist, '.mjs')
-    const cjs = filesUnder(dist, '.cjs')
+    const artifacts = [
+      esm.filter((file) => !belongsToCli(file)),
+      esm.filter(belongsToCli),
+      filesUnder(dist, '.cjs'),
+    ]
+
+    expect(artifacts.map((files) => files.length > 0)).toEqual([true, true, true])
 
     for (const version of injectedVersions) {
-      expect(literalCount(esm, version)).toBe(1)
-      expect(literalCount(cjs, version)).toBe(1)
+      expect(artifacts.map((files) => literalCount(files, version))).toEqual([1, 1, 1])
     }
   })
 

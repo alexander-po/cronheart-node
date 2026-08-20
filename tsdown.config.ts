@@ -21,7 +21,6 @@ export default defineConfig([
       api: 'src/api.ts',
       sync: 'src/sync.ts',
       testing: 'src/testing.ts',
-      cli: 'src/cli.ts',
       croner: 'src/integrations/croner.ts',
       cron: 'src/integrations/cron.ts',
       'node-cron': 'src/integrations/node-cron.ts',

@@ -77,6 +77,14 @@ checkIn('a-monitor-nobody-configured').then((result) => {
 })
 `,
   })
+  const bin = join(workspace, 'esm', 'node_modules', '.bin', 'cronheart')
+  const reported = run(bin, ['--version'], join(workspace, 'esm')).trim()
+
+  if (!reported.startsWith(`cronheart-node ${pkg.version} `)) {
+    throw new Error(`the installed bin reported ${JSON.stringify(reported)}`)
+  }
+
+  process.stdout.write(`bin consumption ok — ${reported}\n`)
 } finally {
   rmSync(workspace, { recursive: true, force: true })
 }

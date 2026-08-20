@@ -166,7 +166,7 @@
     "nestjs"
   ],
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && tsdown --config tsdown.cli.config.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:fixture": "tsc --project test/fixture-consumer",
     "publint": "publint --strict",
