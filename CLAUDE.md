@@ -33,6 +33,15 @@ make shell     # interactive shell in the container
 make clean     # drop the containers and the node_modules / store volumes
 ```
 
+Behind a TLS-inspecting proxy the container trusts no CA the host trusts, so
+anything reaching the network from inside it — the live half of the drift watch,
+a smoke against the real service — fails there while the same request from the
+host succeeds. Hand the bundle in rather than disabling verification:
+
+```bash
+CA_FILE=/path/to/ca-bundle.pem make check
+```
+
 `node_modules`, the fixture consumer's `node_modules` and the pnpm store are
 named volumes, so no platform-specific install ever lands in the working tree.
 The pnpm store deliberately lives under `/app` — pointing it at another

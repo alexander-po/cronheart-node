@@ -1,5 +1,12 @@
 COMPOSE ?= docker compose
-RUN := $(COMPOSE) run --rm node
+
+# Behind a TLS-inspecting proxy the container trusts no host CA, so anything the
+# gate does over the network fails where the host succeeds. Point CA_FILE at a
+# PEM bundle to hand it in; leave it unset and nothing changes.
+CA_FILE ?=
+CA_MOUNT := $(if $(CA_FILE),-v $(CA_FILE):/etc/ssl/extra-ca.pem:ro -e NODE_EXTRA_CA_CERTS=/etc/ssl/extra-ca.pem,)
+
+RUN := $(COMPOSE) run --rm $(CA_MOUNT) node
 
 .PHONY: help image install build test lint guard contract drift vectors matrix min-peers check smoke docs release-gate shell changeset version clean
 
