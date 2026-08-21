@@ -79,18 +79,23 @@ nightly watch opens after the specification changed under us. That is deliberate
 that fetched on every pull request would let an unreachable service turn a review red.
 
 **The published OpenAPI document is the only machine-readable thing the server offers,
-and it is a partial view.** It carries the monitor name bounds, the grace range, the
-pagination `limit` clamp, the read vocabularies, the identifier read/write asymmetry
-and the three pagination shapes — those are the facts `contract:drift`
-compares, and the job prints the count. It carries
-**nothing at all about `/ping`**: no route, no action mapping, no dedup rule, no body
-cap, no runtime header. And it omits most of the validation surface: the twelve-token
-simple-schedule allowlist, the interval second bounds, the five-field cron dialect, the
-timezone length bound, and every channel field constraint.
+and it is a partial view.** Exactly which facts it carries and which it does not is
+stated in the contract itself, under `api.openapi_document`, as `covers` and
+`does_not_cover`. `contract:drift` prints the number of facts it compared and then that
+second list verbatim, so the mechanism a reader trusts to say what is *not* being
+watched reads the same document the watch does. Do not restate either list here: a
+prose copy is the hand-maintained table this directory exists to replace, and the copy
+that used to stand here had drifted from the contract with nothing able to notice.
 
-Everything in that second list is therefore covered **only** by constant assertions —
-which prove the SDK agrees with this file, and prove nothing about whether this file
-still agrees with the server. Closing that gap needs a short assertion over the same
+What belongs in prose is the shape of the gap, and it is this. The document carries
+**nothing at all about `/ping`** — no route, no action mapping, no dedup rule, no body
+cap, no runtime header. Of the validation surface it publishes the bounds that live on
+a schema property and omits the rest, which it carries as prose where it carries it at
+all.
+
+Everything outside `covers` is therefore held **only** by constant assertions — which
+prove the SDK agrees with this file, and prove nothing about whether this file still
+agrees with the server. Closing that gap needs a short assertion over the same
 constants living in the server's own test suite, and that has to land *before* anyone
 treats these anchors as verified rather than as a snapshot.
 

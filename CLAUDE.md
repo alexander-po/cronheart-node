@@ -18,20 +18,29 @@ Zero runtime dependencies. Node 22 (the oldest maintained LTS) is the floor.
 
 ## Toolchain: Docker only
 
-There is no Node or pnpm on the host and nothing in this repo may assume
-otherwise. `docker compose` owns the toolchain; the `Makefile` is the entry
-point:
+There is no Node and no pnpm on the host, and nothing in this repository may
+assume otherwise. `docker compose` owns the toolchain and the image pins the
+Node the package floors on, so a recipe, script or instruction that reaches for
+a host interpreter does not merely fail here — it fails on every machine this
+project is worked on, and it silently stops pinning the version the package
+promises. The `Makefile` is the entry point:
 
 ```bash
-make install   # pnpm install
-make build     # bundle dist/ (ESM + CJS + .d.ts)
-make test      # Vitest
-make lint      # tsc, fixture consumer tsc, source guard, publint, attw, size
-make smoke     # pack the tarball, consume it from scratch ESM and CJS projects
-make check     # the full gate — run this before every commit
-make shell     # interactive shell in the container
-make clean     # drop the containers and the node_modules / store volumes
+make install      # pnpm install
+make build        # bundle dist/ (ESM + CJS + .d.ts)
+make test         # Vitest
+make lint         # tsc, fixture consumer tsc, source guard, publint, attw, size
+make smoke        # pack the tarball, consume it from scratch ESM and CJS projects
+make docs         # compile every documented sample, probe every documented flag
+make check        # the pull-request gate — run this before every commit
+make release-gate # what only a tag has to satisfy — run this before tagging
+make shell        # interactive shell in the container
+make clean        # drop the containers and the node_modules / store volumes
 ```
+
+`make help` lists the rest. The per-check targets — `guard`, `contract`,
+`drift`, `vectors`, `matrix`, `min-peers` — exist so that one failure can be
+re-run on its own instead of through the whole gate.
 
 Behind a TLS-inspecting proxy the container trusts no CA the host trusts, so
 anything reaching the network from inside it — the live half of the drift watch,
@@ -50,6 +59,38 @@ filesystem makes pnpm relocate it into the bind mount.
 CI is the exception: GitHub Actions runs the same scripts natively across a
 Node version matrix, because the matrix is the thing under test. Do not
 containerise the CI jobs.
+
+## The two gates
+
+**`make check` before every commit.** It is the whole pull-request gate in one
+command: the build, the contract check, the offline drift comparison, the
+conformance vectors, lint (types, the fixture consumer's types, the source
+guard, publint, attw, the size budget), the documented-claims check, the leak
+scan, the test suite and the packed-tarball smoke. CI runs the same leaves — a
+test walks the chain of scripts `check` reaches and fails when the workflow has
+stopped running one of them, so a check added to the gate and not to CI is
+caught here rather than discovered later.
+
+**`make release-gate` before a tag.** The documented claims, the leak scan and
+the release metadata: an unconsumed changeset, a `CHANGELOG.md` behind the
+manifest, a document quoting a contract version the contract file does not
+declare, and the manifest fields a registry page renders. It is deliberately
+not part of CI, because a branch is supposed to carry an unconsumed changeset
+and a release is supposed to carry none — so on a branch this gate is expected
+to fail on that one line and nothing else.
+
+Two checks fetch and therefore run nowhere near a pull request: the live half
+of the drift watch is on a schedule, and the half of the leak scan that names
+the private vocabulary cannot live in a public repository and runs before a
+push.
+
+The documented-claims check compiles every sample in the documents and probes
+every flag, command, environment variable and `make` recipe they name against
+the built program, so writing a claim into a document is writing an assertion
+and it will be held to it in the same run. The documents it reads are
+`README.md`, `SECURITY.md`, `RELEASING.md`, this file and the two command-line
+help sources; anything else — `CHANGELOG.md`, the notes under `contract/` — is
+checked by nobody, so a claim written there has to be verified by hand.
 
 ## The axiom
 
@@ -90,6 +131,48 @@ same change, or the matrix's ledger must record why it needs no case: the
 registry is derived by reflecting over the built entry points, so a const
 arrow, a default export and a class method are all visible to it.
 
+## A test that cannot fail is worse than no test
+
+This is the defect this repository has produced most of, by a distance:
+twenty-three distinct classes of test that could not have failed have gone into
+it, and every single one was caught by a person reading the diff rather than by
+the suite going red. A green run is evidence of nothing until the check has
+been shown able to go red. Assume the next one of these is in your change.
+
+So before a check counts as written, point it at a deliberately broken input
+and watch it fail for the reason you intended. That is why the fault matrix
+ships an unsafe entry point, the credential sweep a deliberately leaking
+client, and the documented-claims, leak and release-metadata scans each a dirty
+fixture — every one with a test asserting the control does go red and naming
+what it reported. A new check earns the same treatment.
+
+The shapes that keep recurring:
+
+- **The registry is the thing under test.** A sweep that iterates a
+  hand-written list of subjects cannot notice the subject nobody added to it.
+  Derive it by reflecting over the built artifact, the way the fault matrix and
+  the credential sweep derive theirs.
+- **The oracle restates the answer.** A test holding its own copy of the
+  parser's flag list passes while both are wrong together. Ask the program
+  instead: the flag probe reads the refusal the command-line tool itself writes.
+- **A total instead of a membership.** A length assertion stays green when one
+  route quietly stops being exercised and another starts failing twice. Assert
+  the named set, sorted.
+- **The assertion never runs.** A missing `await` in front of a rejection, an
+  `expect` inside a branch nothing takes, a `try` that swallows the thing it
+  was written to catch.
+- **A count compared against itself.** The vector runner asserts its executed
+  count against the case counts declared in the files for exactly this reason.
+- **The subject is not what ships.** Asserting against `src/` where the claim is
+  about what a consumer receives. Load `dist/` for those.
+- **The green is a coincidence.** A pattern that happens to match something
+  already in the fixture, an identifier that matches seed data. Change the
+  input and confirm the result changes with it.
+- **A model mistaken for conformance.** The vector cases that model the
+  *server's* behaviour would stay green with the SDK's own module deleted. They
+  are counted and reported apart from the conformance cases, and a port in
+  another language should keep that split.
+
 ## Packaging rules
 
 - The root entry imports nothing from `node:`. That is what makes non-Node
@@ -123,6 +206,33 @@ arrow, a default export and a class method are all visible to it.
 - `test/fixture-consumer` compiles a sample import against the exports map
   under the consumer's strict flags. New subpaths go in there too.
 
+## The wire contract
+
+`contract/cronheart-contract.json` is normative. It is where a fact about the
+service's wire surface is stated, and the SDK, the conformance vectors and any
+port into another language all read it rather than each holding an opinion.
+`contract:check` fails on an anchor no SDK constant holds unless the deferral
+ledger names it, and on a wire-looking constant the SDK holds that no anchor
+states — so a fact cannot quietly stop being checked.
+
+- **A wire change moves the contract and its vectors together, in one change**,
+  with `contract_version` bumped. A case added to a group file bumps that
+  file's declared `case_count` in the same edit.
+- `contract/CLASSIFICATION.md` and `contract/classify.mjs` are one rule table
+  written twice. The drift watch refuses to run at all when the two disagree,
+  so edit them together.
+- The drift watch compares the contract against what the service publishes:
+  offline against a committed snapshot on every pull request, live against the
+  running service on a schedule. The live half rewrites the snapshot and opens
+  a pull request rather than failing, because an unreachable service must never
+  be able to turn a review red.
+- It cannot see most of the surface. What it can and cannot see is stated in
+  the contract itself and printed by the job; do not start a second list of it
+  anywhere.
+- Do not add a vector predicate. The vocabulary is fixed at six so that a
+  per-language adapter stays a lookup table and a switch, with no expression
+  evaluator anywhere.
+
 ## Branch & commit conventions
 
 - **Never commit directly to `main`.** Every change lives on its own feature
@@ -141,16 +251,36 @@ arrow, a default export and a class method are all visible to it.
   `git commit --amend` preserves the original author, so a late fix flips the
   committer while the author stays wrong.
 
+## Releasing
+
+**The release is a tag, and nothing publishes by hand.** `make version` folds
+the pending changesets into `CHANGELOG.md` and bumps the manifest; that lands
+through a pull request like any other change; pushing a `v*` tag at the merged
+commit is what publishes, with provenance, from a workflow holding no registry
+token.
+
+Do not bump the version outside `make version`, and never push a tag to see
+what happens: a version the registry already holds can never be republished,
+and the only recourse is the next patch. The procedure, the standing
+registry-side configuration and what each failure mode means are in
+[RELEASING.md](RELEASING.md).
+
 ## Public-repo hygiene
 
 This repository is public; the backend is private. Nothing that identifies
 backend internals may be written here — no backend class or file names, no
-internal issue or PR references, no machine-local absolute paths, no real
-addresses, no live monitor ids, nothing token-shaped. Describe the concept
-instead: "the server's ping ingest" rather than a class name.
+namespace and no source-file reference in the backend's language, no internal
+issue or PR references, no machine-local absolute paths, no real addresses, no
+live monitor ids or issued keys, nothing token-shaped. Describe the concept
+instead: "the server's ping ingest" rather than a class name. This applies to
+documents, tests, fixtures and commit messages alike, and the generic half of
+it is scanned in the gate — which means the scan is a floor, not the rule.
 
-Session working notes stay local — `HANDOFF.md` is git-ignored. `CLAUDE.md` is
-committed but excluded from the published tarball via the `files` allow-list.
+Session working notes stay local: `HANDOFF.md` is git-ignored and stays that
+way, so do not write one expecting it to travel. This file is the durable
+handover — what a successor cannot infer from the code belongs here.
+`CLAUDE.md` is committed but excluded from the published tarball via the
+`files` allow-list.
 
 ## Comments
 

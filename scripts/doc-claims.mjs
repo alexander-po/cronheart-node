@@ -33,7 +33,6 @@ const FOREIGN_PROGRAM = /\b(?:npm|pnpm|npx|node|docker|git|tsc|make|curl|corepac
 const FOREIGN_FLAGS = new Map([
   ['env-file', 'node'],
   ['experimental-strip-types', 'node'],
-  ['location', 'npm'],
 ])
 
 const RECIPE = /^(make|pnpm run) ([\w:-]+)$/

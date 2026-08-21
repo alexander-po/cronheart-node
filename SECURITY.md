@@ -92,6 +92,7 @@ that built it:
 npm audit signatures
 ```
 
-The one exception is the first publish of the package name, which npm requires
-to happen before a trusted publisher can be configured for it, and which
-therefore has no attestation. Everything after it does.
+The one exception is `0.1.0`. npm requires a package to exist before a trusted
+publisher can be configured for it, so that one publish was made by hand and
+carries no attestation. Every release since has been cut by pushing a tag, and
+every one of them has one.

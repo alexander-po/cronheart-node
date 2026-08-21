@@ -1010,9 +1010,11 @@ Everything else is internal and may change in any release, a patch included:
 **What a version number means.** Semantic versioning, with the `0.x` caveat
 stated rather than assumed: until `1.0.0`, a **minor** may break the public
 surface and a patch never will. That is what the `0.x` line is for — it lets
-real use correct API mistakes before anyone is owed a stability guarantee, and
-`0.1.0` already carries eleven such corrections, each one found by migrating a
-working consumer onto the package rather than by reading the code.
+real use correct API mistakes before anyone is owed a stability guarantee.
+`0.1.0` shipped eleven such corrections, every one found by migrating a working
+consumer onto the package rather than by reading the code; `0.1.1` added four
+more, each of them something the package reported wrongly rather than something
+it could not do. [CHANGELOG.md](CHANGELOG.md) names all fifteen.
 
 **Node.** The floor is Node 22, and the policy is the oldest Node LTS still in
 maintenance: when a release reaches end of life it is dropped, which is a minor
@@ -1031,15 +1033,17 @@ Reporting a vulnerability, and the properties worth reporting against:
 Everything runs inside Docker — no Node or pnpm on the host:
 
 ```bash
-make install   # pnpm install
-make build     # bundle dist/ (ESM + CJS + .d.ts)
-make test      # Vitest
-make lint      # tsc, fixture consumer tsc, source guard, publint, attw, size
-make vectors   # the language-neutral conformance vectors
-make matrix    # the fault matrix and its negative control
-make drift     # the wire contract against the snapshot of the published API
-make check     # the full gate, including the ESM/CJS consumption smoke
-make shell     # interactive shell in the container
+make install      # pnpm install
+make build        # bundle dist/ (ESM + CJS + .d.ts)
+make test         # Vitest
+make lint         # tsc, fixture consumer tsc, source guard, publint, attw, size
+make vectors      # the language-neutral conformance vectors
+make matrix       # the fault matrix and its negative control
+make drift        # the wire contract against the snapshot of the published API
+make docs         # compile every documented sample, probe every documented flag
+make check        # the full gate, including the ESM/CJS consumption smoke
+make release-gate # what only a tag has to satisfy — run it before tagging
+make shell        # interactive shell in the container
 ```
 
 `make help` lists every target. CI runs the same checks natively across a Node
@@ -1048,8 +1052,8 @@ rather than a copy of its steps. One check is deliberately not in it: the drift
 watch's live half fetches the published API specification, so it runs on a
 schedule and opens a pull request when the service moves, rather than letting an
 unreachable host fail somebody's review. Cutting a release —
-`make changeset`, `make version`, tag, and what has to be configured on the
-registry before any of it works — is [RELEASING.md](RELEASING.md).
+`make changeset`, `make version`, and the tag that publishes it — is
+[RELEASING.md](RELEASING.md).
 
 ## License
 
