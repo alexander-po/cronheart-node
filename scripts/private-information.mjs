@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -123,6 +123,13 @@ function textFilesUnder(root) {
       }
 
       if (statSync(path).isDirectory()) {
+        // A checkout of its own is a different working tree that happens to sit inside this
+        // one, and reading it reports that tree's content as this one's — including its copy
+        // of the fixtures this scan is proven against, which are findings anywhere else.
+        if (existsSync(join(path, '.git'))) {
+          continue
+        }
+
         walk(path)
         continue
       }

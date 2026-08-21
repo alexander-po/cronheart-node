@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -99,6 +101,32 @@ describe('the generic half of the leak control', () => {
 
     expect(disclosureIdsIn(run.output)).toEqual([])
     expect(run.status).toBe(0)
+  })
+
+  // The tooling parks worktrees inside this tree, so the scan meets a second checkout of
+  // this repository — and its copy of the dirty fixture — on any machine that has one.
+  it('reads no checkout of its own that sits inside the tree, and would read it otherwise', () => {
+    mkdirSync(join(root, 'dist'), { recursive: true })
+    const held = mkdtempSync(join(root, 'dist', 'leak-scan-'))
+    const inside = join(held, 'somebody-elses-tree')
+
+    try {
+      mkdirSync(inside)
+      // Assembled rather than written out, for the same reason the synthetic key is: a line
+      // that reads as a disclosure is one wherever it sits, including here.
+      const elsewhere = ['', 'Users', 'somebody', 'a-tree-of-their-own'].join('/')
+      writeFileSync(join(inside, 'notes.md'), `checked out under ${elsewhere}\n`)
+      const asAnyDirectory = check('private-information', relative(root, held))
+
+      writeFileSync(join(inside, '.git'), 'gitdir: somewhere else\n')
+      const asACheckout = check('private-information', relative(root, held))
+
+      expect(disclosureIdsIn(asAnyDirectory.output)).toEqual(['developer-path'])
+      expect(disclosureIdsIn(asACheckout.output)).toEqual([])
+      expect(asACheckout.status).toBe(0)
+    } finally {
+      rmSync(held, { recursive: true, force: true })
+    }
   })
 })
 
