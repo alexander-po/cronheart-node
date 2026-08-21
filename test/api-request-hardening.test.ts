@@ -276,6 +276,21 @@ describe('what this client refuses before a guaranteed rejection reaches the wir
     expect(recorder.requests).toHaveLength(1)
   })
 
+  // Z is what an ISO timestamp spells UTC as, and no zone database carries it under that
+  // name — so it is taken and sent as the name that reads back identical on the next run.
+  it('sends Z as UTC, and a fixed offset exactly as it was written', async () => {
+    const { api, recorder } = apiWith({ json: MONITOR_JSON })
+    const base = { name: 'nightly-backup', scheduleKind: 'cron', scheduleExpr: '0 3 * * *' } as const
+
+    await api.monitors.create({ ...base, tz: 'Z' })
+    await api.monitors.create({ ...base, tz: '+05:00' })
+
+    expect(recorder.requests.map((request) => JSON.parse(String(request.body))['tz'])).toEqual([
+      'UTC',
+      '+05:00',
+    ])
+  })
+
   it.each([
     ['email', { kind: 'email', label: 'ops inbox' }, /address/],
     ['telegram', { kind: 'telegram', label: 'ops chat' }, /chatId/],

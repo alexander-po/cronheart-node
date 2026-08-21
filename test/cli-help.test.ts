@@ -102,3 +102,81 @@ describe('the crontab lines the README publishes', () => {
     }
   })
 })
+
+describe('a page that documents every flag its command accepts', () => {
+  it.each([
+    ['init', ['--schedule', '--channels', '--env-path', '--print-env', '--name', '--uuid']],
+    ['sync', ['--config', '--apply', '--check', '--prune', '--print-env', '--yes', '--all']],
+  ])('names each of %s’s flags in the usage line and again in the options', async (command, flags) => {
+    const ran = await runCli([command, '--help'])
+    const usage = String(ran.stdout.split('\nOptions')[0])
+    const options = String(ran.stdout.split('\nOptions')[1])
+
+    for (const flag of flags) {
+      expect(usage).toContain(flag)
+      expect(options).toContain(flag)
+    }
+  })
+
+  it('says that cronheart init creates a monitor on the account when a key is configured', async () => {
+    const said = String((await runCli(['init', '--help'])).stdout.split('\nEnvironment')[0])
+
+    expect(said).toContain('creates a monitor')
+    expect(said).toContain('CRONHEART_API_KEY')
+  })
+
+  // A build that reads anything non-zero as drift reads "your key expired" as "there are
+  // changes to make", which is the one reading this status exists to prevent.
+  it('documents every status --check can end on, not only the two that answer the question', async () => {
+    const ran = await runCli(['sync', '--help'])
+    const check = String(
+      /\n {2}--check[\s\S]*?(?=\n {2}--)/.exec(String(ran.stdout.split('\nOptions')[1]))?.[0] ?? '',
+    )
+
+    expect(check).not.toBe('')
+
+    for (const status of ['0', '1', '2']) {
+      expect(check).toContain(status)
+    }
+  })
+
+  it('says sync needs an API key on a paid plan on the page a sync reader is on', async () => {
+    const said = String((await runCli(['sync', '--help'])).stdout.split('\nEnvironment')[0])
+
+    expect(said).toContain('CRONHEART_API_KEY')
+    expect(said).toContain('Starter')
+  })
+})
+
+describe('what the README says before a reader reaches the sync section', () => {
+  const SYNC_SECTION = String(/\n## Declarative sync\n[\s\S]*?(?=\n## )/.exec(README)?.[0] ?? '')
+
+  const CLI_SECTION = String(/\n## CLI\n[\s\S]*?(?=\n## )/.exec(README)?.[0] ?? '')
+
+  it('found both sections to read', () => {
+    expect(SYNC_SECTION).not.toBe('')
+    expect(CLI_SECTION).not.toBe('')
+  })
+
+  it('states the key and the plan sync needs inside the sync section itself', () => {
+    expect(SYNC_SECTION).toContain('CRONHEART_API_KEY')
+    expect(SYNC_SECTION).toContain('Starter')
+  })
+
+  it('documents all three statuses --check ends on', () => {
+    for (const status of ['exit 0', 'exit 1', 'exit 2']) {
+      expect(SYNC_SECTION).toContain(status)
+    }
+  })
+
+  it('links the sync section from the place a CLI reader first meets the command', () => {
+    expect(CLI_SECTION).toContain('#declarative-sync')
+  })
+
+  // Stripping is not checking: a misspelled key is dropped at run time where a typecheck
+  // would have named it, and the section is otherwise silent about that.
+  it('says a .ts config is stripped rather than checked, and what to run that does check it', () => {
+    expect(SYNC_SECTION).toContain('tsc --noEmit')
+    expect(SYNC_SECTION).toMatch(/strip\w* is not check\w*/i)
+  })
+})

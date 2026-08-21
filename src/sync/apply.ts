@@ -22,6 +22,7 @@ interface Progress {
   stopped: boolean
   creatingIsPointless: boolean
   pruneSkipped: string | undefined
+  pruneDeclined: boolean
 }
 
 function record(progress: Progress, row: PlanRow, error: unknown): void {
@@ -73,6 +74,7 @@ export async function applySync(
     stopped: false,
     creatingIsPointless: false,
     pruneSkipped: undefined,
+    pruneDeclined: false,
   }
 
   unresolved(plan.rows, progress)
@@ -126,6 +128,7 @@ export async function applySync(
     failures: progress.failures,
     stopped: progress.stopped,
     pruneSkipped: progress.pruneSkipped,
+    pruneDeclined: progress.pruneDeclined,
   }
 }
 
@@ -158,6 +161,8 @@ async function prune(
   }
 
   if ((await options.prune.confirm()) !== true) {
+    progress.pruneDeclined = true
+
     return
   }
 

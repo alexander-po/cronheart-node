@@ -10,6 +10,8 @@ import type { Channel as ApiChannel } from '../api/types.js'
 
 export const ROUTING_MODES: readonly RoutingMode[] = ['listed', 'none', 'unmanaged']
 
+export const NO_CHANNELS = 'none'
+
 export function routingFrom(value: unknown, monitor: string): DefinedRouting {
   if (value === undefined || value === 'unmanaged') {
     return { mode: 'unmanaged' }

@@ -8,7 +8,8 @@ import type {
 } from '../api/types.js'
 import { defineMonitors } from './define.js'
 import { idempotencyKeyFor } from './key.js'
-import { resolveChannels, routingKeys, verifiedAmong } from './routing.js'
+import { NO_CHANNELS, resolveChannels, routingKeys, verifiedAmong } from './routing.js'
+import { describeSchedule } from './schedule.js'
 import type {
   AlertSuppression,
   DefinedMonitor,
@@ -52,6 +53,35 @@ function changed(field: string, from: unknown, to: unknown): FieldChange | undef
   return String(from) === String(to)
     ? undefined
     : { field, from: String(from), to: String(to) }
+}
+
+// One field to the configuration and two on the wire, so both halves travel whenever either
+// differs — which is also what gives the management client the kind its dialect check needs.
+function scheduleChange(monitor: DefinedMonitor, existing: Monitor): FieldChange | undefined {
+  const from = describeSchedule(existing.scheduleKind, existing.scheduleExpr)
+  const to = describeSchedule(monitor.scheduleKind, monitor.scheduleExpr)
+
+  return from === to ? undefined : { field: 'schedule', from, to }
+}
+
+function labelsFor(ids: readonly string[], channels: readonly Channel[]): string {
+  const named = ids.map((id) => channels.find((channel) => channel.id === id)?.label ?? id)
+
+  return named.length === 0 ? NO_CHANNELS : named.join(', ')
+}
+
+function channelChange(
+  wanted: readonly string[],
+  existing: Monitor,
+  channels: readonly Channel[],
+): FieldChange {
+  const attached = existing.channels.map((channel) => channel.label)
+
+  return {
+    field: 'channels',
+    from: attached.length === 0 ? NO_CHANNELS : attached.join(', '),
+    to: labelsFor(wanted, channels),
+  }
 }
 
 function sameSet(one: readonly string[], other: readonly string[]): boolean {
@@ -150,12 +180,13 @@ function differencesFrom(
   monitor: DefinedMonitor,
   existing: Monitor,
   routing: ResolvedRouting,
+  channels: readonly Channel[],
 ): readonly FieldChange[] {
   const attached = existing.channels.map((channel) => channel.id)
+  const wanted = routing.mode === 'none' ? [] : routing.mode === 'listed' ? routing.ids : attached
 
   return [
-    changed('scheduleKind', existing.scheduleKind, monitor.scheduleKind),
-    changed('scheduleExpr', existing.scheduleExpr, monitor.scheduleExpr),
+    scheduleChange(monitor, existing),
     monitor.tz === undefined ? undefined : changed('tz', existing.tz, monitor.tz),
     monitor.graceSeconds === undefined
       ? undefined
@@ -163,13 +194,9 @@ function differencesFrom(
     // A field the configuration never states is a field sync does not manage: comparing one
     // would report a difference nobody asked to close, and closing it would change a value
     // nobody wrote down.
-    routing.mode === 'unmanaged' || sameSet(routing.mode === 'none' ? [] : routing.ids, attached)
+    routing.mode === 'unmanaged' || sameSet(wanted, attached)
       ? undefined
-      : changed(
-          'channels',
-          attached.join(', ') || '(nobody)',
-          (routing.mode === 'none' ? [] : routing.ids).join(', ') || '(nobody)',
-        ),
+      : channelChange(wanted, existing, channels),
   ].filter((change): change is FieldChange => change !== undefined)
 }
 
@@ -181,8 +208,9 @@ function updateRequestFor(
   const touched = new Set(changes.map((change) => change.field))
 
   return {
-    ...(touched.has('scheduleKind') ? { scheduleKind: monitor.scheduleKind } : {}),
-    ...(touched.has('scheduleExpr') ? { scheduleExpr: monitor.scheduleExpr } : {}),
+    ...(touched.has('schedule')
+      ? { scheduleKind: monitor.scheduleKind, scheduleExpr: monitor.scheduleExpr }
+      : {}),
     ...(monitor.tz !== undefined && touched.has('tz') ? { tz: monitor.tz } : {}),
     ...(monitor.graceSeconds !== undefined && touched.has('graceSeconds')
       ? { graceSeconds: monitor.graceSeconds }
@@ -241,7 +269,7 @@ async function rowFor(
   }
 
   const suppression = suppressionOf(existing)
-  const changes = differencesFrom(monitor, existing, routing)
+  const changes = differencesFrom(monitor, existing, routing, channels)
 
   if (changes.length === 0) {
     return {

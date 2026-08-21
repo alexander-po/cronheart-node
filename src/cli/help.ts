@@ -17,13 +17,13 @@ Usage
   cronheart ping <name-or-id> [options]
   cronheart doctor [<name-or-id>]
   cronheart init [options]
-  cronheart sync [--config=<path>] [--apply | --check] [--prune] [--print-env] [--yes]
+  cronheart sync [--config=<path>] [--apply | --check] [--prune] [--print-env] [--yes] [--all]
 
 Commands
   run       wrap a command: open with a start check-in, then report what it did
   ping      send one check-in
   doctor    report what this environment resolves to, and check in for real
-  init      create or record a monitor and verify it
+  init      create or record a monitor and verify it (creating one needs an API key)
   sync      reconcile the monitors of a project against a configuration file
 
   cronheart <command> --help   the options that command takes, with examples

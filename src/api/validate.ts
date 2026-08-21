@@ -173,14 +173,47 @@ function namesAZone(value: string): boolean {
   }
 }
 
+// The one spelling of UTC no zone database carries, which is why it needs a case of its own.
+const UTC_DESIGNATOR = /^[Zz]$/
+
+// GMT+3 and UTC+3 are the trap: POSIX reads the sign as hours west of Greenwich and ISO 8601
+// reads it as hours east, so the same six characters name two zones eight hours apart.
+const PREFIXED_OFFSET = /^(?:GMT|UTC)([+-])([0-9]{1,2})(?::?([0-9]{2}))?$/i
+
+const OFFSET_FORMS = 'a fixed offset written on its own — +05:00, -0500 or +05'
+
+function pad(value: string): string {
+  return value.padStart(2, '0')
+}
+
 export function assertTimezone(value: unknown): asserts value is string {
   assertBounded(value, 'tz', 1, TIMEZONE_MAX_LENGTH)
 
-  if (!namesAZone(value)) {
+  if (UTC_DESIGNATOR.test(value) || namesAZone(value)) {
+    return
+  }
+
+  const prefixed = PREFIXED_OFFSET.exec(value)
+
+  if (prefixed !== null) {
+    const written = `${prefixed[1] ?? '+'}${pad(String(prefixed[2]))}:${prefixed[3] ?? '00'}`
+
     refuse(
-      `tz must name a time zone, such as UTC or Europe/Berlin. The service reports an unknown zone against the schedule expression rather than against tz, so this is refused here instead.`,
+      `tz ${JSON.stringify(value)} names hours west of Greenwich under POSIX and the opposite, hours east, under ISO 8601 — one string, two zones. Write ${written} if east is what was meant, so it can only be read one way.`,
     )
   }
+
+  refuse(
+    `tz must name a time zone, such as UTC or Europe/Berlin, or ${OFFSET_FORMS}. The service reports an unknown zone against the schedule expression rather than against tz, so this is refused here instead.`,
+  )
+}
+
+// Sent as the name the service and every zone database agree on, so a later run reading the
+// value back finds what this one wrote rather than a difference to close.
+export function canonicalTimezone(value: unknown): string {
+  assertTimezone(value)
+
+  return UTC_DESIGNATOR.test(value) ? 'UTC' : value
 }
 
 export function assertGraceSeconds(value: unknown): asserts value is number {

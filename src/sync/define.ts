@@ -3,7 +3,7 @@ import {
   assertGraceSeconds,
   assertMonitorName,
   assertScheduleExpression,
-  assertTimezone,
+  canonicalTimezone,
 } from '../api/validate.js'
 import { envVarFor } from '../ping/resolve.js'
 import { refuse } from './errors.js'
@@ -20,9 +20,9 @@ const CONFIG_BRAND = Symbol.for('cronheart.sync.config')
 
 // The bounds the service holds are checked by the management client, which is the one place
 // they live. Its refusals name a request field; here they have to name the monitor as well.
-function checked(monitor: string, check: () => void): void {
+function checked<T>(monitor: string, check: () => T): T {
   try {
-    check()
+    return check()
   } catch (error) {
     if (isCronheartApiError(error) && error.kind === 'invalid-request') {
       refuse(error.message, monitor)
@@ -65,11 +65,6 @@ function defined(definition: MonitorDefinition): DefinedMonitor {
     assertScheduleExpression(schedule.kind, schedule.expr)
   })
 
-  if (definition.tz !== undefined) {
-    checked(name, () => {
-      assertTimezone(definition.tz)
-    })
-  }
 
   if (definition.graceSeconds !== undefined) {
     checked(name, () => {
@@ -81,7 +76,10 @@ function defined(definition: MonitorDefinition): DefinedMonitor {
     name,
     scheduleKind: schedule.kind,
     scheduleExpr: schedule.expr,
-    tz: definition.tz,
+    tz:
+      definition.tz === undefined
+        ? undefined
+        : checked(name, () => canonicalTimezone(definition.tz)),
     graceSeconds: definition.graceSeconds,
     routing: routingFrom(definition.channels, name),
   }

@@ -76,6 +76,9 @@ describe('what apply sends', () => {
     expect(result.failures.map((failure) => failure.message).join(' ')).toContain('alert nobody')
   })
 
+  // The two halves of a schedule travel together, so the kind the expression is read against
+  // is never the stored one this client cannot see. Everything the configuration did not
+  // state stays off the request.
   it('sends only the fields that differ, so a routing it did not come to change is left alone', async () => {
     const store = createMonitorStore([monitorRow({ channel_ids: ['7'] })], [VERIFIED])
     const api = apiFor(store)
@@ -86,7 +89,9 @@ describe('what apply sends', () => {
 
     await applySync(api, plan)
 
-    expect(bodiesSentTo(store, 'PATCH')).toEqual([{ schedule_expr: '0 4 * * *' }])
+    expect(bodiesSentTo(store, 'PATCH')).toEqual([
+      { schedule_kind: 'cron', schedule_expr: '0 4 * * *' },
+    ])
   })
 
   it('refuses to reach the service for a row the plan refused', async () => {
@@ -576,6 +581,7 @@ describe('the order a result is read in', () => {
       failures: [{ name: 'replacement', action: 'refused', message: 'no channel of this account' }],
       stopped: false,
       pruneSkipped: undefined,
+      pruneDeclined: false,
     })
     const lines = printed.split('\n')
 

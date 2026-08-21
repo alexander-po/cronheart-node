@@ -450,3 +450,135 @@ describe('where cronheart init leaves the reader', () => {
     expect(`${ran.stdout}${ran.stderr}`).not.toContain(MONITOR_ID)
   })
 })
+
+describe('the two ways an account has nothing to alert through', () => {
+  let store: MonitorStore
+  let api: ApiServer
+
+  const KEY = `cmk_${'0'.repeat(28)}synthetic`
+
+  beforeEach(async () => {
+    store = createMonitorStore([], [])
+    api = await startApiServer(store)
+  })
+
+  afterEach(async () => {
+    await api.close()
+  })
+
+  function paidEnv(): Record<string, string> {
+    return {
+      CRONHEART_URL: api.url,
+      CRONHEART_API_KEY: KEY,
+      CRONHEART_TIMEOUT_MS: '4000',
+      CRONHEART_RETRIES: '0',
+    }
+  }
+
+  function create(...extra: readonly string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {
+    return runCli(
+      ['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`, ...extra],
+      { env: paidEnv() },
+    )
+  }
+
+  it('says an account with no channel at all needs one made, and where', async () => {
+    const ran = await create()
+
+    expect(ran.status).toBe(1)
+    expect(ran.stderr).toContain('no notification channel')
+    expect(ran.stderr).toContain('https://cronheart.com/channels')
+    expect(ran.stderr).not.toContain('verified')
+    expect(ran.stderr).not.toContain('REST')
+  })
+
+  it('says an account whose channels need verifying needs them verified, and names them', async () => {
+    store.channels.push(
+      channelRow({ id: '7', label: 'ops inbox', verified: false }),
+      channelRow({ id: '9', label: 'deploy alerts', kind: 'slack', verified: false }),
+    )
+
+    const ran = await create()
+
+    expect(ran.status).toBe(1)
+    expect(ran.stderr).toContain('ops inbox')
+    expect(ran.stderr).toContain('deploy alerts')
+    expect(ran.stderr).toContain('https://cronheart.com/channels')
+    expect(ran.stderr).not.toContain('no notification channel')
+    // A refusal in the implementer's vocabulary tells someone who typed cronheart init
+    // nothing they can act on.
+    expect(ran.stderr).not.toContain('REST')
+  })
+
+  it('lets a run say a monitor nobody is alerted about is what was meant', async () => {
+    const ran = await create('--channels=none')
+
+    expect(ran.status).toBe(0)
+    expect(store.monitors.map((monitor) => monitor.name)).toEqual(['job'])
+    expect(store.monitors[0]?.channel_ids).toEqual([])
+    expect(ran.stdout).toContain('nobody')
+  })
+
+  it('takes only the word the configuration file takes, and says so for anything else', async () => {
+    const ran = await create('--channels=ops inbox')
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain('--channels takes none')
+    expect(store.monitors).toEqual([])
+  })
+})
+
+describe('what cronheart init tells the reader to run next', () => {
+  let store: MonitorStore
+  let api: ApiServer
+
+  const KEY = `cmk_${'0'.repeat(28)}synthetic`
+
+  beforeEach(async () => {
+    store = createMonitorStore([], [channelRow({ id: '7', label: 'ops inbox', verified: true })])
+    api = await startApiServer(store)
+  })
+
+  afterEach(async () => {
+    await api.close()
+  })
+
+  function paidEnv(): Record<string, string> {
+    return {
+      CRONHEART_URL: api.url,
+      CRONHEART_API_KEY: KEY,
+      CRONHEART_TIMEOUT_MS: '4000',
+      CRONHEART_RETRIES: '0',
+    }
+  }
+
+  // A bare re-run asks for the name again, and a name typed differently the second time is a
+  // second monitor — the state the reconciler reports as unresolvable.
+  it('never suggests the form that would ask for the name a second time', async () => {
+    const ran = await runCli(
+      ['init', '--name=nightly-backup', '--schedule=0 3 * * *', `--env-path=${envFile()}`],
+      { env: paidEnv() },
+    )
+
+    const advice = ran.stdout
+      .split('\n')
+      .filter((line) => line.startsWith('  ') && line.includes('cronheart init'))
+
+    expect(ran.status).toBe(0)
+    expect(advice.length).toBeGreaterThan(0)
+    expect(advice.filter((line) => !line.includes('--name='))).toEqual([])
+  })
+
+  it('prints the finished line rather than the command that would print it, once it holds both', async () => {
+    const ran = await runCli(
+      ['init', '--name=nightly-backup', '--schedule=0 3 * * *', '--print-env'],
+      { env: paidEnv() },
+    )
+    const id = store.monitors[0]?.uuid ?? ''
+
+    expect(ran.status).toBe(0)
+    expect(id).not.toBe('')
+    expect(ran.stdout).toContain(`CRONHEART_NIGHTLY_BACKUP_UUID=${id}`)
+    expect(ran.stdout).not.toContain('cronheart init --print-env prints')
+  })
+})

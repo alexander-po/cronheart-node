@@ -2,19 +2,18 @@ import process from 'node:process'
 import { createInterface } from 'node:readline'
 import { applySync } from '../sync/apply.js'
 import { defineMonitors } from '../sync/define.js'
-import { isSyncConfigurationError } from '../sync/errors.js'
 import { planSync } from '../sync/plan.js'
 import { destructionNotice, whyPruningIsUnsafe } from '../sync/prune.js'
 import { describeApiRefusal } from '../sync/refusal.js'
 import { envLinesFor, renderPlan, renderResult } from '../sync/render.js'
 import type { AppliedMonitor, MonitorConfig, SyncPlan, SyncResult } from '../sync/types.js'
 import { type ParsedArgs, readFlag, readText, unknownFlags } from './args.js'
-import { loadConfigFile } from './config-file.js'
+import { describeConfigProblem, loadConfigFile } from './config-file.js'
 import { EXIT_DRIFT, EXIT_OK, EXIT_PROBLEM, EXIT_USAGE } from './exit.js'
 import type { Io } from './io.js'
 import { openManagementClient } from './managed.js'
 
-const FLAGS = ['config', 'apply', 'check', 'prune', 'print-env', 'yes']
+const FLAGS = ['config', 'apply', 'check', 'prune', 'print-env', 'yes', 'all']
 
 const CONFIRMATION = 'delete'
 
@@ -27,6 +26,7 @@ interface Mode {
   readonly prune: boolean
   readonly printEnv: boolean
   readonly yes: boolean
+  readonly all: boolean
 }
 
 function modeOf(args: ParsedArgs): Mode {
@@ -36,20 +36,24 @@ function modeOf(args: ParsedArgs): Mode {
     prune: readFlag(args, 'prune'),
     printEnv: readFlag(args, 'print-env'),
     yes: readFlag(args, 'yes'),
+    all: readFlag(args, 'all'),
   }
 }
 
-async function askToDelete(io: Io): Promise<boolean> {
+// The question and the echo of the answer follow the rest of the narrative: under --print-env
+// a prompt on stdout is a line the shell would run.
+async function askToDelete(io: Io, asideFromStdout: boolean): Promise<boolean> {
   if (process.stdin.isTTY !== true) {
     io.err(`cronheart: ${NO_TERMINAL_TO_ASK}\n`)
 
     return false
   }
 
-  const session = createInterface({ input: process.stdin, output: process.stdout })
+  const output = asideFromStdout ? process.stderr : process.stdout
+  const session = createInterface({ input: process.stdin, output })
 
   try {
-    process.stdout.write(`  Type ${CONFIRMATION} to confirm: `)
+    output.write(`  Type ${CONFIRMATION} to confirm: `)
 
     for await (const line of session) {
       return String(line).trim() === CONFIRMATION
@@ -74,18 +78,28 @@ function appliedMonitors(result: SyncResult): readonly AppliedMonitor[] {
   return [...result.created, ...result.updated, ...result.unchanged]
 }
 
-function printEnv(io: Io, monitors: readonly AppliedMonitor[], plan: SyncPlan): void {
+function printEnv(
+  io: Io,
+  monitors: readonly AppliedMonitor[],
+  plan: SyncPlan,
+  applied: boolean,
+): void {
   for (const line of envLinesFor([...monitors].sort((one, other) => one.name.localeCompare(other.name)))) {
     io.out(`${line}\n`)
   }
 
-  const pending = plan.rows.filter((row) => row.action === 'create').map((row) => row.name)
+  const named = new Set(monitors.map((monitor) => monitor.name))
+  const pending = plan.rows.map((row) => row.name).filter((name) => !named.has(name))
 
-  if (pending.length > 0) {
-    io.err(
-      `cronheart: no identifier yet for ${pending.join(', ')} — run again with --apply to create them first\n`,
-    )
+  if (pending.length === 0) {
+    return
   }
+
+  io.err(
+    applied
+      ? `cronheart: no identifier for ${pending.join(', ')} — this run made none, and the report above says why\n`
+      : `cronheart: no identifier yet for ${pending.join(', ')} — run again with --apply to create them first\n`,
+  )
 }
 
 function driftUnder(plan: SyncPlan, mode: Mode): boolean {
@@ -117,8 +131,17 @@ async function reconcile(
     return EXIT_PROBLEM
   }
 
-  io.out(`cronheart sync — ${mode.apply ? 'applying' : 'nothing was changed'}\n\n`)
-  io.out(renderPlan(plan))
+  const orphans = plan.rows.filter((row) => row.action === 'orphan').map((row) => row.name)
+  const pruning = mode.apply && mode.prune && orphans.length > 0
+  // Read here as well as inside the apply, so a confirmation is never offered for a deletion
+  // that would not be carried out — and so the reason is on screen before the question is.
+  const unsafe = pruning ? whyPruningIsUnsafe(plan, plan.counts.conflict + plan.counts.refused) : undefined
+  // Under --print-env stdout is a file the shell reads back, and one of its readers executes
+  // what it finds, so everything that is not an assignment goes to stderr.
+  const report = mode.printEnv ? io.err : io.out
+
+  report(`cronheart sync — ${mode.apply ? 'applying' : 'nothing was changed'}\n\n`)
+  report(renderPlan(plan, { hideUnchanged: !mode.all, pruning: pruning && unsafe === undefined }))
 
   if (!mode.apply) {
     if (mode.check) {
@@ -126,51 +149,45 @@ async function reconcile(
     }
 
     if (driftUnder(plan, mode)) {
-      io.out('  Run again with --apply to make these changes.\n')
+      report('  Run again with --apply to make these changes.\n')
     }
 
     if (mode.printEnv) {
-      printEnv(io, knownMonitors(plan), plan)
+      printEnv(io, knownMonitors(plan), plan, false)
     }
 
     return plan.faults ? EXIT_PROBLEM : EXIT_OK
   }
 
-  const orphans = plan.rows.filter((row) => row.action === 'orphan').map((row) => row.name)
-  const pruning = mode.prune && orphans.length > 0
-  // Read here as well as inside the apply, so a confirmation is never offered for a deletion
-  // that would not be carried out — and so the reason is on screen before the question is.
-  const unsafe = pruning ? whyPruningIsUnsafe(plan, plan.counts.conflict + plan.counts.refused) : undefined
-
   if (pruning && unsafe === undefined) {
     // Written whether or not anybody is there to read it: under --yes this is the only record
     // the run leaves of what it was about to destroy.
-    io.out(`\n${destructionNotice(orphans, plan.onService)}`)
+    report(`\n${destructionNotice(orphans, plan.onService)}`)
   }
 
-  const confirm = mode.yes ? () => true : () => askToDelete(io)
+  const confirm = mode.yes ? () => true : () => askToDelete(io, mode.printEnv)
   const result = await applySync(
     opened.api,
     plan,
     pruning && unsafe === undefined ? { prune: { confirm } } : {},
   )
 
-  io.out('\n')
+  report('\n')
 
   if (unsafe !== undefined) {
-    io.out(`  nothing was deleted — ${unsafe}\n`)
+    report(`  nothing was deleted — ${unsafe}\n`)
   }
 
-  io.out(renderResult(result))
+  report(renderResult(result))
 
   if (mode.printEnv) {
-    printEnv(io, appliedMonitors(result), plan)
+    printEnv(io, appliedMonitors(result), plan, true)
   }
 
-  return result.failures.length > 0 ||
-    unsafe !== undefined ||
-    result.pruneSkipped !== undefined ||
-    (mode.prune && result.deleted.length < orphans.length)
+  // A declined confirmation is the prompt working; every other surviving orphan is not.
+  const undeleted = mode.prune && !result.pruneDeclined && result.deleted.length < orphans.length
+
+  return result.failures.length > 0 || unsafe !== undefined || result.pruneSkipped !== undefined || undeleted
     ? EXIT_PROBLEM
     : EXIT_OK
 }
@@ -217,9 +234,7 @@ export async function syncCommand(args: ParsedArgs, io: Io): Promise<number> {
   try {
     config = defineMonitors(loaded.value as never)
   } catch (error) {
-    io.err(
-      `cronheart: ${loaded.path} — ${isSyncConfigurationError(error) ? error.message : String(error)}\n`,
-    )
+    io.err(`cronheart: ${describeConfigProblem(error, loaded.path)}\n`)
 
     return EXIT_PROBLEM
   }

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
+import { isSyncConfigurationError } from '../sync/errors.js'
 
 export const CONFIG_NAMES: readonly string[] = [
   'cronheart.config.ts',
@@ -33,6 +34,14 @@ export function explainConfigFailure(error: unknown, path: string): string {
   }
 
   return `${path} could not be read (${message})`
+}
+
+// The documented shape calls defineMonitors at module scope, so a refusal is raised inside
+// the dynamic import. One frame decides both, or could-not-be-read stops meaning it.
+export function describeConfigProblem(error: unknown, path: string): string {
+  return isSyncConfigurationError(error)
+    ? `${path} — ${error.message}`
+    : explainConfigFailure(error, path)
 }
 
 function found(given: string | undefined, cwd: string): string | undefined {
@@ -81,6 +90,6 @@ export async function loadConfigFile(given: string | undefined): Promise<Loaded>
 
     return { ok: true, path, value: module['default'] ?? module }
   } catch (error) {
-    return { ok: false, problem: explainConfigFailure(error, path) }
+    return { ok: false, problem: describeConfigProblem(error, path) }
   }
 }

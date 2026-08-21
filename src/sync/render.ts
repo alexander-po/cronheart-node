@@ -10,7 +10,9 @@ import type {
   SyncResult,
 } from './types.js'
 
-const NOBODY = '(nobody)'
+// Never the same word as an empty routing list: a row can carry both, and they are different
+// facts about it.
+const NOBODY = 'nobody'
 
 // Two characters, so a marked row and an unmarked one still line up and the marked ones read
 // as a column rather than as ragged text.
@@ -19,13 +21,15 @@ const SILENT_MARK = '! '
 const QUIET_MARK = '  '
 
 const SUPPRESSED: Readonly<Record<AlertSuppression, string>> = {
-  paused: '(nobody — paused, and the service does not scan a paused monitor for lateness)',
-  snoozed: '(nobody — snoozed, and the service suppresses delivery until the snooze ends)',
+  paused: `${NOBODY} — paused, and the service does not scan a paused monitor for lateness`,
+  snoozed: `${NOBODY} — snoozed, and the service suppresses delivery until the snooze ends`,
 }
 
 const ACTION_WIDTH = 10
 
-const NAME_WIDTH = 26
+const FIELD_WIDTH = 14
+
+const DETAIL_INDENT = '    '
 
 const HEADINGS: Readonly<Record<PlanAction, string>> = {
   create: 'to create',
@@ -36,8 +40,19 @@ const HEADINGS: Readonly<Record<PlanAction, string>> = {
   refused: 'refused',
 }
 
-const ORPHAN_NOTE =
-  'on the service and absent from this configuration. Reported only — deleting a monitor destroys its history, so it takes --apply --prune and a confirmation'
+const ORPHAN_NOTE = 'An orphan is on the service and absent from this configuration.'
+
+const ORPHAN_TAKES =
+  'Deleting one destroys its check-in history and nothing here can bring it back, so it takes --apply --prune and a confirmation.'
+
+const UNCHANGED_HIDDEN =
+  'Unchanged rows are not shown; pass --all for the whole plan. A row nobody is alerted about is shown either way.'
+
+export interface PlanView {
+  readonly hideUnchanged?: boolean | undefined
+  // Set by a run that is about to put the deletion notice, which says all of this at length.
+  readonly pruning?: boolean | undefined
+}
 
 // The identifier is the whole credential on the check-in route, and a plan is a thing people
 // paste into a pull request. Names carry the report; identifiers go out under --print-env
@@ -55,36 +70,45 @@ function alertsOf(
     : alerts.map((channel) => `${channel.label} (${channel.kind})`).join(', ')
 }
 
-function detailOf(row: PlanRow): string {
+function field(name: string, value: string): string {
+  return `${DETAIL_INDENT}${name.padEnd(FIELD_WIDTH)}${value}`
+}
+
+function detailsOf(row: PlanRow): readonly string[] {
+  if (row.action === 'conflict' || row.action === 'refused') {
+    return [`${DETAIL_INDENT}${row.reason}`]
+  }
+
+  const alerts = field('alerts', alertsOf(row.alerts, row.suppression))
+
   if (row.action === 'create') {
-    return describeSchedule(row.request.scheduleKind, row.request.scheduleExpr)
+    return [
+      field('schedule', describeSchedule(row.request.scheduleKind, row.request.scheduleExpr)),
+      alerts,
+    ]
   }
 
   if (row.action === 'update') {
-    return row.changes
-      .map((change) => `${change.field} ${change.from} → ${change.to}`)
-      .join(', ')
+    return [
+      ...row.changes.map((change) => field(change.field, `${change.from} → ${change.to}`)),
+      alerts,
+    ]
   }
 
-  if (row.action === 'orphan') {
-    return ORPHAN_NOTE
-  }
-
-  if (row.action === 'conflict' || row.action === 'refused') {
-    return row.reason
-  }
-
-  return ''
+  return [alerts]
 }
 
-function lineFor(row: PlanRow): string {
-  const detail = detailOf(row)
+function linesFor(row: PlanRow): readonly string[] {
+  const marked = row.action !== 'conflict' && row.action !== 'refused' && row.alertsNobody
 
-  if (row.action === 'conflict' || row.action === 'refused') {
-    return `${QUIET_MARK}${row.action.padEnd(ACTION_WIDTH)}${row.name.padEnd(NAME_WIDTH)}${detail}`
-  }
+  return [
+    `${marked ? SILENT_MARK : QUIET_MARK}${row.action.padEnd(ACTION_WIDTH)}${row.name}`,
+    ...detailsOf(row),
+  ]
+}
 
-  return `${row.alertsNobody ? SILENT_MARK : QUIET_MARK}${row.action.padEnd(ACTION_WIDTH)}${row.name.padEnd(NAME_WIDTH)}${detail} → alerts: ${alertsOf(row.alerts, row.suppression)}`
+function hidden(row: PlanRow, view: PlanView): boolean {
+  return view.hideUnchanged === true && row.action === 'unchanged' && !row.alertsNobody
 }
 
 function tallyOf(plan: SyncPlan): string {
@@ -98,12 +122,28 @@ function tallyOf(plan: SyncPlan): string {
   return counted.length === 0 ? '  nothing to reconcile' : `  ${counted.join(', ')}`
 }
 
-export function renderPlan(plan: SyncPlan): string {
+// Said once about the whole plan rather than once per row. The scope notice rides with the
+// orphans, because reading one as absent rather than as invisible is the mistake it prevents.
+function notesOn(plan: SyncPlan, view: PlanView, anyHidden: boolean): readonly string[] {
   return [
-    ...plan.rows.map(lineFor),
+    ...(anyHidden ? [`  ${UNCHANGED_HIDDEN}`] : []),
+    ...(plan.counts.orphan === 0
+      ? []
+      : [
+          `  ${ORPHAN_NOTE}${view.pruning === true ? '' : ` ${ORPHAN_TAKES}`}`,
+          `  ${plan.scopeNotice}`,
+        ]),
+  ]
+}
+
+export function renderPlan(plan: SyncPlan, view: PlanView = {}): string {
+  const shown = plan.rows.filter((row) => !hidden(row, view))
+
+  return [
+    ...shown.flatMap(linesFor),
     '',
     tallyOf(plan),
-    `  ${plan.scopeNotice}`,
+    ...notesOn(plan, view, shown.length < plan.rows.length),
     '',
   ].join('\n')
 }
@@ -127,6 +167,12 @@ export function renderResult(result: SyncResult): string {
 
   if (result.pruneSkipped !== undefined) {
     lines.push(`  nothing was deleted — ${result.pruneSkipped}`)
+  }
+
+  if (result.pruneDeclined) {
+    lines.push(
+      '  nothing was deleted — the confirmation was declined, so every monitor reported as an orphan is still there',
+    )
   }
 
   for (const [what, applied] of [

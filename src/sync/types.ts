@@ -191,6 +191,9 @@ export interface SyncResult {
   readonly failures: readonly SyncFailure[]
   // True when a refusal that would refuse every remaining request ended the run early.
   readonly stopped: boolean
-  // Why pruning was asked for and not done.
+  // Why pruning was asked for and not done by a rule of this command's own.
   readonly pruneSkipped: string | undefined
+  // Answered no. Distinct from the rule above, which is this command refusing to carry the
+  // deletion out — a person declining a destructive prompt is not a run that failed.
+  readonly pruneDeclined: boolean
 }

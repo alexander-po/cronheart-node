@@ -241,3 +241,58 @@ describe('the shapes a configuration file can take', () => {
     )
   })
 })
+
+describe('a schedule written in words rather than in fields', () => {
+  // Every field of a cron expression is drawn from digits and punctuation, so a word in one
+  // is not a cron expression with the wrong field count — it is not a cron expression.
+  it('answers "every 5 minutes" with the forms that would have worked, not with a field count', () => {
+    const said = refusal({ name: 'a-job', schedule: 'every 5 minutes', channels: 'none' })
+
+    expect(said).not.toContain('five fields')
+    expect(said).toContain('5m')
+    expect(said).toContain('every_5_minutes')
+  })
+
+  it('still counts the fields of something that really is a cron expression', () => {
+    const said = refusal({ name: 'a-job', schedule: '*/5 * * * * *', channels: 'none' })
+
+    expect(said).toContain('five fields')
+    expect(said).toContain('seconds')
+  })
+
+  it('leaves the month and day names a cron expression is allowed to carry alone', () => {
+    expect(scheduleOf('0 3 * JAN MON')).toEqual({ kind: 'cron', expr: '0 3 * JAN MON' })
+  })
+})
+
+describe('the time zones a value copied out of a working crontab can be written in', () => {
+  function tzOf(tz: string): string | undefined {
+    return first({ name: 'a-job', schedule: '@daily', channels: 'none', tz }).tz
+  }
+
+  it.each(['+05:00', '-05:00', '+0500', '-0500', '+05', 'Etc/GMT+5'])(
+    'takes the fixed offset %s as written',
+    (tz) => {
+      expect(tzOf(tz)).toBe(tz)
+    },
+  )
+
+  it('takes Z, which is how a great many tools spell UTC', () => {
+    expect(tzOf('Z')).toBe('UTC')
+  })
+
+  it('still refuses a zone nothing could construct', () => {
+    expect(refusal({ name: 'a-job', schedule: '@daily', channels: 'none', tz: 'Mars/Olympus' })).toContain(
+      'tz',
+    )
+  })
+
+  // POSIX reads TZ=GMT+3 as three hours west of Greenwich and everything else reads it as
+  // three hours east, so accepting it would pick a side of an eight-hour disagreement.
+  it('refuses GMT+3 by naming the offset form that has only one meaning', () => {
+    const said = refusal({ name: 'a-job', schedule: '@daily', channels: 'none', tz: 'GMT+3' })
+
+    expect(said).toContain('+03:00')
+    expect(said).toContain('opposite')
+  })
+})

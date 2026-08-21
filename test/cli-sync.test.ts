@@ -417,3 +417,127 @@ describe('what the command will not delete', () => {
     expect(`${ran.stdout}${ran.stderr}`).toContain('nothing was deleted')
   })
 })
+
+describe('what --print-env puts on stdout, which is a file the shell will read back', () => {
+  const ASSIGNMENT = /^CRONHEART_[A-Z0-9_]+=[0-9a-f-]{36}$/
+
+  it('writes assignments and nothing else, so appending the run to .env leaves .env parsable', async () => {
+    store.monitors.push(monitorRow({ name: 'already-here' }))
+
+    const config = jsonConfig([
+      { name: 'already-here', schedule: '0 3 * * *', channels: ['ops inbox'] },
+      { name: 'brand-new', schedule: '@daily', channels: ['ops inbox'] },
+    ])
+    const ran = await runCli(['sync', `--config=${config}`, '--apply', '--print-env'], {
+      env: envFor(),
+    })
+    const printed = ran.stdout.split('\n').filter((line) => line !== '')
+
+    expect(ran.status).toBe(0)
+    expect(printed).toHaveLength(2)
+    expect(printed.filter((line) => ASSIGNMENT.test(line))).toHaveLength(2)
+    expect(ran.stderr).toContain('brand-new')
+  })
+
+  it('does not tell a run that just created the monitor to run again with --apply', async () => {
+    const config = jsonConfig([{ name: 'brand-new', schedule: '@daily', channels: ['ops inbox'] }])
+    const ran = await runCli(['sync', `--config=${config}`, '--apply', '--print-env'], {
+      env: envFor(),
+    })
+
+    expect(ran.stdout).toMatch(/^CRONHEART_BRAND_NEW_UUID=/m)
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain('run again with --apply')
+  })
+
+  it('still says which monitors have no identifier yet on a run that made none', async () => {
+    const config = jsonConfig([{ name: 'brand-new', schedule: '@daily', channels: ['ops inbox'] }])
+    const ran = await runCli(['sync', `--config=${config}`, '--print-env'], { env: envFor() })
+
+    expect(ran.stdout).toBe('')
+    expect(ran.stderr).toContain('run again with --apply')
+    expect(ran.stderr).toContain('brand-new')
+  })
+})
+
+describe('a configuration this command will not accept is not a configuration it could not read', () => {
+  it('frames a refusal raised inside the module the same way it frames one raised outside it', async () => {
+    const refused = moduleConfig([
+      { name: 'twin', schedule: '@daily', channels: ['ops inbox'] },
+      { name: 'twin', schedule: '@hourly', channels: ['ops inbox'] },
+    ])
+    const ran = await runCli(['sync', `--config=${refused}`], { env: envFor() })
+
+    expect(ran.status).toBe(1)
+    expect(ran.stderr).toContain('2 monitors named "twin"')
+    expect(ran.stderr).not.toContain('could not be read')
+  })
+
+  it('keeps could-not-be-read for a file that genuinely could not be read', async () => {
+    const broken = writeConfig("throw new Error('the disk fell over')\n")
+    const ran = await runCli(['sync', `--config=${broken}`], { env: envFor() })
+
+    expect(ran.status).toBe(1)
+    expect(ran.stderr).toContain('could not be read')
+    expect(ran.stderr).toContain('the disk fell over')
+  })
+})
+
+describe('declining the deletion is an answer, not a failure', () => {
+  it('exits 0 and says nothing was deleted when the confirmation is refused at a terminal', async () => {
+    store.monitors.push(
+      monitorRow({ name: 'kept' }),
+      monitorRow({ name: 'retired', uuid: '00000000-0000-4000-8000-0000000000b2' }),
+    )
+
+    const config = jsonConfig([{ name: 'kept', schedule: '0 3 * * *', channels: ['ops inbox'] }])
+    const ran = await runCliUnderTerminal(
+      ['sync', `--config=${config}`, '--apply', '--prune'],
+      { env: envFor(), input: 'no\n' },
+    )
+
+    expect(ran.status).toBe(0)
+    expect(store.monitors).toHaveLength(2)
+    expect(ran.stdout).toContain('nothing was deleted')
+  })
+
+  // The neighbouring statuses have to keep meaning what they meant, or "declined is not a
+  // failure" is bought by making a real failure look like consent.
+  it('still exits 1 when the deletion was skipped by a rule rather than by an answer', async () => {
+    store.monitors.push(monitorRow({ name: 'retired' }))
+
+    const config = jsonConfig([])
+    const ran = await runCli(['sync', `--config=${config}`, '--apply', '--prune', '--yes'], {
+      env: envFor(),
+    })
+
+    expect(ran.status).toBe(1)
+    expect(store.monitors).toHaveLength(1)
+  })
+})
+
+describe('how much of a twelve-monitor plan a reader has to read', () => {
+  function quiet(name: string, at: string) {
+    return monitorRow({ name, uuid: `00000000-0000-4000-8000-0000000000${at}` })
+  }
+
+  it('leaves the unchanged rows out and keeps the count, and puts them back for --all', async () => {
+    store.monitors.push(...Array.from({ length: 11 }, (_, n) => quiet(`steady-${n}`, `d${n}`)))
+    store.monitors.push(quiet('the-one-that-moved', 'e0'))
+
+    const config = jsonConfig([
+      ...Array.from({ length: 11 }, (_, n) => ({
+        name: `steady-${n}`,
+        schedule: '0 3 * * *',
+        channels: ['ops inbox'],
+      })),
+      { name: 'the-one-that-moved', schedule: '0 4 * * *', channels: ['ops inbox'] },
+    ])
+    const brief = await runCli(['sync', `--config=${config}`], { env: envFor() })
+    const full = await runCli(['sync', `--config=${config}`, '--all'], { env: envFor() })
+
+    expect(brief.stdout).toContain('the-one-that-moved')
+    expect(brief.stdout).not.toContain('steady-4')
+    expect(brief.stdout).toContain('11 unchanged')
+    expect(full.stdout).toContain('steady-4')
+  })
+})

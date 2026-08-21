@@ -119,7 +119,7 @@ describe('the field-level difference a plan reports', () => {
     expect(row.action).toBe('update')
     expect(row.changes.map((change) => change.field).sort()).toEqual([
       'graceSeconds',
-      'scheduleExpr',
+      'schedule',
       'tz',
     ])
     expect(row.changes.find((change) => change.field === 'graceSeconds')).toEqual({
@@ -234,7 +234,7 @@ describe('a monitor that would alert nobody', () => {
 
     expect(row.action).toBe('update')
     expect(row.alertsNobody).toBe(true)
-    expect(renderPlan(plan)).toContain('(nobody)')
+    expect(renderPlan(plan)).toMatch(/alerts\s+nobody/)
   })
 })
 
@@ -269,7 +269,7 @@ describe('what a plan prints', () => {
   })
 
   it('says which project it reconciled against cannot be known from here', async () => {
-    const store = createMonitorStore([], [VERIFIED])
+    const store = createMonitorStore([monitorRow({ name: 'retired' })], [VERIFIED])
     const plan = await planSync(apiFor(store), [])
 
     expect(plan.scopeNotice).toContain('project')
@@ -474,5 +474,179 @@ describe('how visible a row that alerts nobody is', () => {
 
     expect(marked).toHaveLength(1)
     expect(marked[0]?.startsWith('  ')).toBe(false)
+  })
+})
+
+const SECOND_VERIFIED = channelRow({
+  id: '9',
+  label: 'alerts channel',
+  kind: 'slack',
+  verified: true,
+  created_at: '2026-08-04T09:00:00.000Z',
+})
+
+describe('a plan reads as a plan rather than as a table of wire fields', () => {
+  it('prints the channel labels the configuration was written in, not the identifiers behind them', async () => {
+    const store = createMonitorStore([monitorRow({ channel_ids: ['7'] })], [VERIFIED, SECOND_VERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['alerts channel'] },
+    ])
+    const printed = renderPlan(plan)
+
+    expect(printed).toContain('ops inbox → alerts channel')
+    expect(printed).not.toMatch(/channels\s+7 → 9/)
+  })
+
+  it('never puts a value change and the alerting verdict on one line, where one arrow reads as both', async () => {
+    const store = createMonitorStore([monitorRow({ channel_ids: ['7'] })], [VERIFIED, SECOND_VERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'nightly-backup', schedule: '0 4 * * *', channels: ['alerts channel'] },
+    ])
+    const printed = renderPlan(plan)
+
+    expect(printed).toContain('→')
+
+    for (const line of printed.split('\n')) {
+      expect(line.match(/→/g) ?? []).toHaveLength(line.includes('→') ? 1 : 0)
+    }
+  })
+
+  it('says none for a routing list with nothing in it and nobody for a monitor nothing alerts', async () => {
+    const store = createMonitorStore([monitorRow({ name: 'was-silent', channel_ids: [] })], [VERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'was-silent', schedule: '0 3 * * *', channels: ['ops inbox'] },
+      { name: 'stays-silent', schedule: '0 4 * * *', channels: 'none' },
+    ])
+    const printed = renderPlan(plan)
+
+    expect(printed).toContain('none → ops inbox')
+    expect(printed).toMatch(/alerts\s+nobody/)
+    expect(printed).not.toContain('(nobody)')
+  })
+
+  it('names the fields the configuration names, and folds one schedule edit into one row', async () => {
+    const store = createMonitorStore([monitorRow({ channel_ids: ['7'] })], [VERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'nightly-backup', schedule: '5m', channels: ['ops inbox'] },
+    ])
+    const printed = renderPlan(plan)
+
+    expect(printed).not.toContain('scheduleExpr')
+    expect(printed).not.toContain('scheduleKind')
+    expect(printed.split('\n').filter((line) => /\bschedule\b/.test(line))).toHaveLength(1)
+    expect(printed).toContain('cron 0 3 * * * → every 300s')
+  })
+
+  it('prints what an orphan is once, however many orphans there are', async () => {
+    const store = createMonitorStore(
+      [
+        monitorRow({ name: 'retired-one' }),
+        monitorRow({ name: 'retired-two', uuid: '00000000-0000-4000-8000-0000000000b2' }),
+        monitorRow({ name: 'retired-three', uuid: '00000000-0000-4000-8000-0000000000b3' }),
+      ],
+      [VERIFIED],
+    )
+    const plan = await planSync(apiFor(store), [
+      { name: 'kept', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
+    const printed = renderPlan(plan)
+    const explained = printed.split('\n').filter((line) => line.includes('absent from this configuration'))
+
+    expect(plan.counts.orphan).toBe(3)
+    expect(explained).toHaveLength(1)
+  })
+
+  it('does not tell a run that already passed --apply --prune what deleting one would take', async () => {
+    const store = createMonitorStore([monitorRow({ name: 'retired' })], [VERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'kept', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
+
+    expect(renderPlan(plan)).toContain('--apply --prune')
+    expect(renderPlan(plan, { pruning: true })).not.toContain('--apply --prune')
+  })
+
+  it('sizes the name against the rows rather than a width the service lets a name outgrow', async () => {
+    const long = `a-${'n'.repeat(116)}-z`
+    const store = createMonitorStore([monitorRow({ name: long, channel_ids: ['7'] })], [VERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: long, schedule: '0 4 * * *', channels: ['ops inbox'] },
+    ])
+    const printed = renderPlan(plan)
+
+    expect(long).toHaveLength(120)
+    expect(printed.split('\n').filter((line) => line.trimEnd().endsWith(long))).toHaveLength(1)
+  })
+})
+
+describe('which rows a plan of many monitors puts in front of the reader', () => {
+  const quiet = (name: string, at: string) =>
+    monitorRow({ name, uuid: `00000000-0000-4000-8000-0000000000${at}`, channel_ids: ['7'] })
+
+  const twelve = [
+    ...Array.from({ length: 11 }, (_, n) => quiet(`steady-${n}`, `d${n}`)),
+    quiet('the-one-that-moved', 'e0'),
+  ]
+
+  const described = [
+    ...Array.from({ length: 11 }, (_, n) => ({
+      name: `steady-${n}`,
+      schedule: '0 3 * * *',
+      channels: ['ops inbox'],
+    })),
+    { name: 'the-one-that-moved', schedule: '0 4 * * *', channels: ['ops inbox'] },
+  ]
+
+  it('hides the unchanged rows that alert somebody, and says how many it hid', async () => {
+    const store = createMonitorStore(twelve, [VERIFIED])
+    const plan = await planSync(apiFor(store), described)
+    const printed = renderPlan(plan, { hideUnchanged: true })
+
+    expect(plan.counts.unchanged).toBe(11)
+    expect(printed).toContain('the-one-that-moved')
+    expect(printed).not.toContain('steady-4')
+    expect(printed).toContain('11 unchanged')
+  })
+
+  // The row nobody is alerted about is the row a reader most needs, and it is unchanged
+  // exactly because nothing in the file is fixing it.
+  it('keeps an unchanged row that alerts nobody, which is the one hiding would cost most', async () => {
+    const store = createMonitorStore(
+      [...twelve, quiet('never-heard-from', 'f0')].map((monitor) =>
+        monitor.name === 'never-heard-from' ? { ...monitor, channel_ids: [] } : monitor,
+      ),
+      [VERIFIED],
+    )
+    const plan = await planSync(apiFor(store), [
+      ...described,
+      { name: 'never-heard-from', schedule: '0 3 * * *' },
+    ])
+    const printed = renderPlan(plan, { hideUnchanged: true })
+
+    expect(rowFor(plan, 'never-heard-from').action).toBe('unchanged')
+    expect(printed).toContain('never-heard-from')
+    expect(printed).not.toContain('steady-4')
+  })
+})
+
+describe('the notice about which project was reconciled', () => {
+  it('is printed where a monitor of another project would be read as absent', async () => {
+    const store = createMonitorStore([monitorRow({ name: 'retired' })], [VERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'kept', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
+
+    expect(renderPlan(plan)).toContain('project')
+  })
+
+  // Reprinted on every run it cannot bear on, it is a paragraph every CI build carries forever.
+  it('is left off a run with nothing on the service it could be misread about', async () => {
+    const store = createMonitorStore([monitorRow({ channel_ids: ['7'] })], [VERIFIED])
+    const plan = await planSync(apiFor(store), [
+      { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
+
+    expect(plan.scopeNotice).toContain('project')
+    expect(renderPlan(plan)).not.toContain(plan.scopeNotice)
   })
 })

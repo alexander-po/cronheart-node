@@ -107,17 +107,35 @@ Examples
 
 ${ENVIRONMENT}`
 
-const INIT_HELP = `cronheart init — write the variable for a monitor and verify it
+const INIT_HELP = `cronheart init — get a monitor, write its variable and prove it works
 
 Usage
-  cronheart init [--name=<name>] [--uuid=<id>] [--env-path=<path>] [--print-env]
+  cronheart init [--name=<name>] [--schedule=<schedule>] [--channels=none]
+                 [--uuid=<id>] [--env-path=<path>] [--print-env]
 
   Asks for whatever was not given, writes CRONHEART_<NAME>_UUID to an env file, sends one
   check-in to prove the id works, and then says what a crontab needs that the file cannot
   give it. A pasted id is never echoed back, and a file this command creates is readable by
   its owner alone.
 
+  With CRONHEART_API_KEY set and no --uuid, this creates a monitor on the account — a
+  billed resource, counted against the plan's monitor budget — and attaches every channel
+  the account has verified, which the REST API does not do by itself. A run that already
+  carries the name of a monitor on the account reuses it rather than making a second. With
+  no key, nothing is created: the monitor is made in the dashboard and its id pasted here.
+
 Options
+  --name=<name>       the monitor name. It is what CRONHEART_<NAME>_UUID is derived from.
+  --schedule=<sched>  how often the job is meant to run: a five-field cron expression, one
+                      of the seven @ aliases, one of the twelve named schedules, or a
+                      duration such as 5m. Only read when a monitor is being created.
+  --channels=none     create the monitor with nothing attached, saying in as many words
+                      that a monitor nobody is alerted about is what was meant. Without it,
+                      an account with no verified channel is refused rather than given a
+                      monitor that stays silent when a run goes missing. none is the only
+                      value it takes, and it is the word the configuration file takes too.
+  --uuid=<id>         the id of a monitor that already exists. Nothing is created for one,
+                      whatever the account can do.
   --env-path=<path>   where to write it (default .env). Named --env-path rather than
                       --env-file because Node reads --env-file as one of its own options,
                       wherever on the line it appears.
@@ -125,6 +143,7 @@ Options
 
 Examples
   cronheart init
+  cronheart init --name=cleanup --schedule='0 3 * * *'
   cronheart init --name=cleanup --print-env
 
 ${ENVIRONMENT}`
@@ -132,11 +151,13 @@ ${ENVIRONMENT}`
 const SYNC_HELP = `cronheart sync — reconcile a project's monitors against a configuration file
 
 Usage
-  cronheart sync [--config=<path>] [--apply | --check] [--prune] [--print-env] [--yes]
+  cronheart sync [--config=<path>] [--apply | --check] [--prune] [--print-env]
+                 [--yes] [--all]
 
   Reads a file describing the monitors a project should have, compares it against the ones
   the API token's project actually has, and prints what differs. Nothing is changed without
-  --apply. Monitors are matched by name, which is the whole of the identity available: the
+  --apply. It needs CRONHEART_API_KEY, which needs the Starter plan or above — check-ins
+  work on every plan, Free included, and none of this is required to be monitored. Monitors are matched by name, which is the whole of the identity available: the
   service enforces no uniqueness on a name and offers no exact-name filter, so a name written
   twice in the file is refused before anything is read, and a name carried by two monitors on
   the service is reported and skipped rather than guessed at.
@@ -149,15 +170,23 @@ Options
                     before that needs --experimental-strip-types. A .mjs or .json file needs
                     neither.
   --apply           make the changes. Without it the run is a report.
-  --check           report only, and exit 2 while anything differs, 0 once nothing does.
-                    This is what turns the file into something a build can test.
+  --check           report only, and answer with the exit status: 0 once the account
+                    matches the file, 2 while anything differs, and 1 when the run could not
+                    answer at all — a refused key, a plan the API is not on, a server that
+                    never replied, a file this command would not read. A build that reads
+                    anything non-zero as drift reads "the key expired" as "there are changes
+                    to make", which is the reading this third status exists to prevent.
   --prune           include monitors the file does not describe. Reported either way; deleted
                     only with --apply --prune and a confirmation, because deleting a monitor
                     destroys its check-in history and nothing can bring it back. With --check
                     it also makes those monitors count as a difference.
   --print-env       print CRONHEART_<NAME>_UUID for every monitor reconciled, which is what a
-                    job needs to address one. This is the only output carrying identifiers.
+                    job needs to address one. This is the only output carrying identifiers,
+                    and under it stdout carries nothing else — the plan and everything about
+                    it go to stderr, so appending the run to .env leaves a file that parses.
   --yes             answer the deletion confirmation in advance.
+  --all             show the unchanged rows too. Without it they are counted in the tally
+                    and left out of the table, except any that alert nobody.
 
   The configuration file is only ever read. Nothing writes to it.
 
@@ -195,6 +224,7 @@ Configuration
 Examples
   cronheart sync
   cronheart sync --check
+  cronheart sync --apply
   cronheart sync --apply --print-env >> .env
 
 ${ENVIRONMENT}`

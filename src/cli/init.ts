@@ -30,16 +30,22 @@ import type { Io } from './io.js'
 import { openManagementClient } from './managed.js'
 import type { CronheartApi, Monitor } from '../api/types.js'
 
-const FLAGS = ['name', 'uuid', 'schedule', 'env-path', 'print-env']
+const FLAGS = ['name', 'uuid', 'schedule', 'channels', 'env-path', 'print-env']
 
-const NOBODY_TO_ALERT =
-  'this account has no verified notification channel, so a monitor created now would alert nobody when a run goes missing. Add one and verify it first — the REST surface attaches no channel by itself, unlike the form in the dashboard'
+const WOULD_ALERT_NOBODY = 'a monitor created now would alert nobody when a run goes missing'
+
+const OPT_OUT_INSTEAD =
+  'or pass --channels=none to say that a monitor nobody is alerted about is what you meant'
 
 const TWO_OF_ONE_NAME =
   'two or more monitors of this project already carry that name, and nothing here can tell which one was meant — a name is all this command has to go on, and the service enforces no uniqueness on one. Give the id of the one you meant with --uuid, or rename them where they can be seen'
 
 
 const DASHBOARD = 'https://cronheart.com/dashboard'
+
+const CHANNELS_PAGE = 'https://cronheart.com/channels'
+
+const NO_CHANNELS = 'none'
 
 const DEFAULT_ENV_FILE = '.env'
 
@@ -217,16 +223,21 @@ function writeSecretly(path: string, text: string, mode: number | undefined): st
 
 // An env file is read by an application at startup; cron reads none, and a crontab entry that
 // resolves a name through one gets no id, sends nothing, and exits 0.
-function nextSteps(variable: string, name: string): string {
+// The closing advice gets followed, so it may not name a form that asks for the name again:
+// a name typed differently the second time is a second monitor of one job, which is the state
+// the reconciler cannot resolve.
+function nextSteps(variable: string, name: string, printed: boolean): string {
   return [
     '',
-    '  Next: that file is read by your application, not by cron. To run this job from a',
+    '  Next: an env file is read by your application, not by cron. To run this job from a',
     '  crontab, put the variable there too:',
     '',
     `    ${variable}=<the id for this monitor>`,
     `    */5 * * * * ${EXAMPLE_BINARY} run --name=${name} -- /path/to/your-job`,
     '',
-    '  cronheart init --print-env prints that first line with the id filled in.',
+    printed
+      ? '  The assignment printed above is that first line, with the id already filled in.'
+      : `  cronheart init --name=${name} --print-env prints it with the id filled in, and creates nothing.`,
     '',
   ].join('\n')
 }
@@ -250,6 +261,10 @@ async function named(api: CronheartApi, name: string): Promise<readonly Monitor[
   return found
 }
 
+function describeChannels(channels: readonly { kind: string; label: string }[]): string {
+  return channels.map((channel) => `${channel.label} (${channel.kind})`).join(', ')
+}
+
 function alertsOf(
   attached: readonly { readonly id: string }[],
   verified: readonly { id: string; kind: string; label: string }[],
@@ -258,9 +273,13 @@ function alertsOf(
     attached.some((entry) => entry.id === channel.id),
   )
 
-  return reaching.length === 0
-    ? '(nobody)'
-    : reaching.map((channel) => `${channel.label} (${channel.kind})`).join(', ')
+  return reaching.length === 0 ? 'nobody' : describeChannels(reaching)
+}
+
+function nothingToAlertThrough(channels: readonly { kind: string; label: string }[]): string {
+  return channels.length === 0
+    ? `this account has no notification channel, so ${WOULD_ALERT_NOBODY}. Add one at ${CHANNELS_PAGE}, then run this again — ${OPT_OUT_INSTEAD}`
+    : `${describeChannels(channels)} — not one of this account's channels is verified, and the service skips an unverified channel when it sends an alert, so ${WOULD_ALERT_NOBODY}. Verify one at ${CHANNELS_PAGE}, then run this again — ${OPT_OUT_INSTEAD}`
 }
 
 // Everything the dashboard's own form does that this surface does not do by itself: the
@@ -270,7 +289,11 @@ function alertsOf(
 // make a second monitor of one name — which is the state the reconciler cannot resolve.
 async function createThroughTheApi(
   ask: (missing: readonly string[]) => Promise<Record<string, string>>,
-  given: { readonly name: string | undefined; readonly schedule: string | undefined },
+  given: {
+    readonly name: string | undefined
+    readonly schedule: string | undefined
+    readonly alertsNobody: boolean
+  },
   io: Io,
 ): Promise<Created> {
   const opened = openManagementClient()
@@ -279,16 +302,18 @@ async function createThroughTheApi(
     return { kind: 'degraded', notice: opened.problem }
   }
 
-  let verified: readonly { id: string; kind: string; label: string }[]
+  let channels: readonly { id: string; kind: string; label: string; verified: boolean }[]
 
   try {
-    verified = (await opened.api.channels.list()).data.filter((channel) => channel.verified)
+    channels = (await opened.api.channels.list()).data
   } catch (error) {
     return { kind: 'degraded', notice: describeApiRefusal(error, 'creating a monitor here') }
   }
 
-  if (verified.length === 0) {
-    return { kind: 'refused', problem: NOBODY_TO_ALERT }
+  const verified = channels.filter((channel) => channel.verified)
+
+  if (verified.length === 0 && !given.alertsNobody) {
+    return { kind: 'refused', problem: nothingToAlertThrough(channels) }
   }
 
   const answered = await ask([
@@ -313,9 +338,11 @@ async function createThroughTheApi(
       scheduleExpr: schedule.expr,
       // Sorted the way the key is derived over: the service fingerprints the raw bytes, so a
       // listing that came back in another order would be a second body under one key.
-      channelIds: [...verified]
-        .map((channel) => channel.id)
-        .sort((one, other) => Number(one) - Number(other)),
+      channelIds: given.alertsNobody
+        ? []
+        : [...verified]
+            .map((channel) => channel.id)
+            .sort((one, other) => Number(one) - Number(other)),
     }
   } catch (error) {
     return {
@@ -360,7 +387,7 @@ async function createThroughTheApi(
       kind: 'created',
       name,
       uuid: made.uuid,
-      alerts: verified.map((channel) => `${channel.label} (${channel.kind})`).join(', '),
+      alerts: given.alertsNobody ? 'nobody' : describeChannels(verified),
     }
   } catch (error) {
     return { kind: 'degraded', notice: describeApiRefusal(error, 'creating a monitor here') }
@@ -397,7 +424,17 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
     return EXIT_USAGE
   }
 
-  const named = name.ok ? name.value : undefined
+  const routing = readText(args, 'channels')
+
+  if (!routing.ok || (routing.value !== undefined && routing.value !== NO_CHANNELS)) {
+    io.err(
+      `cronheart: --channels takes ${NO_CHANNELS} and nothing else — it is how a run says a monitor nobody is alerted about is what was meant, the same word the configuration file takes\n`,
+    )
+
+    return EXIT_USAGE
+  }
+
+  const given = name.ok ? name.value : undefined
   const pasted = uuid.ok ? uuid.value : undefined
 
   io.out('cronheart init\n')
@@ -406,7 +443,11 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
   // not consulted for one. Without an id and with a key, the monitor is made here.
   const made =
     pasted === undefined && hasApiKey(env)
-      ? await createThroughTheApi(askFor, { name: named, schedule: schedule.value }, io)
+      ? await createThroughTheApi(
+          askFor,
+          { name: given, schedule: schedule.value, alertsNobody: routing.value === NO_CHANNELS },
+          io,
+        )
       : undefined
 
   if (made?.kind === 'usage') {
@@ -439,21 +480,21 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
     made?.kind === 'created'
       ? {}
       : await askFor([
-          ...(named === undefined ? ['name'] : []),
+          ...(given === undefined ? ['name'] : []),
           ...(pasted === undefined ? ['uuid'] : []),
         ])
-  const given: Answers = {
-    name: made?.kind === 'created' ? made.name : (named ?? answered['name']),
+  const answers: Answers = {
+    name: made?.kind === 'created' ? made.name : (given ?? answered['name']),
     id: made?.kind === 'created' ? made.uuid : (pasted ?? answered['uuid']),
   }
 
-  if (given.name === undefined || given.name === '') {
+  if (answers.name === undefined || answers.name === '') {
     io.err('cronheart: init needs a monitor name — pass --name=<name> or answer the prompt\n')
 
     return EXIT_USAGE
   }
 
-  if (given.id === undefined || !isMonitorId(given.id)) {
+  if (answers.id === undefined || !isMonitorId(answers.id)) {
     io.err(
       'cronheart: that is not a monitor id — copy the 36-character identifier from the monitor’s page\n',
     )
@@ -461,11 +502,13 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
     return EXIT_USAGE
   }
 
-  const variable = envVarFor(given.name)
+  const variable = envVarFor(answers.name)
   const path = (envFile.ok ? envFile.value : undefined) ?? DEFAULT_ENV_FILE
 
-  if (readFlag(args, 'print-env')) {
-    io.out(`${variable}=${given.id}\n`)
+  const printEnv = readFlag(args, 'print-env')
+
+  if (printEnv) {
+    io.out(`${variable}=${answers.id}\n`)
   } else {
     const directory = dirname(path)
 
@@ -487,7 +530,7 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
 
     const failed = writeSecretly(
       path,
-      upsertEnvLine(existing.text, variable, given.id),
+      upsertEnvLine(existing.text, variable, answers.id),
       existing.mode,
     )
 
@@ -500,7 +543,7 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
     io.out(`  wrote ${variable} to ${path}\n`)
   }
 
-  const opened = openClient({ monitors: { [given.name]: given.id }, onResult: () => {} })
+  const opened = openClient({ monitors: { [answers.name]: answers.id }, onResult: () => {} })
 
   if (!opened.ok) {
     io.err(`cronheart: ${opened.problem}\n`)
@@ -508,10 +551,10 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
     return EXIT_PROBLEM
   }
 
-  const result = await opened.client.ping(given.name)
+  const result = await opened.client.ping(answers.name)
 
   io.out(`  test ${describeResult(result)}\n`)
-  io.out(nextSteps(variable, given.name))
+  io.out(nextSteps(variable, answers.name, printEnv))
 
   return result.ok ? EXIT_OK : EXIT_PROBLEM
 }

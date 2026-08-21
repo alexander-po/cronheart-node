@@ -54,6 +54,9 @@ setInterval(beat, 60_000)
 — a base URL, an id map, timeouts, redaction patterns and a result callback —
 for codebases that would rather not read the environment.
 
+Rather than creating the monitors by hand, a project on a paid plan can write
+them in a file and have them reconciled — see [Declarative sync](#declarative-sync).
+
 `withMonitor` is `startRun` with the job handed in, so both brackets behave
 identically. The start check-in is dispatched and **not** awaited: a job begins
 immediately, whatever the network is doing, and a stalled start never holds it.
@@ -146,6 +149,10 @@ cronheart sync --check                            # does the account match the c
 cronheart doctor
 cronheart run --help                              # options and examples for one command
 ```
+
+`sync` reconciles a whole project's monitors against a file it never writes to;
+it needs an API key on a paid plan, and it has a section of its own —
+[Declarative sync](#declarative-sync).
 
 `run` wraps a command. It opens with a `start` check-in, then reports success
 or failure with the exit status and the tail of the command's stderr as the
@@ -418,6 +425,12 @@ preset, and `{ every: '5m' }` becomes the whole number of seconds *written as a
 string* that the service actually wants — a detail nobody should have to find
 out from a 422.
 
+Like the rest of the [Management API](#management-api), this needs
+`CRONHEART_API_KEY` and a key needs the **Starter plan or above**. Check-ins
+work on every plan, Free included, and nothing here is required to be
+monitored — a Free account writes its monitors in the dashboard and skips this
+section entirely.
+
 ```ts
 // cronheart.config.ts
 import { defineMonitors } from 'cronheart/sync'
@@ -431,10 +444,24 @@ export default defineMonitors([
 
 ```bash
 cronheart sync            # print the plan; change nothing
-cronheart sync --check    # exit 2 while anything differs — this is the CI gate
+cronheart sync --check    # the CI gate — see the statuses below
 cronheart sync --apply    # make the changes
 cronheart sync --apply --print-env >> .env
 ```
+
+`--check` answers with the exit status, and there are three of them, not two:
+**exit 0** once the account matches the file, **exit 2** while anything
+differs, and **exit 1** when the run could not answer the question at all — a
+refused key, an account the API is not entitled to, a server that never
+replied, a configuration this command would not read. A build step that treats
+anything non-zero as drift reads "the key expired" as "there are changes to
+make", which is why the two answers and the failure are three statuses rather
+than two.
+
+Under `--print-env`, stdout carries the `CRONHEART_<NAME>_UUID` assignments and
+nothing else: the plan, the tally and every notice go to stderr, so appending
+the run to a `.env` leaves a file `docker compose --env-file` and `set -a; . ./.env`
+can still read.
 
 A `.json` file carrying the same monitors under a `monitors` key works too,
 for a project that is not TypeScript. There is no YAML, and there will not be:
@@ -445,6 +472,16 @@ strips the types. Node does that by itself from 22.18 onward and needs
 `--experimental-strip-types` before that. Nothing here compiles anything, and
 no compiler is bundled to close the gap — a `.mjs` or `.json` file needs
 neither. The file is only ever read; sync never writes to it.
+
+Stripping is not checking. The runtime erases the annotations and runs what is
+left, so a misspelled key in that file is a property nothing reads rather than
+an error anyone sees — `defineMonitors` refuses what it can decide at run time,
+and a typo in an optional field is not one of those. The types are there to be
+checked by a compiler, so run one beside the gate:
+
+```bash
+tsc --noEmit cronheart.config.ts && cronheart sync --check
+```
 
 ### Identity is the whole problem, and it is fragile
 
@@ -496,7 +533,10 @@ when the run started is reported instead, because closing it would move a field
 nobody wrote down. Rows that alert nobody are marked `!` and counted in the
 tally, so the fact is read at a glance rather than at the end of the longest
 line — and a monitor that is paused or snoozed says so in place of a channel
-list, since the service scans neither for lateness. Sync cannot diff a
+list, since the service scans neither for lateness. The table carries the rows
+that differ; unchanged ones are counted in the tally and left out, and `--all`
+puts them back — except a row that alerts nobody, which is shown either way,
+because it is unchanged precisely when nothing in the file is fixing it. Sync cannot diff a
 channel's destination — the service redacts `webhook_url`, `url` and `secret` —
 only its ownership and label, and it does not pretend otherwise.
 
@@ -515,6 +555,11 @@ Deleting a monitor destroys its check-in history irreversibly, so an orphan is
 *and* a confirmation (`--yes`, or typing `delete` at a terminal). Under
 `--check`, orphans only count as a difference when `--prune` says the file is
 meant to be the whole of the account.
+
+Answering the confirmation with anything but the word deletes nothing and exits
+**0**: declining a destructive prompt is the prompt doing its job, not the run
+failing. The run says so in as many words, so that `0` is never read as "there
+was nothing to delete".
 
 Deleting is conditional on the half of the run that would replace what it
 deletes. Two rules, both refusals rather than warnings:

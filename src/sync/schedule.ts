@@ -19,6 +19,18 @@ const EVERY_SCALE: Readonly<Record<string, number>> = { s: 1, m: 60, h: 3600, d:
 
 const CRON_FIELDS = 'minute, hour, day of month, month, day of week'
 
+// The only words a cron field may carry. Everything else in one is digits and punctuation,
+// which is what separates a wrong field count from something that was never cron at all.
+const CRON_WORDS = /JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|SUN|MON|TUE|WED|THU|FRI|SAT/gi
+
+const CRON_FIELD = /^[0-9*,\-/?LW#]*$/
+
+const OTHER_FORMS = `Write an interval as a whole number of seconds or with a unit — 90s, 5m, 2h, 1d — or name one of the twelve schedules this service knows: ${SIMPLE_SCHEDULES.join(', ')}.`
+
+function isCronField(field: string): boolean {
+  return CRON_FIELD.test(field.replace(CRON_WORDS, ''))
+}
+
 function isAlias(expression: string): boolean {
   return (CRON_ALIASES as readonly string[]).includes(expression.toLowerCase())
 }
@@ -44,8 +56,17 @@ function asCron(expression: string, monitor: string): NormalisedSchedule {
 
   const fields = expression.split(/\s+/).filter((field) => field !== '')
 
-  if (fields.length === CRON_FIELD_COUNT) {
+  if (fields.length === CRON_FIELD_COUNT && fields.every(isCronField)) {
     return { kind: 'cron', expr: expression }
+  }
+
+  const inWords = fields.find((field) => !isCronField(field))
+
+  if (inWords !== undefined) {
+    refuse(
+      `${JSON.stringify(expression)} is not a cron expression — ${JSON.stringify(inWords)} is not a field of one. ${OTHER_FORMS}`,
+      monitor,
+    )
   }
 
   const opening = `A cron expression here has five fields — ${CRON_FIELDS} — and this one has ${fields.length}.`
@@ -123,10 +144,7 @@ function fromText(text: string, monitor: string): NormalisedSchedule {
     return asInterval(expression, monitor)
   }
 
-  refuse(
-    `${JSON.stringify(expression)} is neither a cron expression, an interval, nor one of the twelve schedules this service names: ${SIMPLE_SCHEDULES.join(', ')}.`,
-    monitor,
-  )
+  refuse(`${JSON.stringify(expression)} is not a cron expression. ${OTHER_FORMS}`, monitor)
 }
 
 export function normaliseSchedule(schedule: unknown, monitor: string): NormalisedSchedule {

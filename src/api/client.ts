@@ -63,7 +63,7 @@ import {
   assertScheduleExpression,
   assertScheduleKind,
   assertSnoozeDuration,
-  assertTimezone,
+  canonicalTimezone,
   channelIdFor,
   channelIdsFor,
   pageLimit,
@@ -101,8 +101,7 @@ function monitorBodyFrom(request: CreateMonitorRequest | UpdateMonitorRequest, p
   }
 
   if (request.tz !== undefined) {
-    assertTimezone(request.tz)
-    body['tz'] = request.tz
+    body['tz'] = canonicalTimezone(request.tz)
   }
 
   if (request.graceSeconds !== undefined) {
