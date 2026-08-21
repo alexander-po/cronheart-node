@@ -11,15 +11,43 @@ const { contract_version: contractVersion } = JSON.parse(
 )
 
 const SUBPATHS = [
-  'api',
-  'sync',
-  'testing',
-  'croner',
-  'cron',
-  'node-cron',
-  'node-schedule',
-  'bullmq',
-  'nestjs',
+  ['api', 'createCronheartApi'],
+  ['sync', 'defineMonitors'],
+  ['testing', 'createPingRecorder'],
+  ['croner', 'monitored'],
+  ['cron', 'monitored'],
+  ['node-cron', 'monitor'],
+  ['node-schedule', 'monitored'],
+  ['bullmq', 'monitored'],
+  ['nestjs', 'CronheartModule'],
+]
+
+// An allow-list rather than a deny-list: an entry nobody thought to exclude
+// still fails the smoke.
+const TARBALL_ENTRY_ALLOWED = new RegExp(
+  `^package/(?:package\\.json|README\\.md|LICENSE|CHANGELOG\\.md|dist/[^/]+\\.(?:mjs|cjs|d\\.mts|d\\.cts)|(?:${SUBPATHS.map(
+    ([subpath]) => subpath,
+  ).join('|')})/package\\.json)$`,
+)
+
+// npm runs these in a consumer's install; the package promises it has none.
+const INSTALL_LIFECYCLE = ['preinstall', 'install', 'postinstall', 'prepare']
+
+const TARBALL_ENTRY_REQUIRED = [
+  'package/package.json',
+  'package/README.md',
+  'package/LICENSE',
+  'package/CHANGELOG.md',
+  'package/dist/index.mjs',
+  'package/dist/index.cjs',
+  'package/dist/index.d.mts',
+  'package/dist/index.d.cts',
+  'package/dist/cli.mjs',
+  ...SUBPATHS.flatMap(([subpath]) => [
+    `package/${subpath}/package.json`,
+    `package/dist/${subpath}.mjs`,
+    `package/dist/${subpath}.cjs`,
+  ]),
 ]
 
 const workspace = mkdtempSync(join(tmpdir(), 'cronheart-smoke-'))
@@ -45,12 +73,50 @@ const tarballName = run('npm', ['pack', '--silent', '--pack-destination', worksp
 const tarball = join(workspace, tarballName)
 
 try {
+  const entries = run('tar', ['-tzf', tarball], workspace)
+    .split('\n')
+    .filter((entry) => entry !== '' && !entry.endsWith('/'))
+
+  const unexpected = entries.filter((entry) => !TARBALL_ENTRY_ALLOWED.test(entry))
+  const missing = TARBALL_ENTRY_REQUIRED.filter((entry) => !entries.includes(entry))
+
+  if (unexpected.length > 0) {
+    throw new Error(`the tarball carries ${unexpected.length} file(s) outside the published surface: ${unexpected.join(', ')}`)
+  }
+
+  if (missing.length > 0) {
+    throw new Error(`the tarball is missing ${missing.length} file(s) the export map resolves to: ${missing.join(', ')}`)
+  }
+
+  const packed = JSON.parse(run('tar', ['-xzOf', tarball, 'package/package.json'], workspace))
+
+  if (packed.name !== pkg.name || packed.version !== pkg.version) {
+    throw new Error(`the tarball's manifest reads ${packed.name}@${packed.version}`)
+  }
+
+  const runtimeDependencies = Object.keys(packed.dependencies ?? {})
+  const installHooks = INSTALL_LIFECYCLE.filter((hook) => packed.scripts?.[hook] !== undefined)
+
+  if (runtimeDependencies.length > 0) {
+    throw new Error(`the tarball declares ${runtimeDependencies.length} runtime dependency(ies): ${runtimeDependencies.join(', ')}`)
+  }
+
+  if (installHooks.length > 0) {
+    throw new Error(`the tarball runs on install: ${installHooks.join(', ')}`)
+  }
+
+  process.stdout.write(
+    `tarball ok — ${entries.length} file(s), every one of them published on purpose; no runtime dependency, nothing run on install\n`,
+  )
+
   consume('esm', {
     moduleType: 'module',
     entryFile: 'index.mjs',
     source: `import assert from 'node:assert/strict'
-${SUBPATHS.map((subpath) => `import 'cronheart/${subpath}'`).join('\n')}
+${SUBPATHS.map(([subpath, exported], index) => `import { ${exported} as subpath${index} } from 'cronheart/${subpath}'`).join('\n')}
 import { SDK_VERSION, checkIn, userAgent } from 'cronheart'
+
+${SUBPATHS.map(([subpath], index) => `assert.equal(typeof subpath${index}, 'function', 'cronheart/${subpath}')`).join('\n')}
 
 assert.ok(import.meta.resolve('cronheart/cli').endsWith('/dist/cli.mjs'))
 
@@ -69,8 +135,10 @@ console.log('esm consumption ok —', userAgent())
     moduleType: 'commonjs',
     entryFile: 'index.cjs',
     source: `const assert = require('node:assert/strict')
-${SUBPATHS.map((subpath) => `require('cronheart/${subpath}')`).join('\n')}
+${SUBPATHS.map(([subpath, exported], index) => `const subpath${index} = require('cronheart/${subpath}').${exported}`).join('\n')}
 const { SDK_VERSION, checkIn, userAgent } = require('cronheart')
+
+${SUBPATHS.map(([subpath], index) => `assert.equal(typeof subpath${index}, 'function', 'cronheart/${subpath}')`).join('\n')}
 
 assert.ok(require.resolve('cronheart/cli').endsWith('/dist/cli.mjs'))
 

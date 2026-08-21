@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Ahead of the gate rather than inside the publish job, so a mistyped tag costs
+  # ten seconds rather than the whole matrix.
+  tag:
+    name: The tag names the manifest's version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(node -p 'require("./package.json").version')"
+          if [ "$tag" != "$manifest" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not name package.json version ${manifest}" >&2
+            exit 1
+          fi
+
+  # The gate is the CI workflow itself rather than a copy of its steps here: a
+  # release job that enumerated the checks would drift from the ones CI runs and
+  # would still report a green release.
+  gate:
+    needs: tag
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish to npm
+    needs: gate
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm 11.5.1 or later; the version bundled with a
+      # given Node release is older than that for a long time after it ships.
+      - run: npm install --global npm@latest
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+
+      # This job builds its own dist rather than inheriting the gate's, so the
+      # tarball checks run once more against the tree that is about to ship.
+      - run: pnpm run smoke
+
+      - run: npm publish --provenance

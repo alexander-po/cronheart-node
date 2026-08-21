@@ -1,7 +1,7 @@
 COMPOSE ?= docker compose
 RUN := $(COMPOSE) run --rm node
 
-.PHONY: help image install build test lint guard contract vectors matrix min-peers check smoke shell changeset clean
+.PHONY: help image install build test lint guard contract vectors matrix min-peers check smoke shell changeset version clean
 
 help:
 	@echo "Targets (everything runs inside the container — no host Node or pnpm):"
@@ -19,6 +19,7 @@ help:
 	@echo "  check      The full gate: contract + build + lint + test + smoke"
 	@echo "  shell      Interactive shell in the container"
 	@echo "  changeset  Record a changeset for the next release"
+	@echo "  version    Fold the pending changesets into CHANGELOG.md and bump package.json"
 	@echo "  clean      Remove the containers and the node_modules / store volumes"
 
 image:
@@ -62,6 +63,9 @@ shell:
 
 changeset:
 	$(RUN) pnpm run changeset
+
+version:
+	$(RUN) pnpm run release:version
 
 clean:
 	$(COMPOSE) down -v --remove-orphans

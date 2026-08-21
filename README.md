@@ -6,13 +6,10 @@ with node-cron, croner, cron, node-schedule, BullMQ, NestJS schedule, plain
 crontab and systemd timers, plus a CLI wrapper for any command. Official SDK
 for [cronheart.com](https://cronheart.com).
 
+[![npm](https://img.shields.io/npm/v/cronheart.svg)](https://www.npmjs.com/package/cronheart)
 [![CI](https://github.com/alexander-po/cronheart-node/actions/workflows/ci.yml/badge.svg)](https://github.com/alexander-po/cronheart-node/actions/workflows/ci.yml)
+[![zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](#versioning-public-api-and-node-support)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-> **Pre-release.** The ping path, the CLI, the management API, the reconciler and
-> all six scheduler adapters are implemented; nothing is published to npm yet.
-> Every section below marked _Not implemented yet_ has no behaviour behind it —
-> this README documents only what ships.
 
 ## Why
 
@@ -23,7 +20,17 @@ checks in, and you hear about it when it stops.
 
 ## Install
 
-_Not published yet._ The package name on npm is `cronheart`.
+```bash
+npm install cronheart
+```
+
+`pnpm add cronheart`, `yarn add cronheart` and `bun add cronheart` do the same.
+
+Zero runtime dependencies and no install script — nothing is fetched or
+executed on your behalf at install time. Every scheduler this package adapts is
+an **optional** peer imported for its types only, so installing it adds nothing
+you are not already running. Node 22 or newer; see
+[Versioning, public API and Node support](#versioning-public-api-and-node-support).
 
 ## Quick start
 
@@ -50,9 +57,11 @@ const beat = checkInWith('nightly-backup', { action: 'success' })
 setInterval(beat, 60_000)
 ```
 
-`createPingClient(options)` gives the same surface with explicit configuration
+`createPingClient(options)` gives the same brackets with explicit configuration
 — a base URL, an id map, timeouts, redaction patterns and a result callback —
-for codebases that would rather not read the environment.
+for codebases that would rather not read the environment. Its own methods are
+`ping`, `start`, `success` and `fail` alongside `withMonitor`, `startRun`,
+`checkInWith`, `flush` and a `monitors` registry.
 
 Rather than creating the monitors by hand, a project on a paid plan can write
 them in a file and have them reconciled — see [Declarative sync](#declarative-sync).
@@ -63,6 +72,98 @@ immediately, whatever the network is doing, and a stalled start never holds it.
 The terminal check-in is awaited, and reports the job's own elapsed time.
 Options passed to `startRun` cover its terminal check-in too; options passed to
 `run.success()` or `run.fail(error)` layer on top of them.
+
+## Replacing a hand-rolled check-in
+
+If a job of yours already checks in, you probably have a version of this: a
+module someone wrote in twenty minutes, which then stayed. This is the real
+before-picture — the first project migrated onto this package was running these
+lines, with the names changed.
+
+```ts
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function isAMonitorId(value: string): boolean {
+  return UUID.test(value)
+}
+
+export async function checksIn(id: string, log: Logger): Promise<void> {
+  if (!isAMonitorId(id)) throw new Error(`not a monitor id: ${id}`)
+
+  try {
+    const response = await fetch(`https://cronheart.com/ping/${id}/success`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(5_000),
+    })
+
+    if (!response.ok) log.warn(`check-in failed: HTTP ${response.status}`)
+  } catch (error) {
+    log.warn(`check-in failed: ${String(error)}`)
+  }
+}
+```
+
+Twelve lines and a regular expression. All of it, replaced:
+
+```ts
+import { createPingClient } from 'cronheart'
+
+const cronheart = createPingClient()
+
+export const checksIn = (name: string) => cronheart.success(name)
+```
+
+The logging goes with the rest of it: a check-in that did not land writes its
+own sentence, once per process per cause per monitor. Routing those into your
+own logger instead is `onResult` — which takes over the whole reporting job, the
+once-per-cause ledger included, so a per-minute job is back to a line per tick
+unless the sink says otherwise:
+
+```ts
+import { createPingClient, describePingResult } from 'cronheart'
+
+createPingClient({
+  onResult: (result) => {
+    if (!result.ok) log.warn(describePingResult(result))
+  },
+})
+```
+
+`isMonitorId` is exported too, so a configuration loader that validated ids at
+boot keeps doing that without carrying its own copy of the pattern.
+
+The line count is not the argument. What the twelve lines above cannot do is:
+
+- **Retry.** A refused connection and a 5xx are the two commonest ways a
+  check-in fails, and a single attempt reports both as final. This client
+  retries both — and never a `404`, `410` or `429`, which are answers rather
+  than failures.
+- **Bound the whole thing.** `AbortSignal.timeout` covers the `fetch` call, not
+  the response read: a transport that ignores the signal — precisely the case a
+  deadline exists for — hangs on `text()` forever, and a wrapper that awaits a
+  check-in then never runs the job at all. Here one budget covers every attempt,
+  every delay between them, and the read.
+- **Refuse a redirect.** The specification turns a redirected `POST` into a
+  `GET` with no body, so a canonical-host redirect quietly drops whatever the
+  job had to say.
+- **Tell a silent monitor from a network blip.** `!response.ok` is true for a
+  paused monitor (`410`) and for an id that no longer resolves (`404`). Both of
+  those mean *nobody will be alerted about this job again*, and both print the
+  line above. Here each is its own outcome, with a sentence of its own.
+- **Say it once.** A per-minute job that logs a warning per tick is how a
+  monitoring library gets uninstalled. The built-in warner speaks once per
+  process, per cause, per monitor.
+- **Not throw.** The validator throws — inside the job it is monitoring, on a
+  configuration mistake, at whatever hour that job runs. Nothing on this
+  package's check-in path throws, ever; see [Never breaks the job](#never-breaks-the-job).
+
+And the `start` check-in it never sends is the one that makes *the job began and
+never finished* distinguishable from *the job never began*.
+`withMonitor('nightly-backup', runBackup)` sends both ends and the run's
+duration.
+
+Replacing a `curl` line in a crontab rather than a module in a codebase? That is
+[`cronheart run`](#not-a-node-project), and it needs no Node project around it.
 
 ## Never breaks the job
 
@@ -104,7 +205,8 @@ refusal from the server and a connection that was never answered each produce th
 outcome plus one `console.warn` — **once per process per cause per monitor**, because a
 per-minute crontab that logs a line per tick is how a monitoring library gets removed. A
 cancellation you asked for through your own `signal` is the one failure that says nothing:
-you already know. Pass `onResult` to replace the warner with your own logger.
+you already know. Pass `onResult` to replace the warner with your own logger — it replaces
+the once-per-cause ledger along with it, so a sink that wants to speak once has to say so.
 
 Names, however, are validated at wiring time: `createPingClient`, `monitors.define`,
 `monitors.resolve` and `checkInWith` throw on an unresolvable name, so a typo fails the
@@ -134,21 +236,28 @@ control proves the matrix can go red.
 | --- | --- | --- |
 | `CRONHEART_<NAME>_UUID` | — | the id for the monitor called `<name>` |
 | `CRONHEART_URL` | `https://cronheart.com` | base URL |
-| `CRONHEART_TIMEOUT_MS` | `5000` | total budget for one check-in, across retries |
+| `CRONHEART_TIMEOUT_MS` | `5000` here, `10000` for `cronheart/api` | total budget for one request, across its retries |
 | `CRONHEART_RETRIES` | `2` | retries after the first attempt, capped at 5; server errors and network failures |
-| `CRONHEART_DISABLED` | unset | `1` stops every check-in, loudly |
+| `CRONHEART_DISABLED` | unset | `1`, `true`, `yes` or `on` stops every check-in, loudly |
 | `CRONHEART_REDACT` | unset | extra redaction patterns for the CLI, one regular expression per line |
+| `CRONHEART_API_KEY` | unset | the key `cronheart/api` and `cronheart sync` authenticate with — a check-in never reads it |
 
 `CRON_MONITOR_*` is accepted for all of these, permanently and without a
 deprecation warning.
+
+`CRONHEART_URL`, `CRONHEART_TIMEOUT_MS` and `CRONHEART_RETRIES` are read by the
+[management client](#management-api) as well. It keeps its own 10 s default,
+because an API call made by a person at a terminal is not a heartbeat sent from
+inside a job.
 
 A check-in retries a failed connection and a 5xx, never a 4xx — `404`, `410`
 and `429` are answers rather than failures. **The default is two retries, so one logical
 check-in is up to three requests**, all of them inside one `CRONHEART_TIMEOUT_MS` budget;
 set `CRONHEART_RETRIES=0` if your service-side rate limit counts requests rather than
 check-ins. The count is capped at 5 however it
-is configured, attempts are spaced by at least 50 ms, and the whole sequence,
-delays included, is spent inside `CRONHEART_TIMEOUT_MS`. The base URL is
+is configured, attempts are spaced by 50 ms — less only when less than that is
+left of the budget — and the whole sequence, delays included, is spent inside
+`CRONHEART_TIMEOUT_MS`. The base URL is
 validated when the client is built: a query string, a fragment or a scheme that
 is not http(s) is refused there, because the ping path is appended to it and a
 check-in would otherwise land on the site root and be recorded as accepted. A
@@ -179,8 +288,10 @@ subpath export with its peer declared optional and imported for its types only:
 nothing is required at runtime, and an adapter never constructs the scheduler's
 objects.
 
-Four of the six hand back the scheduler's own argument list, so the schedule the
-monitor is checked against is by construction the schedule the scheduler runs. The
+Four of the six hand the scheduler back what it was given — three as its own
+argument list, cron as its own parameters object with only the tick replaced —
+so the schedule the monitor is checked against is by construction the schedule
+the scheduler runs. The
 node-cron adapter attaches to that scheduler's events, because a callback wrapper
 cannot see a file-path or background task at all, and the NestJS one is a module
 that walks the framework's own registry once the application has booted.
@@ -255,7 +366,7 @@ export class AppModule {}
 ```
 
 A monitored run sends a `start` check-in when it begins and a `success` or `fail`
-one when it ends, with the run's duration and — on a failure — the error's
+one when it ends, reporting the run's duration and, on a failure, the error's
 description in the body. The job's own value comes back by identity and its error
 is rethrown as the same object, so the scheduler sees the run it would have seen.
 An unresolvable monitor, a schedule the service would refuse and a time zone this
@@ -277,8 +388,9 @@ first field is seconds; a cronheart schedule has five fields plus seven `@` alia
 and no seconds field. An expression only the scheduler would take is refused at
 wiring time with a message naming the dialect, because sending it would leave the
 monitor's schedule and the job's schedule disagreeing with nobody told. A one-off
-`Date`, a `RecurrenceRule` and node-schedule's object spec carry no cron dialect
-and are passed through untouched. A BullMQ schedule is the exception: it lives on
+`Date` for cron's `cronTime`, a `RecurrenceRule` and node-schedule's object spec
+carry no cron dialect and are passed through untouched; the croner adapter takes
+a string pattern and nothing else. A BullMQ schedule is the exception: it lives on
 the queue rather than on the worker, so the pattern is only visible when a job
 arrives, and a dialect the service would refuse is a warning there rather than a
 refusal.
@@ -288,8 +400,10 @@ alert lands at the wrong hour and reads as a service fault. Where the scheduler
 takes the zone in the same object the adapter does — croner, cron and
 node-schedule — an unknown zone is refused at wiring time, and a schedule pinned
 to an hour of the day with no zone named warns once, saying which zone it will
-actually fire in. node-cron keeps the zone in options it does not expose on the
-task, so there the adapter has nothing to check it against.
+actually fire in. node-cron keeps the zone in the options the task was created
+with and exposes none of them, so there the adapter has nothing to check
+against — and an hour-pinned schedule draws that warning whether or not you
+passed `timezone`.
 
 **Flushing.** Every adapter but node-cron's awaits the terminal check-in before the
 tick resolves, so a process that exits at the end of its run cannot outrun it.
@@ -308,20 +422,23 @@ and it answers three things a queue does that a scheduler does not:
   once the job has exhausted the attempts it was given, and not before.
 - **One-off jobs.** A job added by hand is not on a schedule, so it arriving late
   or not at all says nothing about a monitor. Those are left alone, with one
-  warning naming the job; `allowOneOff: true` checks in for them anyway.
+  warning naming the monitor the job was mapped to; `allowOneOff: true` checks
+  in for them anyway.
 - **Concurrency.** A worker running jobs in parallel would interleave the start
   check-ins of runs that are genuinely separate. Above a concurrency of 1 the
   start check-in is off by default and the adapter says so once, each run still
   reporting how long it took; `pingStart: true` sends them anyway.
 
 **NestJS.** `CronheartModule.forRoot()` walks the scheduler's registry once the
-application has booted and wraps every registered job the mapping names, so no
+application has booted and wraps the registered jobs the mapping names, so no
 call site changes and no decorator has to sit in the right place. It takes the
 framework's own `SchedulerRegistry` class as the injection token, because the
 module imports nothing of the framework at runtime. At startup it writes one line
 saying what it covers — `cronheart: monitoring 3 of 5 cron jobs; unmapped:
-cleanupTmp, warmCache` — so a job nobody monitors is visible rather than silent;
-map a job to `false` to leave it out on purpose, and out of that line. Pass
+cleanupTmp, warmCache.` — so a job nobody monitors is visible rather than
+silent; map a job to `false` to leave it out on purpose, and out of that line.
+A job whose callback the scheduler keeps somewhere the adapter cannot reach gets
+a clause of its own on that line rather than being passed off as monitored. Pass
 `report` to send the line somewhere other than the console.
 
 A `@Cron` method that throws is caught and logged by the scheduler itself before
@@ -348,21 +465,26 @@ cronheart run --help                              # options and examples for one
 it needs an API key on a paid plan, and it has a section of its own —
 [Declarative sync](#declarative-sync).
 
-`run` wraps a command. It opens with a `start` check-in, then reports success
-or failure with the exit status and the tail of the command's stderr as the
-body — and **exits with the command's own exit status**. A check-in that fails
+`run` wraps a command. It opens with a `start` check-in, then reports success —
+or failure, carrying the exit status and the tail of the command's output as the
+body — and **exits with the command's own exit status**. A run that succeeded
+sends no excerpt, having nothing to diagnose. A check-in that fails
 writes one line to stderr and changes nothing else: a monitoring outage must
 never turn a working job into a failing one.
 
 **Nor may a monitor it cannot use.** `--uuid=$BACKUP_ID` in a crontab whose variable went
-missing expands to an empty flag value; the same is true of a stale id, a name behind
-`--uuid`, or both flags at once. Each of those writes a line to stderr saying the command
-ran **unmonitored**, and then runs it. Refusing to spawn would trade a working nightly
+missing expands to an empty flag value; so does a value behind `--uuid` that is not an id
+at all, a name behind `--uuid`, or both flags at once. Each of those writes a line to stderr
+saying the command ran **unmonitored**, and then runs it. An id that is well-formed but no
+longer exists is *not* one of these — that run is monitored, and the check-in comes back
+`404` with a sentence saying so. Refusing to spawn would trade a working nightly
 backup for a diagnosis, which is a worse outcome than an unmonitored one.
 
 A run that ends in anything but `0` also writes its summary to **stderr**, so
 cron mails it the way it would have mailed the unwrapped command's own error; a
-run that succeeds writes nothing at all. A wrapper may be silent on success. It
+run that succeeds writes no summary. It still writes a line for a check-in that
+failed or a configuration it refused, because those are about the monitoring
+rather than about the job. A wrapper may be silent on success. It
 may not be silent on failure, because failure is the entire reason cron mails
 you.
 
@@ -383,8 +505,9 @@ that bounds its memory and the body cap all run afterwards, and can therefore
 only ever split a `[redacted]` marker in half rather than strip the anchor off
 a secret and leave the secret behind. Tokens, `Authorization` values,
 credentials inside a URL and `*_PASSWORD` / `*_TOKEN` / `*_KEY` assignments are
-recognised out of the box; `--redact=<pattern>` (repeatable) and
-`CRONHEART_REDACT` add more, and `--output-bytes=0` sends no excerpt at all —
+recognised out of the box, and redaction reaches back 2 KiB of the stream at
+each of those boundaries — a single secret longer than that is not covered at
+any of them. `--redact=<pattern>` (repeatable) and `CRONHEART_REDACT` add more, and `--output-bytes=0` sends no excerpt at all —
 and inserts no pipe on either stream, so anything the command leaves running
 keeps the caller's own stdout and stderr. A pattern that does not compile is
 never a control that quietly protects nothing: on the command line it is a
@@ -394,12 +517,14 @@ on the machine — the command runs and the excerpt is withheld entirely, said
 so on stderr. The command being wrapped is not given `CRONHEART_API_KEY`:
 check-ins need no key, so there is nothing to trade away.
 
-Three exit statuses are the wrapper's own rather than the command's, and each
-is a case where there is no command status to report: `64` when the invocation
-could not be read at all — an unknown flag, a flag given no value, no monitor
-flag, nothing after the `--` — which happens before anything is spawned; `124`
-when `--timeout` expires, matching `timeout(1)`; and `127` / `126` when the
-command cannot be started at all. A command that has already exited can no
+Four exit statuses are the wrapper's own rather than the command's, and each
+covers a case where there is no command status to report: `64` when the
+invocation could not be read at all — an unknown flag, a flag given no value, no
+monitor flag, nothing after the `--` — which happens before anything is spawned;
+`124` when `--timeout` expires, matching `timeout(1)`; and `127` when nothing of
+that name is on `PATH`, `126` for every other reason a spawn failed. A fifth,
+`70`, is the wrapper failing in a way it did not anticipate; seeing one is worth
+a bug report. A command that has already exited can no
 longer time out, whatever is still holding its output streams open.
 
 The line between `64` and an unmonitored run is worth stating, because it is the line a
@@ -435,14 +560,17 @@ recognise to a plain heartbeat — which marks the monitor *up*. That set is
 value before passing it; `heartbeat` is in it and means the same as leaving `--action` off.
 `PING_EMITTABLE_ACTIONS` is the subset that becomes a path segment.
 
-Whatever the outcome, what gets printed is the sentence the client wrote for
+Whatever went wrong, what gets printed is the sentence the client wrote for
 it — *no monitor id for "cleanup", so nothing was sent. Set
-CRONHEART_CLEANUP_UUID…* — rather than the outcome token behind it.
+CRONHEART_CLEANUP_UUID…* — rather than the outcome token behind it. A check-in
+that worked has no such sentence, so the confirmation a terminal or `--verbose`
+prints is the outcome line itself.
 
 `doctor` reports the configuration it resolved, which environment variable
 answered for each monitor, the result of a real check-in and the clock skew
 against the server. It never prints a monitor id: that id is the whole
-credential for the check-in route. It also names what it did **not** check —
+credential for the check-in route, and an id passed where a name belongs is
+shown as its last four characters. It also names what it did **not** check —
 whether the monitor has a notification channel attached and whether that channel
 is verified — because a report with nothing wrong in it would otherwise read as
 reassurance about alerting that nothing here established.
@@ -591,8 +719,9 @@ every other member does.
 
 | Listing | Shape | This package |
 | --- | --- | --- |
-| monitors, alerts | offset | `list()` for one page, `iterate()` for an async iterator |
-| pings | opaque cursor | `pings()` for one page, `iteratePings()` for an async iterator |
+| monitors | offset | `monitors.list()` for one page, `monitors.iterate()` for an async iterator |
+| a monitor's alerts | offset | `monitors.alerts(uuid)` for one page, `monitors.iterateAlerts(uuid)` for an async iterator |
+| a monitor's pings | opaque cursor | `monitors.pings(uuid)` for one page, `monitors.iteratePings(uuid)` for an async iterator |
 | channels | **none at all** | `channels.list()` returns the whole set — and is deliberately not an iterator |
 
 The channels listing reads no pagination parameters and echoes none back, so a
@@ -630,8 +759,9 @@ reconciled.
 Reads and updates are retried on a connection failure or a 5xx, within one
 overall time budget. `4xx` is never retried and `429` deliberately is not, so
 you can read the guidance it came with. **A create is retried only when you
-pass an `idempotencyKey`**, and it is the one request that waits between
-attempts: the key reserves a row for 60 seconds, so a retry sent immediately is
+pass an `idempotencyKey`**, and it is the one request whose wait grows with the
+attempt — 250 ms per attempt, against the flat 50 ms every other retry spends.
+The key reserves a row for 60 seconds, so a retry sent immediately is
 refused as a conflict while the resource was in fact created. A `409` on a
 create says so — read the resource back before deciding it was not created.
 Rotations and channel tests are never retried at all. `CRONHEART_RETRIES` is
@@ -666,9 +796,15 @@ import { defineMonitors } from 'cronheart/sync'
 export default defineMonitors([
   { name: 'nightly-backup', schedule: '0 3 * * *', channels: ['ops inbox'] },
   { name: 'sweep',          schedule: { every: '5m' }, channels: 'none' },
-  { name: 'legacy-import',  schedule: '@daily' },
+  { name: 'legacy-import',  schedule: '@daily', channels: ['ops inbox'] },
 ])
 ```
+
+Every row names its routing on purpose. Leaving `channels` off entirely is a
+third state — *sync does not manage this monitor's routing* — and it is only
+meaningful for a monitor that already exists: a **create** that would attach
+nothing verified is refused rather than made silent. See
+[Three ways a reconciler can silently switch off your alerting](#three-ways-a-reconciler-can-silently-switch-off-your-alerting).
 
 ```bash
 cronheart sync            # print the plan; change nothing
@@ -677,14 +813,16 @@ cronheart sync --apply    # make the changes
 cronheart sync --apply --print-env >> .env
 ```
 
-`--check` answers with the exit status, and there are three of them, not two:
+`--check` answers with the exit status, and there are three answers, not two:
 **exit 0** once the account matches the file, **exit 2** while anything
 differs, and **exit 1** when the run could not answer the question at all — a
 refused key, an account the API is not entitled to, a server that never
 replied, a configuration this command would not read. A build step that treats
 anything non-zero as drift reads "the key expired" as "there are changes to
 make", which is why the two answers and the failure are three statuses rather
-than two.
+than two. An invocation the command could not read at all — an unknown flag,
+`--apply` and `--check` together — still exits `64`, before it gets as far as
+asking.
 
 Under `--print-env`, stdout carries the `CRONHEART_<NAME>_UUID` assignments and
 nothing else: the plan, the tally and every notice go to stderr, so appending
@@ -696,8 +834,9 @@ for a project that is not TypeScript. There is no YAML, and there will not be:
 it costs a runtime dependency, and the zero-dependency promise is worth more.
 
 **How a `.ts` config is loaded, plainly:** it is `import()`ed, and *the runtime*
-strips the types. Node does that by itself from 22.18 onward and needs
-`--experimental-strip-types` before that. Nothing here compiles anything, and
+strips the types. Node does that by itself from 22.18 onward and behind
+`--experimental-strip-types` from 22.6; below 22.6 there is no flag and a `.ts`
+config does not load at all, so use `.mjs` or `.json` there. Nothing here compiles anything, and
 no compiler is bundled to close the gap — a `.mjs` or `.json` file needs
 neither. The file is only ever read; sync never writes to it.
 
@@ -807,8 +946,8 @@ deletes. Two rules, both refusals rather than warnings:
 
 `--print-env` emits the `CRONHEART_<NAME>_UUID` lines — the thing that closes
 the gap between "sync created these" and "my jobs can address them". It is the
-only output that carries identifiers; the plan table never prints one, because
-a monitor's identifier is the entire credential on its check-in route.
+only output that carries a monitor's identifier; the plan table never prints
+one, because that identifier is the entire credential on its check-in route.
 
 ## Runtime support
 
@@ -817,13 +956,63 @@ from `node:`, which is what keeps non-Node runtimes on the table; the CLI is
 the only entry point that reaches for Node built-ins, and a test enforces the
 split. The ping entry is 6,635 bytes gzipped once your bundler has minified it
 — that is what your users download, so it is what the budget is measured on —
-and CI fails on a regression past 7,168 bytes. The unminified figure, 9,511
-bytes gzipped, is reported alongside it so a regression in either is
-visible. The CLI is bundled apart from the
-library entries so that it cannot pull the ping path into a shared chunk and
-charge every consumer for import glue it has no use for. The management client
-is bundled apart for the same reason, and for the same measured reason: sharing
-a chunk with the root cost the ping entry 266 bytes.
+and CI fails on a regression past 7,168 bytes. The unminified figure is
+reported beside it, so a regression in either is visible. The CLI is bundled
+apart from the library entries so that it cannot pull the ping path into a
+shared chunk and charge every consumer for import glue it has no use for. The
+management client is bundled apart for the same reason: a chunk shared with the
+root puts part of the ping path behind import glue that every consumer of the
+check-in client then pays for.
+
+## Versioning, public API and Node support
+
+**What is public.** The surface this package versions is what the export map
+resolves, and nothing else.
+
+| Specifier | What it is |
+| --- | --- |
+| `cronheart` | the check-in client — the entry that ships into a production bundle |
+| `cronheart/api` | the management client for the REST API |
+| `cronheart/sync` | the reconciler behind `cronheart sync` |
+| `cronheart/testing` | a ping recorder and the warning-ledger reset, for your own tests |
+| `cronheart/croner`, `/cron`, `/node-cron`, `/node-schedule`, `/bullmq`, `/nestjs` | the six scheduler adapters |
+| `cronheart/cli` | the built command-line program — resolve it and run it, never import it |
+| `cronheart/package.json` | the manifest, for a tool that wants to read the version |
+| the `cronheart` binary | its contract is its exit statuses and its streams |
+
+Everything else is internal and may change in any release, a patch included:
+
+- **Any path into `dist/`.** The chunk filenames carry a content hash and are
+  regenerated on every build. `cronheart/dist/index.mjs` is not a specifier.
+- **The stub directories** — `api/package.json` and its eight siblings — exist
+  so that TypeScript's legacy `moduleResolution: node`, which reads no export
+  map, still resolves the subpaths. They are packaging, not an entry point.
+- **The command-line tool has no programmatic surface**, deliberately;
+  importing it does nothing at all.
+- **`build/` is not published.** It holds the build-time module the wire
+  contract's constants are read from. Neither it, nor the tests, nor the
+  fixtures, nor the conformance vectors are in the tarball — and that is
+  asserted against the packed artifact on every run of the gate rather than
+  left to the `files` list to be right about.
+
+**What a version number means.** Semantic versioning, with the `0.x` caveat
+stated rather than assumed: until `1.0.0`, a **minor** may break the public
+surface and a patch never will. That is what the `0.x` line is for — it lets
+real use correct API mistakes before anyone is owed a stability guarantee, and
+`0.1.0` already carries eleven such corrections, each one found by migrating a
+working consumer onto the package rather than by reading the code.
+
+**Node.** The floor is Node 22, and the policy is the oldest Node LTS still in
+maintenance: when a release reaches end of life it is dropped, which is a minor
+bump while this package is on `0.x` and a major after `1.0.0`. CI runs the
+suite on the floor, on the current LTS and on `latest`, in both module systems;
+a Node version outside that matrix is not supported however well it happens to
+work. The check-in entry imports nothing from `node:`, which keeps a runtime
+that only provides `fetch` on the table — that is a property the tests pin, not
+a support promise.
+
+Reporting a vulnerability, and the properties worth reporting against:
+[SECURITY.md](SECURITY.md). How a release is cut: [RELEASING.md](RELEASING.md).
 
 ## Development
 
@@ -841,7 +1030,10 @@ make shell     # interactive shell in the container
 ```
 
 `make help` lists every target. CI runs the same checks natively across a Node
-version matrix.
+version matrix, and the release workflow runs that CI workflow as its gate
+rather than a copy of its steps. Cutting a release —
+`make changeset`, `make version`, tag, and what has to be configured on the
+registry before any of it works — is [RELEASING.md](RELEASING.md).
 
 ## License
 

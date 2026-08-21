@@ -1,6 +1,6 @@
 {
   "name": "cronheart",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Cron job monitoring and dead man's switch for Node.js and TypeScript — heartbeat check-ins that alert you when a scheduled job stops running. Works with node-cron, croner, cron, node-schedule, BullMQ, NestJS schedule, plain crontab and systemd timers, plus a CLI wrapper for any command. Official SDK for cronheart.com.",
   "keywords": [
     "cron",
@@ -11,6 +11,7 @@
     "dead-mans-switch",
     "deadmanssnitch",
     "job-monitoring",
+    "monitoring",
     "scheduled-jobs",
     "uptime",
     "alerting",
@@ -21,6 +22,7 @@
     "bullmq",
     "nestjs",
     "systemd-timer",
+    "typescript",
     "cronitor",
     "healthchecks",
     "cronheart"
@@ -184,7 +186,7 @@
     "contract:vectors": "vitest run test/contract-vectors.test.ts test/contract-vectors-meta.test.ts test/contract-outcomes.test.ts test/contract-responses.test.ts",
     "fault-matrix": "vitest run test/fault-matrix.test.ts test/fault-matrix-meta.test.ts",
     "changeset": "changeset",
-    "release": "changeset publish",
+    "release:version": "changeset version",
     "min-peers": "node scripts/min-peers.mjs"
   },
   "peerDependencies": {
@@ -220,8 +222,7 @@
     }
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",

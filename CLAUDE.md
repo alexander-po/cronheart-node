@@ -91,9 +91,8 @@ arrow, a default export and a class method are all visible to it.
   the entry point makes the size guarantee structural — and the split is a
   separate `tsdown` run, not merely a separate entry in one, because a chunk
   shared with the root puts part of the ping path behind import glue every
-  consumer of the check-in client then pays for. Measured at 266 gzipped bytes,
-  against a budget with 21 to spare. The command-line tool is split for the same
-  reason, so `build` is three `tsdown` invocations in order. It is published
+  consumer of the check-in client then pays for. The command-line tool is split
+  for the same reason, so `build` is three `tsdown` invocations in order. It is published
   under the `cronheart/cli` specifier as well as under `bin`, so a container
   build can resolve and copy it without a global install — which is why its
   dispatch sits behind an entry-point check: the file must do nothing at all
