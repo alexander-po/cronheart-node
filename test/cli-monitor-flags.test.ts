@@ -58,13 +58,16 @@ describe('--uuid takes an id and says so when it is handed something else', () =
 })
 
 describe('--name takes a name and says so when it is handed an id', () => {
-  it('refuses an id behind --name rather than printing it back redacted', async () => {
+  it('refuses an id behind --name and cuts it, rather than mailing the capability out with cron', async () => {
     const ran = await runCli([`run`, `--name=${MONITOR_ID}`, ...node('process.exit(3)')], {
       env: envFor(),
     })
 
     expect(ran.status).toBe(3)
     expect(ran.stderr).toContain('--uuid')
+    expect(ran.stderr).toContain(`id…${MONITOR_ID.slice(-4)}`)
+    expect(ran.stderr).not.toContain(MONITOR_ID)
+    expect(ran.stdout).not.toContain(MONITOR_ID)
     expect(server.requests).toHaveLength(0)
   })
 
@@ -76,6 +79,7 @@ describe('--name takes a name and says so when it is handed an id', () => {
 
     expect(ran.status).toBe(64)
     expect(ran.stderr).toContain('--uuid')
+    expect(ran.stderr).not.toContain(MONITOR_ID)
     expect(ran.stdout).not.toContain(MONITOR_ID)
   })
 

@@ -437,7 +437,7 @@ call site changes and no decorator has to sit in the right place. It takes the
 framework's own `SchedulerRegistry` class as the injection token, because the
 module imports nothing of the framework at runtime. At startup it writes one line
 saying what it covers — `cronheart: monitoring 3 of 5 cron jobs; unmapped:
-cleanupTmp, warmCache.` — so a job nobody monitors is visible rather than
+warmCache, sweepSessions.` — so a job nobody monitors is visible rather than
 silent; map a job to `false` to leave it out on purpose, and out of that line.
 A job whose callback the scheduler keeps somewhere the adapter cannot reach gets
 a clause of its own on that line rather than being passed off as monitored. Pass
@@ -526,8 +526,10 @@ monitor flag, nothing after the `--` — which happens before anything is spawne
 `124` when `--timeout` expires, matching `timeout(1)`; and `127` when nothing of
 that name is on `PATH`, `126` for every other reason a spawn failed. A fifth,
 `70`, is the wrapper failing in a way it did not anticipate; seeing one is worth
-a bug report. A command that has already exited can no
-longer time out, whatever is still holding its output streams open.
+a bug report. A command a signal ended returned no status either, and is
+reported as `128` plus the signal number, the way a shell reports one. A command
+that has already exited can no longer time out, whatever is still holding its
+output streams open.
 
 The line between `64` and an unmonitored run is worth stating, because it is the line a
 crontab crosses at 3am: **`64` means the wrapper could not read what you asked it to do;
@@ -819,8 +821,9 @@ cronheart sync --apply --print-env >> .env
 **exit 0** once the account matches the file, **exit 2** while anything
 differs, and **exit 1** when the run could not answer the question at all — a
 refused key, an account the API is not entitled to, a server that never
-replied, a configuration this command would not read. A build step that treats
-anything non-zero as drift reads "the key expired" as "there are changes to
+replied, a configuration this command would not read, a row the plan refused, a
+name two monitors on the service both carry. A build step that treats anything
+non-zero as drift reads "the key expired" as "there are changes to
 make", which is why the two answers and the failure are three statuses rather
 than two. An invocation the command could not read at all — an unknown flag,
 `--apply` and `--check` together — still exits `64`, before it gets as far as
@@ -885,11 +888,12 @@ All three are made structurally impossible rather than documented:
 
 **The routing field replaces wholesale when present — even when empty — and is
 left alone when absent.** So `channels` has three states, written down rather
-than inferred: a list, the word `'none'`, or *absent*, which means sync does
-not manage the routing at all and sends no such field. Emptying a monitor's
-routing takes the literal `'none'`; an empty list is refused, because that is
-what a defaulted value (`channels: ids ?? []`) looks like and it would silence
-the monitor. One function decides that field, and a test enumerates every mode
+than inferred: a list, the word `'none'`, or *absent* — which means sync does
+not manage the routing at all and sends no such field, and which the literal
+`'unmanaged'` says out loud for a file that would rather not lean on omission.
+Emptying a monitor's routing takes the literal `'none'`; an empty list is
+refused, because that is what a defaulted value (`channels: ids ?? []`) looks
+like and it would silence the monitor. One function decides that field, and a test enumerates every mode
 of the union against it.
 
 **A monitor with no attached, verified channel alerts nobody.** The dashboard's
@@ -927,8 +931,9 @@ meant to be the whole of the account.
 
 Answering the confirmation with anything but the word deletes nothing and exits
 **0**: declining a destructive prompt is the prompt doing its job, not the run
-failing. The run says so in as many words, so that `0` is never read as "there
-was nothing to delete".
+failing. A run with no terminal to ask at and no `--yes` is that same answer,
+reached without anybody there to give it. The run says so in as many words, so
+that `0` is never read as "there was nothing to delete".
 
 Deleting is conditional on the half of the run that would replace what it
 deletes. Two rules, both refusals rather than warnings:

@@ -1,4 +1,6 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { checkIn, checkInWith, monitors } from '../src/index.js'
 import { clearWarnings } from '../src/testing.js'
@@ -53,5 +55,39 @@ describe('the root entry points share one client', () => {
     process.env['CRONHEART_ENV_ONLY_JOB_UUID'] = MONITOR_ID
 
     expect(monitors.resolve('env-only-job')).toBe(MONITOR_ID)
+  })
+})
+
+// The client these entry points share is built on the first check-in, which is inside the
+// job — so this runs in a process of its own, where that first build is the one under test.
+const THROUGH_THE_ROOT_ENTRY = `
+const cronheart = await import('./dist/index.mjs')
+const checkedIn = await cronheart.checkIn('a-monitor-nobody-configured')
+let ran = false
+const returned = await cronheart.withMonitor('a-monitor-nobody-configured', () => {
+  ran = true
+
+  return 7
+})
+await cronheart.flush()
+process.stdout.write(JSON.stringify({ ran, returned, outcome: checkedIn.outcome, sent: checkedIn.sent }))
+`
+
+describe('a base URL the deployment got wrong reaches the caller as an outcome', () => {
+  it('runs the job, sends nothing, and says what is wrong rather than throwing into it', () => {
+    const ran = spawnSync(process.execPath, ['--input-type=module', '-e', THROUGH_THE_ROOT_ENTRY], {
+      cwd: fileURLToPath(new URL('../', import.meta.url)),
+      encoding: 'utf8',
+      env: { PATH: process.env['PATH'] ?? '', CRONHEART_URL: 'cronheart.com' },
+    })
+
+    expect(`${ran.stderr}`).toContain('cannot be a base URL')
+    expect(ran.status).toBe(0)
+    expect(JSON.parse(ran.stdout) as unknown).toEqual({
+      ran: true,
+      returned: 7,
+      outcome: 'suppressed',
+      sent: false,
+    })
   })
 })

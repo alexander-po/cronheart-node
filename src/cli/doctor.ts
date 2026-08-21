@@ -11,6 +11,7 @@ import {
   environment,
   hasApiKey,
   killSwitchOn,
+  killSwitchVariable,
   openClient,
   originOf,
 } from './client.js'
@@ -144,6 +145,7 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
   // subject of the check-in would report a configuration fault as a connectivity fault.
   const target = asked ?? monitors.find((monitor) => monitor.resolved)?.name
   const disabled = killSwitchOn(env)
+  const killSwitch = killSwitchVariable(env)
   let problems = 0
 
   io.out('cronheart doctor\n')
@@ -157,9 +159,9 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
 
   if (disabled) {
     problems += 1
-    io.out(label('kill switch', 'CRONHEART_DISABLED is set — nothing checks in while it stays set'))
+    io.out(label('kill switch', `${killSwitch} is set — nothing checks in while it stays set`))
   } else {
-    io.out(label('kill switch', 'CRONHEART_DISABLED is not set'))
+    io.out(label('kill switch', `${killSwitch} is not set`))
   }
 
   if (monitors.length === 0) {
@@ -206,7 +208,7 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
   }
 
   if (disabled) {
-    io.out(label('check-in', 'skipped — CRONHEART_DISABLED would suppress it anyway'))
+    io.out(label('check-in', `skipped — ${killSwitch} would suppress it anyway`))
 
     return EXIT_PROBLEM
   }

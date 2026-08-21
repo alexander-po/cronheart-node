@@ -1,6 +1,7 @@
 node_modules/
 .pnpm-store/
 dist/
+test/fixture-consumer/doc-samples/
 build/
 coverage/
 *.tgz

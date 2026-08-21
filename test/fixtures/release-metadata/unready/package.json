@@ -1,0 +1,11 @@
+{
+  "name": "a-package",
+  "version": "1.4.0",
+  "description": "Too short.",
+  "keywords": ["one", "two"],
+  "license": "MIT",
+  "author": "Somebody Else",
+  "homepage": "https://example.invalid",
+  "repository": { "type": "git", "url": "git+https://github.com/an-owner/a-package.git" },
+  "bugs": { "url": "http://issues.example.invalid" }
+}

@@ -26,7 +26,7 @@ point:
 make install   # pnpm install
 make build     # bundle dist/ (ESM + CJS + .d.ts)
 make test      # Vitest
-make lint      # tsc, fixture consumer tsc, publint, attw, size budget
+make lint      # tsc, fixture consumer tsc, source guard, publint, attw, size
 make smoke     # pack the tarball, consume it from scratch ESM and CJS projects
 make check     # the full gate — run this before every commit
 make shell     # interactive shell in the container

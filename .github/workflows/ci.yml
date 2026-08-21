@@ -44,6 +44,10 @@ jobs:
       # is usable, not merely present.
       - run: pnpm run typecheck:fixture
       - run: pnpm run guard
+      - run: pnpm run doc-claims
+      # The generic half of the leak control. The half that names the private vocabulary
+      # cannot live in a public repository, and runs before a push instead.
+      - run: pnpm run private-information
       - run: pnpm run publint
       - run: pnpm run attw
       - run: pnpm run size

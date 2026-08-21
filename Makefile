@@ -1,7 +1,7 @@
 COMPOSE ?= docker compose
 RUN := $(COMPOSE) run --rm node
 
-.PHONY: help image install build test lint guard contract drift vectors matrix min-peers check smoke shell changeset version clean
+.PHONY: help image install build test lint guard contract drift vectors matrix min-peers check smoke docs release-gate shell changeset version clean
 
 help:
 	@echo "Targets (everything runs inside the container — no host Node or pnpm):"
@@ -17,6 +17,8 @@ help:
 	@echo "  matrix     Run the fault matrix and its negative control"
 	@echo "  min-peers  Recheck the adapters against the lowest peer version each range admits"
 	@echo "  smoke      Pack the tarball and consume it from a scratch ESM and CJS project"
+	@echo "  docs       Compile every documented sample and probe every documented flag"
+	@echo "  release-gate  The docs, the leak scan and the release metadata — run before a tag"
 	@echo "  check      The full gate: contract + build + lint + test + smoke"
 	@echo "  shell      Interactive shell in the container"
 	@echo "  changeset  Record a changeset for the next release"
@@ -40,6 +42,12 @@ lint: build
 
 smoke: build
 	$(RUN) pnpm run smoke
+
+docs: build
+	$(RUN) pnpm run doc-claims
+
+release-gate: build
+	$(RUN) pnpm run release-gate
 
 guard:
 	$(RUN) pnpm run guard

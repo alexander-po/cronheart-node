@@ -133,8 +133,8 @@ async function reconcile(
 
   const orphans = plan.rows.filter((row) => row.action === 'orphan').map((row) => row.name)
   const pruning = mode.apply && mode.prune && orphans.length > 0
-  // Read here as well as inside the apply, so a confirmation is never offered for a deletion
-  // that would not be carried out — and so the reason is on screen before the question is.
+  // Read here as well as inside the apply, so the reason a deletion will not be carried out
+  // is on screen before the question is, rather than only after it has been answered.
   const unsafe = pruning ? whyPruningIsUnsafe(plan, plan.counts.conflict + plan.counts.refused) : undefined
   // Under --print-env stdout is a file the shell reads back, and one of its readers executes
   // what it finds, so everything that is not an assignment goes to stderr.

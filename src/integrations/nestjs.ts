@@ -23,7 +23,7 @@ export type SchedulerRegistryToken = Type<ScheduledJobs> | Abstract<ScheduledJob
 
 export interface NestMonitorOptions extends AdapterOptions {
   // The name a job is registered under to the monitor it checks in for. false is a job left
-  // out on purpose, which keeps it out of the coverage line rather than out of the count.
+  // out on purpose, so it counts towards neither the coverage line nor the total beside it.
   readonly jobs: MonitorMapping
   readonly report?: ((message: string) => void) | undefined
 }

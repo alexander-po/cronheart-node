@@ -1,5 +1,5 @@
 import { SDK_VERSION } from '../version.js'
-import { createPingClient } from './client.js'
+import { createPingClient, createRefusingPingClient } from './client.js'
 import type { PingClient } from './types.js'
 
 // The registry key is a well-known symbol on globalThis so that the ESM copy and the
@@ -16,8 +16,23 @@ export function defaultClient(): PingClient {
     return existing as PingClient
   }
 
-  const created = createPingClient()
-  globals[CLIENT_KEY] = created
+  const built = build()
 
-  return created
+  if (typeof built === 'string') {
+    return createRefusingPingClient(built)
+  }
+
+  globals[CLIENT_KEY] = built
+
+  return built
+}
+
+function build(): PingClient | string {
+  try {
+    return createPingClient()
+  } catch (error) {
+    const stated = error instanceof Error ? error.message : String(error)
+
+    return `${stated.replace(/^cronheart:\s*/, '')} Nothing checks in until that is fixed.`
+  }
 }

@@ -124,7 +124,7 @@ describe('the credential rule', () => {
   it('fires on the key itself, on anything else key-shaped, and through every surface', () => {
     const surfaces = [
       observationOf({ output: `sending Authorization: Bearer ${API_KEY}` }),
-      observationOf({ output: 'authorization: cmk_0123456789abcdef' }),
+      observationOf({ output: `authorization: cmk_${'0'.repeat(16)}notthekey` }),
       observationOf({ threw: true, thrown: new Error(`bearer ${API_KEY} was refused`) }),
       observationOf({ recorded: [new Error(`bearer ${API_KEY} was refused`)] }),
       observationOf({ recorded: [{ headers: { authorization: `Bearer ${API_KEY}` } }] }),

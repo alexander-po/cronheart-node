@@ -12,6 +12,8 @@ const scheduled = readFileSync(
   'utf8',
 )
 
+const release = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8')
+
 function leavesOf(name: string, seen = new Set<string>()): Set<string> {
   const body = scripts[name]
 
@@ -43,6 +45,22 @@ describe('the workflow cannot quietly stop running part of the gate', () => {
 
   it('runs every leaf of the gate chain', () => {
     expect([...gate].filter((script) => !workflowRuns.has(script)).sort()).toEqual([])
+  })
+
+  // The release gate is the other half of the same problem: it must run where a tag is
+  // published and must not run on a branch, which is where an unconsumed changeset belongs.
+  it('runs the release gate before publishing and never on a pull request', () => {
+    expect(release).toContain('pnpm run release-gate')
+    expect(release).toContain('needs: [gate, ready]')
+    expect(workflow).not.toContain('release-gate')
+    expect(workflow).not.toContain('release-metadata')
+    expect(gate.has('release-metadata')).toBe(false)
+    expect(leavesOf('release-gate').has('release-metadata')).toBe(true)
+  })
+
+  it('keeps the documentation and leak checks in the ordinary gate', () => {
+    expect(gate.has('doc-claims')).toBe(true)
+    expect(gate.has('private-information')).toBe(true)
   })
 
   // A job in a second workflow file sits outside the comparison above, so the one that

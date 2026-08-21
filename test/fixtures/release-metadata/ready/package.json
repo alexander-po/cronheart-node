@@ -1,0 +1,11 @@
+{
+  "name": "a-package",
+  "version": "1.4.0",
+  "description": "A package whose manifest says enough about it for a registry page to render.",
+  "keywords": ["one", "two", "three", "four", "five"],
+  "license": "MIT",
+  "author": "A Maintainer",
+  "homepage": "https://example.invalid",
+  "repository": { "type": "git", "url": "git+https://github.com/an-owner/a-package.git" },
+  "bugs": { "url": "https://github.com/an-owner/a-package/issues" }
+}

@@ -1,9 +1,9 @@
 import { DEFAULT_BASE_URL } from '../constants.js'
 import { inAnyCase } from '../ping/body.js'
 import { createPingClient } from '../ping/client.js'
-import { ambientEnv, isDisabled, readEnv } from '../ping/env.js'
+import { ambientEnv, envSource, isDisabled, readEnv } from '../ping/env.js'
 import type { EnvSource } from '../ping/env.js'
-import { isMonitorId, looksLikeAnId, resolveMonitor } from '../ping/resolve.js'
+import { isMonitorId, labelFor, looksLikeAnId, resolveMonitor } from '../ping/resolve.js'
 import type { PingClient, PingClientOptions } from '../ping/types.js'
 import { type ParsedArgs, type Read, readText } from './args.js'
 
@@ -20,7 +20,7 @@ export function baseUrlOf(env: EnvSource): { readonly url: string; readonly sour
 
   return configured === undefined
     ? { url: DEFAULT_BASE_URL, source: 'the built-in default' }
-    : { url: configured, source: 'CRONHEART_URL' }
+    : { url: configured, source: envSource(env, 'URL') ?? 'CRONHEART_URL' }
 }
 
 // An origin carries no userinfo, path, query or fragment; anything unparseable is described.
@@ -48,6 +48,10 @@ export function killSwitchOn(env: EnvSource): boolean {
   return isDisabled(env)
 }
 
+export function killSwitchVariable(env: EnvSource): string {
+  return envSource(env, 'DISABLED') ?? 'CRONHEART_DISABLED'
+}
+
 export function openClient(options: PingClientOptions): Opened {
   try {
     return { ok: true, client: createPingClient(options) }
@@ -64,9 +68,11 @@ export function idFlagRefusal(value: string): string | undefined {
     : `--uuid=${value} is not a monitor id — an id is 36 characters, hexadecimal in groups of 8-4-4-4-12. To address a monitor by the name you configured it under, pass --name.`
 }
 
+// The refusal is written for the one value that triggers it — an identifier where a name
+// belongs — so the value it quotes is the check-in capability itself, on a stream cron mails.
 export function nameFlagRefusal(value: string): string | undefined {
   return looksLikeAnId(value)
-    ? `--name=${value} reads as a monitor id, and would be printed back redacted rather than as a name — pass an id as --uuid, or pick a name that is not hexadecimal in groups of 8-4-4-4-12.`
+    ? `--name=${labelFor(value)} reads as a monitor id rather than a name, so it is shown cut — pass an id as --uuid, or pick a name that is not hexadecimal in groups of 8-4-4-4-12.`
     : undefined
 }
 

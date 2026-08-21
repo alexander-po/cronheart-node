@@ -35,9 +35,29 @@ jobs:
     needs: tag
     uses: ./.github/workflows/ci.yml
 
+  # Deliberately not part of CI: a branch is supposed to carry an unconsumed changeset and a
+  # release is supposed to carry none, so this is the one check that only a tag can satisfy.
+  ready:
+    name: The tree is ready to be released
+    needs: tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run release-gate
+
   publish:
     name: Publish to npm
-    needs: gate
+    needs: [gate, ready]
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:

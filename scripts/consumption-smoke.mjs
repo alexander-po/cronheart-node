@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { reportDisclosures, scanTarball } from './private-information.mjs'
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url))
 const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
@@ -103,6 +104,12 @@ try {
 
   if (installHooks.length > 0) {
     throw new Error(`the tarball runs on install: ${installHooks.join(', ')}`)
+  }
+
+  // The allow-list above says which files ship; this says what is inside them. A bundle
+  // carries source strings, and a path or an address that reached one is published too.
+  if (!reportDisclosures('the tarball', scanTarball(tarball, workspace))) {
+    throw new Error('the tarball carries private information')
   }
 
   process.stdout.write(

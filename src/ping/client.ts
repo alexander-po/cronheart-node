@@ -133,7 +133,14 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
   return sealed('createPingClient', () => build(options))
 }
 
-function build(options: PingClientOptions): PingClient {
+// The module-level check-in functions have no wiring moment of their own: the first
+// check-in is where their client gets built, and that is inside the job. A configuration
+// no client can be built from therefore arrives as an outcome rather than as a throw.
+export function createRefusingPingClient(refusal: string): PingClient {
+  return build({ baseUrl: DEFAULT_BASE_URL, env: {} }, refusal)
+}
+
+function build(options: PingClientOptions, refusal?: string): PingClient {
   const env = options.env ?? ambientEnv()
   const configuredUrl = options.baseUrl ?? readEnv(env, 'URL') ?? DEFAULT_BASE_URL
 
@@ -193,18 +200,28 @@ function build(options: PingClientOptions): PingClient {
     startedAt: number,
   ): Promise<PingResult> {
     const resolution = resolveMonitor(name, defined, env)
-    const finish = (partial: Partial<Omit<PingResult, 'message'>>): PingResult => {
+    const finish = (
+      partial: Partial<Omit<PingResult, 'message'>>,
+      stated?: string,
+    ): PingResult => {
       const reported: Omit<PingResult, 'message'> = {
         ...fallback,
         ...partial,
         monitor: resolution.label,
         durationMs: Date.now() - startedAt,
       }
-      const result: PingResult = { ...reported, message: messageFor(reported, resolution) }
+      const result: PingResult = {
+        ...reported,
+        message: stated ?? messageFor(reported, resolution),
+      }
 
       report(result, resolution, callOptions)
 
       return result
+    }
+
+    if (refusal !== undefined) {
+      return finish({ outcome: 'suppressed' }, refusal)
     }
 
     if (disabled) {

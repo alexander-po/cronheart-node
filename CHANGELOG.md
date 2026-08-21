@@ -41,7 +41,11 @@ uses.
   monitor name fails where the client is built, so a typo fails the deploy
   rather than going quiet at three in the morning. A value shaped like an
   identifier the whole way through is diagnosed as a broken identifier, and no
-  environment variable is looked up for one.
+  environment variable is looked up for one. The module-level `checkIn`,
+  `withMonitor`, `startRun` and `flush` have no wiring moment of their own — the
+  first check-in is where their client gets built, and that is inside the job —
+  so a `CRONHEART_URL` no client can be built from reaches them as a `suppressed`
+  outcome naming the problem, and the job still runs.
 - Names resolve from an explicit map or from `CRONHEART_<NAME>_UUID`, and a raw
   identifier is accepted anywhere a name is. `CRON_MONITOR_*` is read for every
   variable, permanently.
@@ -84,6 +88,12 @@ uses.
 - A six-field cron expression, an alias only the scheduler resolves, an unknown
   time zone and a monitor nothing resolves are all refused where the job is
   wired.
+- A schedule pinned to an hour of the day with no zone named warns once, saying
+  which zone it will fire in — and only where the adapter can see whether one was
+  named. A UTC offset counts as a zone, so the three schedulers that take one
+  instead of a name draw no such warning; node-cron exposes none of a task's
+  options, so `monitor(task, name, { timezone })` is how a zone is declared there
+  and saying nothing leaves the adapter silent rather than guessing.
 - The queue adapter wraps the processor rather than the worker's events, so a
   check-in is tied to the job name that asked for one. A failure is reported only
   once the job has exhausted its attempts, a job that is not on a repeating
@@ -130,10 +140,14 @@ uses.
   would cost a `sudo` or `ssh` prompt its `/dev/tty`.
 - The terminal check-in and its flush share one 2 s budget, after which the
   status already in hand is returned.
-- `doctor` reports the resolved configuration, which variable answered for each
-  monitor, a real check-in and the clock skew — never a monitor identifier — and
-  names what it did *not* check, so a clean report is not read as reassurance
-  about alerting.
+- `doctor` reports the resolved configuration, which variable answered for the
+  base URL, the kill switch and each monitor, a real check-in and the clock skew
+  — never a monitor identifier — and names what it did *not* check, so a clean
+  report is not read as reassurance about alerting.
+- An identifier passed where `--name` expects a name is refused with the value
+  cut to its last four characters, like every other place one is named: the
+  refusal exists for the value that is a working check-in capability, and it
+  goes to the stream cron mails.
 - `init` writes `CRONHEART_<NAME>_UUID` with owner-only permissions, through a
   temporary file and a rename, refusing to follow a symbolic link; it creates the
   monitor when an API key is configured and matches by name first, and falls back
@@ -241,9 +255,11 @@ publishing it produced eleven corrections, all of them in this release:
 
 ### Wire contract
 
-The repository carries a machine-readable wire contract, at version **2.2.0** for
+The repository carries a machine-readable wire contract, at version **2.2.1** for
 this release, read out of the running service rather than inferred from its
 documentation. Constant-equality checks and language-neutral conformance vectors
-run against it on every build, and the contract version rides in the User-Agent
+run against it on every build, a drift watch compares it against a committed
+snapshot of the published API specification on every pull request and against the
+running service on a schedule, and the contract version rides in the User-Agent
 alongside the SDK version, so a support request names what the client was built
 against. It is not part of the published package.

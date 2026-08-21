@@ -4,7 +4,7 @@ export const ENVIRONMENT = `Environment
   CRONHEART_API_KEY         REST API token (not needed for check-ins)
   CRONHEART_TIMEOUT_MS      per-check-in budget
   CRONHEART_RETRIES         attempts beyond the first
-  CRONHEART_DISABLED        set to stop every check-in
+  CRONHEART_DISABLED        set to 1, true, yes or on to stop every check-in
   CRONHEART_REDACT          redaction patterns, one per line, applied like --redact. One
                             that does not compile withholds the excerpt rather than
                             stopping the command
@@ -13,7 +13,7 @@ export const ENVIRONMENT = `Environment
 export const HELP = `cronheart — check-in monitoring for scheduled jobs
 
 Usage
-  cronheart run [--name=<name> | --uuid=<id>] [options] -- <command> [args…]
+  cronheart run (--name=<name> | --uuid=<id>) [options] -- <command> [args…]
   cronheart ping <name-or-id> [options]
   cronheart doctor [<name-or-id>]
   cronheart init [options]

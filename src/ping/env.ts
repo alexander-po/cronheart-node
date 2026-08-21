@@ -16,6 +16,16 @@ export function readEnv(env: EnvSource, name: string): string | undefined {
   return value === '' ? undefined : value
 }
 
+export function envSource(env: EnvSource, name: string): string | undefined {
+  for (const prefix of ['CRONHEART_', 'CRON_MONITOR_']) {
+    if ((env[`${prefix}${name}`] ?? '').trim() !== '') {
+      return `${prefix}${name}`
+    }
+  }
+
+  return undefined
+}
+
 export function isDisabled(env: EnvSource): boolean {
   const value = readEnv(env, 'DISABLED')
 

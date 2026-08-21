@@ -3,7 +3,7 @@ import { ENVIRONMENT, HELP } from './help.js'
 const RUN_HELP = `cronheart run — wrap a command and report what it did
 
 Usage
-  cronheart run [--name=<name> | --uuid=<id>] [options] -- <command> [args…]
+  cronheart run (--name=<name> | --uuid=<id>) [options] -- <command> [args…]
 
   Opens with a start check-in, then reports success or failure with the exit status and the
   tail of what the command wrote. Both streams are passed through to the caller as well as
@@ -33,16 +33,19 @@ Options
   process group, so SIGINT, SIGTERM and the --timeout deadline reach a shell script's
   children with it. Run from a terminal it does not: a group of its own would cost it the
   terminal a sudo or ssh prompt needs, and the terminal delivers the interrupt itself.
+  The escalation to SIGKILL after --kill-after follows either way.
 
   The command's exit status is passed through. A run that ends in anything but 0 writes its
   summary to stderr, so cron mails it; a run that succeeds writes nothing. A check-in that
   fails writes one line to stderr and changes nothing else, and a server that never answers
-  costs the command at most 2s. A monitor this wrapper cannot use — an empty --uuid where a
-  variable went missing, a stale id, a name behind --uuid, both flags at once — is reported
-  the same way and the command still runs, unmonitored. Three statuses are the wrapper's
-  own, each where there is no command status to report: 64 when the invocation could not be
-  read at all, before anything is spawned; 124 for --timeout; and 127 or 126 when the
-  command cannot be started at all.
+  costs the command at most 2s of waiting plus a second of settling. A monitor this wrapper
+  cannot use — an empty --uuid where a variable went missing, a stale id, a name behind
+  --uuid, both flags at once — is reported the same way and the command still runs,
+  unmonitored. Five statuses are the wrapper's own, each where there is no command status to
+  report: 64 when the invocation could not be read at all, before anything is spawned; 124
+  for --timeout; 127 or 126 when the command cannot be started at all; 70 for this wrapper
+  failing in a way it did not anticipate; and 128 plus the signal number for a command a
+  signal ended.
 
 Examples
   Every five minutes from a crontab, with the id written out. Cron sets almost no PATH and
@@ -75,8 +78,9 @@ Options
                       PING_ACTIONS, because the server reads an action it does not know as
                       a heartbeat — which marks the monitor up.
   --body=<text>       text to send with the check-in. --body=- reads it from standard input.
-  --strict            exit 1 when the check-in fails. Off, the exit status is 0 whatever
-                      happened, so a check-in cannot break the job around it.
+  --strict            exit 1 when the check-in fails. Off, the exit status is 0 whatever the
+                      check-in did, so it cannot break the job around it — an invocation this
+                      command could not read at all is still 64.
   --verbose           confirm an accepted check-in on stdout. Off, only a failure is
                       reported, and only on stderr: cron mails whatever a job writes, and
                       one mail per run is how a monitoring tool gets uninstalled. A terminal
@@ -103,7 +107,8 @@ Usage
   attached, and whether that channel is verified. It says so, rather than leaving a report
   with nothing wrong in it to imply otherwise.
 
-  Exit status is 0 when it found nothing wrong and 1 when it did.
+  Exit status is 0 when it found nothing wrong and 1 when it did, and 64 for an invocation
+  it could not read at all.
 
 Examples
   cronheart doctor
@@ -170,14 +175,16 @@ Options
   --config=<path>   the file to read. Left off, the first of cronheart.config.ts,
                     cronheart.config.mts, cronheart.config.mjs, cronheart.config.js or
                     cronheart.config.json in the working directory is used. Nothing here
-                    compiles TypeScript: Node strips the types itself from 22.18 onward, and
-                    before that needs --experimental-strip-types. A .mjs or .json file needs
+                    compiles TypeScript: Node strips the types itself from 22.18 onward and
+                    from 22.6 behind --experimental-strip-types; below 22.6 there is no such
+                    flag and a .ts config does not load at all. A .mjs or .json file needs
                     neither.
   --apply           make the changes. Without it the run is a report.
   --check           report only, and answer with the exit status: 0 once the account
                     matches the file, 2 while anything differs, and 1 when the run could not
                     answer at all — a refused key, a plan the API is not on, a server that
-                    never replied, a file this command would not read. A build that reads
+                    never replied, a file this command would not read, a row the plan refused,
+                    a name two monitors on the service both carry. A build that reads
                     anything non-zero as drift reads "the key expired" as "there are changes
                     to make", which is the reading this third status exists to prevent.
   --prune           include monitors the file does not describe. Reported either way; deleted
@@ -212,13 +219,15 @@ Configuration
 
   schedule    a five-field cron expression, one of the seven @ aliases, one of the twelve
               named schedules (daily, hourly, every_5_minutes, …), a duration such as 5m or
-              90s, or { every: '5m' } / { cron: '…' } / { simple: 'daily' } to be explicit.
+              90s, or { every: '5m' } / { interval: 300 } / { cron: '…' } / { simple: 'daily' }
+              to be explicit.
               A six-field expression is refused here: croner and node-cron accept a leading
               seconds field and this service does not.
   channels    a list of channel labels or identifiers, or 'none' to say in as many words that
-              this monitor alerts nobody. Left out, the routing is not managed at all and
-              nothing this command sends can change it. An empty list is refused, because it
-              is what a defaulted value looks like and it would silence the monitor.
+              this monitor alerts nobody. Left out — or written as 'unmanaged' — the routing
+              is not managed at all and nothing this command sends can change it. An empty
+              list is refused, because it is what a defaulted value looks like and it would
+              silence the monitor.
   tz          a zone name. Left out, it is not managed.
   graceSeconds  Left out, it is not managed.
 

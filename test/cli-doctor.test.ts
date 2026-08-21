@@ -180,6 +180,21 @@ describe('cronheart doctor and the base URL it reports', () => {
     expect(ran.stdout).toContain(server.url)
   })
 
+  it('names the legacy variable when that is the one that answered, not the canonical one', async () => {
+    const ran = await runCli(['doctor'], {
+      env: {
+        CRON_MONITOR_URL: server.url,
+        CRON_MONITOR_TIMEOUT_MS: '2000',
+        CRON_MONITOR_DISABLED: '1',
+      },
+    })
+
+    expect(lineFor(ran.stdout, 'base url')).toContain('CRON_MONITOR_URL')
+    expect(lineFor(ran.stdout, 'kill switch')).toContain('CRON_MONITOR_DISABLED is set')
+    expect(ran.stdout).not.toContain('CRONHEART_URL')
+    expect(ran.stdout).not.toContain('CRONHEART_DISABLED')
+  })
+
   it('says the URL is unusable without echoing the credential that made it so', async () => {
     const ran = await runCli(['ping', 'job'], {
       env: envFor({

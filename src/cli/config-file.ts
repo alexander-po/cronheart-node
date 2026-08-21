@@ -30,7 +30,7 @@ export function explainConfigFailure(error: unknown, path: string): string {
   const message = error instanceof Error ? error.message : String(error)
 
   if (TYPESCRIPT.test(path) && (codeOf(error) === 'ERR_UNKNOWN_FILE_EXTENSION' || /TypeScript|type strip|Unknown file extension/i.test(message))) {
-    return `${path} is TypeScript, and this Node did not load it. Node strips types by itself from 22.18 onward and needs --experimental-strip-types before that. Run a newer Node, pass that flag, or point --config at a .mjs or .json file — this package adds no compiler of its own.`
+    return `${path} is TypeScript, and this Node did not load it. Node strips types by itself from 22.18 onward and from 22.6 behind --experimental-strip-types; below 22.6 there is no such flag. Run a newer Node, pass that flag if this one is at least 22.6, or point --config at a .mjs or .json file — this package adds no compiler of its own.`
   }
 
   return `${path} could not be read (${message})`
