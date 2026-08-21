@@ -230,6 +230,67 @@ export const FAULTS: readonly Fault[] = [
       })
     },
   })),
+  fault('transport-stalls-its-body-after-answering', () => {
+    let open = 0
+    let released = 0
+
+    return {
+      fetch: (_url, init) => {
+        let pulled = 0
+        let letGo = false
+        open += 1
+        // Counted once per response however it was released, so a body released twice
+        // cannot pay for one that was never released at all.
+        const release = (): void => {
+          if (!letGo) {
+            letGo = true
+            released += 1
+          }
+        }
+        const tornDownWithTheRequest = <T>(): Promise<T> =>
+          new Promise<T>((_resolve, reject) => {
+            init.signal.addEventListener(
+              'abort',
+              () => {
+                release()
+                reject(new Error('the body was torn down with the request'))
+              },
+              { once: true },
+            )
+          })
+
+        return Promise.resolve<PingHttpResponse>({
+          status: 200,
+          headers: { get: () => null },
+          get bodyUsed() {
+            return pulled > 0
+          },
+          body: {
+            cancel: () => {
+              release()
+
+              return Promise.resolve()
+            },
+            getReader: () => ({
+              read: () => {
+                pulled += 1
+
+                return pulled > 1
+                  ? tornDownWithTheRequest<{ done: boolean; value?: Uint8Array }>()
+                  : Promise.resolve({ done: false, value: new TextEncoder().encode('OK') })
+              },
+              cancel: () => {
+                release()
+
+                return Promise.resolve()
+              },
+            }),
+          },
+        })
+      },
+      undrainedBodies: () => open - released,
+    }
+  }),
   recorded('transport-body-refuses-to-be-read', {
     readRejectsWith: new Error('the body cannot be read'),
   }),
