@@ -685,6 +685,84 @@ describe('a caller-initiated abort', () => {
     expect(result.ok).toBe(false)
   })
 
+  // The one shape where the answer is in hand and the body is not: the caller's own
+  // cancellation lands while the reply is being read.
+  it('is reported as an abort when it lands mid-read, not as the answer nobody finished', async () => {
+    const controller = new AbortController()
+    let pulled = 0
+    const endsOnTheAbort: FetchLike = (_url, init) =>
+      Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        get bodyUsed() {
+          return pulled > 0
+        },
+        body: {
+          cancel: () => Promise.resolve(),
+          getReader: () => ({
+            read: () => {
+              pulled += 1
+
+              return new Promise<{ done: boolean; value?: Uint8Array }>((resolve) => {
+                init.signal.addEventListener('abort', () => resolve({ done: true }), { once: true })
+              })
+            },
+            cancel: () => Promise.resolve(),
+          }),
+        },
+      })
+    const settled = client({
+      fetch: endsOnTheAbort,
+      retries: 0,
+      timeoutMs: 5000,
+      signal: controller.signal,
+    }).ping('job')
+    setTimeout(() => controller.abort(), 10)
+
+    const result = await settled
+
+    expect(result.outcome).toBe('aborted')
+    expect(result.ok).toBe(false)
+  })
+
+  // The deadline landing on an unread body keeps a server error, on the grounds that
+  // reaching it does not un-answer one. A cancellation is the case where that does not hold.
+  it('is reported as an abort even where the server error was never finished being read', async () => {
+    const controller = new AbortController()
+    let pulled = 0
+    const neverSettles: FetchLike = () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 503,
+        headers: { get: () => null },
+        get bodyUsed() {
+          return pulled > 0
+        },
+        body: {
+          cancel: () => Promise.resolve(),
+          getReader: () => ({
+            read: () => {
+              pulled += 1
+
+              return new Promise<{ done: boolean; value?: Uint8Array }>(() => {})
+            },
+            cancel: () => Promise.resolve(),
+          }),
+        },
+      })
+    const settled = client({
+      fetch: neverSettles,
+      retries: 0,
+      timeoutMs: 120,
+      signal: controller.signal,
+    }).ping('job')
+    setTimeout(() => controller.abort(), 10)
+
+    const result = await settled
+
+    expect(result.outcome).toBe('aborted')
+    expect(result.status).toBeUndefined()
+  })
+
   it('is reported the same way when the signal was already aborted', async () => {
     const controller = new AbortController()
     controller.abort()
