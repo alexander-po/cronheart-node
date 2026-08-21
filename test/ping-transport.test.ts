@@ -251,6 +251,59 @@ describe('response bodies', () => {
     expect(recorder.undrainedBodies).toBe(0)
   })
 
+  // The recorder is what consumers test their own integration against, so a check-in
+  // through it has to take the path a check-in through a real fetch takes.
+  it('is read through the stream rather than whole, which is what a real response gives', async () => {
+    recorder.respondWith({ body: PING_DUPLICATE_BODY })
+    let readWhole = false
+    const watching: FetchLike = (url, init) =>
+      recorder.fetch(url, init).then((response) => {
+        const whole = response.text?.bind(response)
+
+        return Object.assign(response, {
+          text: () => {
+            readWhole = true
+
+            return whole?.() ?? Promise.resolve('')
+          },
+        })
+      })
+
+    const result = await client({ fetch: watching }).ping('job')
+
+    expect(result.outcome).toBe('duplicate')
+    expect(readWhole).toBe(false)
+  })
+
+  // A chunk of nothing is a shape the transport answers by yielding to the event loop, and
+  // a consumer's suite on fake timers never comes back from that turn.
+  it('reports an empty body as done rather than handing over a chunk of nothing', async () => {
+    recorder.respondWith({ body: '' })
+
+    const response = await recorder.fetch(`${BASE}/ping/${MONITOR_ID}`, {
+      method: 'POST',
+      headers: {},
+      signal: new AbortController().signal,
+    })
+    const first = await response.body?.getReader?.().read()
+
+    expect(first?.done).toBe(true)
+  })
+
+  // Published surface a consumer can reach without the SDK in between: the refusal has to
+  // arrive whichever way they read the body, and only one of the two is what the SDK takes.
+  it('refuses a whole-body read the way it refuses a streamed one', async () => {
+    recorder.respondWith({ readRejectsWith: new Error('the body cannot be read') })
+
+    const response = await recorder.fetch(`${BASE}/ping/${MONITOR_ID}`, {
+      method: 'POST',
+      headers: {},
+      signal: new AbortController().signal,
+    })
+
+    await expect(response.text?.()).rejects.toThrow('the body cannot be read')
+  })
+
   it('counts a body nobody asked for, so the reading above is a result and not a constant', async () => {
     recorder.respondWith({ status: 200, body: 'OK' })
 
