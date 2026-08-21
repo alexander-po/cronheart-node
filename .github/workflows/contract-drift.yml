@@ -1,0 +1,65 @@
+name: Contract drift
+
+# The only job in this repository that talks to the running service. It is on a schedule
+# rather than on a pull request because a fetch that fails must not be able to fail a
+# pull request — the offline half of the same script runs there, against the snapshot this
+# job commits.
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: contract-drift
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    name: Watch the published specification
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Exit 3 is the specification having moved, which is a pull request rather than a
+      # failure. Anything else non-zero is a real one and falls through to the last step.
+      - id: watch
+        run: |
+          set +e
+          pnpm run contract:drift:live > drift-report.txt 2>&1
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat drift-report.txt
+
+      - if: steps.watch.outputs.status == '3'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: contract/server-snapshot-refresh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git checkout -B "$BRANCH"
+          git add contract/server-snapshot.json
+          git commit -m 'Refresh the server snapshot from the published specification'
+          git push --force origin "$BRANCH"
+          if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --base main --head "$BRANCH" \
+              --title 'The published specification has moved' \
+              --body-file drift-report.txt
+          fi
+
+      - if: steps.watch.outputs.status != '0' && steps.watch.outputs.status != '3'
+        run: exit 1

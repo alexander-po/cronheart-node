@@ -6,7 +6,7 @@ import {
   UnknownMonitorError,
 } from '../src/wiring/errors.js'
 import { clearWarnings } from '../src/testing.js'
-import { ADAPTER_MONITOR, gate, harness } from './support/adapters.js'
+import { ADAPTER_MONITOR, ADAPTER_MONITOR_ID, gate, harness } from './support/adapters.js'
 
 type Tick = (this: unknown, onComplete: never) => unknown
 
@@ -178,6 +178,75 @@ describe('the kelektiv cron adapter', () => {
         { client: test.client },
       ),
     ).toThrow(InvalidTimezoneError)
+  })
+
+  // Two monitors, because the ledger behind the advice is keyed by one: the job that named
+  // nothing is the positive control, without which a suppressed warning and a capture that
+  // never worked read the same.
+  it('reads a UTC offset as a zone the caller named, and says nothing about it', () => {
+    clearWarnings()
+    const test = harness({
+      'zone-named-as-an-offset': ADAPTER_MONITOR_ID,
+      'no-zone-named-at-all': ADAPTER_MONITOR_ID,
+    })
+    const warnings: string[] = []
+    const sink = console.warn
+    console.warn = (message: unknown) => {
+      warnings.push(String(message))
+    }
+
+    try {
+      monitored(
+        'zone-named-as-an-offset',
+        { cronTime: '0 3 * * *', onTick: () => undefined, utcOffset: 120 },
+        { client: test.client },
+      )
+      monitored(
+        'no-zone-named-at-all',
+        { cronTime: '0 3 * * *', onTick: () => undefined },
+        { client: test.client },
+      )
+    } finally {
+      console.warn = sink
+    }
+
+    expect(warnings.filter((line) => line.includes('no zone was named'))).toEqual([
+      expect.stringContaining('"no-zone-named-at-all"'),
+    ])
+  })
+
+  // Zero is a zone, and the falsy one: an adapter that read the offset for truth rather than
+  // for presence would go back to advising a UTC job that it will fire in the host's zone.
+  it('reads an offset of zero as a zone too', () => {
+    clearWarnings()
+    const test = harness({
+      'pinned-to-utc-by-offset': ADAPTER_MONITOR_ID,
+      'nothing-named-here-either': ADAPTER_MONITOR_ID,
+    })
+    const warnings: string[] = []
+    const sink = console.warn
+    console.warn = (message: unknown) => {
+      warnings.push(String(message))
+    }
+
+    try {
+      monitored(
+        'pinned-to-utc-by-offset',
+        { cronTime: '0 3 * * *', onTick: () => undefined, utcOffset: 0 },
+        { client: test.client },
+      )
+      monitored(
+        'nothing-named-here-either',
+        { cronTime: '0 3 * * *', onTick: () => undefined },
+        { client: test.client },
+      )
+    } finally {
+      console.warn = sink
+    }
+
+    expect(warnings.filter((line) => line.includes('no zone was named'))).toEqual([
+      expect.stringContaining('"nothing-named-here-either"'),
+    ])
   })
 
   it('refuses a monitor nothing resolves at wiring time', () => {

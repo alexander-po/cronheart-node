@@ -1,7 +1,7 @@
 COMPOSE ?= docker compose
 RUN := $(COMPOSE) run --rm node
 
-.PHONY: help image install build test lint guard contract vectors matrix min-peers check smoke shell changeset version clean
+.PHONY: help image install build test lint guard contract drift vectors matrix min-peers check smoke shell changeset version clean
 
 help:
 	@echo "Targets (everything runs inside the container — no host Node or pnpm):"
@@ -12,6 +12,7 @@ help:
 	@echo "  lint       Build, then tsc + fixture tsc + publint + attw + size budget"
 	@echo "  guard      Check the source for a network call or a throw outside its layer"
 	@echo "  contract   Validate the wire contract against its own anchors and the SDK constants"
+	@echo "  drift      Compare the wire contract against the snapshot of the published API"
 	@echo "  vectors    Run the language-neutral conformance vectors"
 	@echo "  matrix     Run the fault matrix and its negative control"
 	@echo "  min-peers  Recheck the adapters against the lowest peer version each range admits"
@@ -45,6 +46,9 @@ guard:
 
 contract: build
 	$(RUN) pnpm run contract:check
+
+drift:
+	$(RUN) pnpm run contract:drift
 
 vectors:
 	$(RUN) pnpm run contract:vectors

@@ -247,4 +247,33 @@ describe('the croner adapter', () => {
       expect.stringContaining('"pinned-to-an-hour"'),
     ])
   })
+
+  // croner takes the offset as an alternative to the zone name, so an absent timezone
+  // alongside one is not evidence that the caller named nothing. The second monitor is the
+  // positive control: without it, a suppressed warning reads like a broken capture.
+  it('reads croner\'s utcOffset as a zone the caller named, and says nothing about it', () => {
+    clearWarnings()
+    const test = harness({
+      'zone-named-as-an-offset': ADAPTER_MONITOR_ID,
+      'no-zone-named-at-all': ADAPTER_MONITOR_ID,
+    })
+    const warnings: string[] = []
+    const sink = console.warn
+    console.warn = (message: unknown) => {
+      warnings.push(String(message))
+    }
+
+    try {
+      monitored('zone-named-as-an-offset', '0 3 * * *', { utcOffset: 120 }, () => undefined, {
+        client: test.client,
+      })
+      monitored('no-zone-named-at-all', '0 3 * * *', {}, () => undefined, { client: test.client })
+    } finally {
+      console.warn = sink
+    }
+
+    expect(warnings.filter((line) => line.includes('no zone was named'))).toEqual([
+      expect.stringContaining('"no-zone-named-at-all"'),
+    ])
+  })
 })

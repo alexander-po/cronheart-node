@@ -155,6 +155,10 @@ export interface ScheduleFacts {
   // absent zone is then no evidence that none was named, and advice drawn from it would
   // be wrong as often as the caller had named one.
   readonly zoneOption: string | undefined
+  // A UTC offset is the other way of naming a zone, and every scheduler that takes one
+  // takes it instead of the name. So an absent zone alongside an offset is evidence that
+  // a zone was named, not that none was.
+  readonly offset: number | undefined
 }
 
 export function wireMonitor(
@@ -168,7 +172,11 @@ export function wireMonitor(
 
   if (facts.zone !== undefined) {
     assertTimezone(facts.zone, name)
-  } else if (facts.expression !== undefined && facts.zoneOption !== undefined) {
+  } else if (
+    facts.expression !== undefined &&
+    facts.zoneOption !== undefined &&
+    facts.offset === undefined
+  ) {
     const advice = zoneUnstatedAdvice(facts.expression, name, facts.zoneOption)
 
     if (advice !== undefined) {

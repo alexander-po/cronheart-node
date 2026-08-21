@@ -8,6 +8,7 @@ import {
   bracketFor,
   bracketed,
   mappedMonitor,
+  readCount,
   readMember,
   readOption,
   sinkFor,
@@ -104,6 +105,7 @@ function survey(registry: ScheduledJobs, options: NestMonitorOptions): Survey {
       {
         expression: readOption(time, 'source'),
         zone: readOption(time, 'timeZone'),
+        offset: readCount(time, 'utcOffset'),
         dialect: DIALECT,
         zoneOption: "the timeZone option of the job's own schedule decorator",
       },

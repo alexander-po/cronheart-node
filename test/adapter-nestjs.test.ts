@@ -3,6 +3,7 @@ import { Injectable, Module } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
 import { Cron, type CronOptions, ScheduleModule, SchedulerRegistry } from '@nestjs/schedule'
 import { describe, expect, it } from 'vitest'
+import { monitored as monitoredByCroner } from '../src/integrations/croner.js'
 import {
   CronheartModule,
   type ScheduledJobs,
@@ -422,4 +423,77 @@ describe('the nestjs module against the real scheduler', () => {
       await app.close()
     }
   })
+
+  // The scheduler hands this adapter a CronTime rather than the caller's own options, and
+  // that object carries the offset where a zone name would otherwise be. The croner wiring
+  // is the positive control: it warns about a job of the same shape, so a quiet nest job is
+  // a suppressed warning rather than a capture that was never able to deliver one.
+  it('reads a UTC offset on the job it was handed as a zone the caller named', async () => {
+    clearWarnings()
+    const test = harness({
+      'nest-job-pinned-by-offset': ADAPTER_MONITOR_ID,
+      'croner-job-naming-nothing': ADAPTER_MONITOR_ID,
+    })
+    const warnings: string[] = []
+    const sink = console.warn
+    console.warn = (message: unknown) => {
+      warnings.push(String(message))
+    }
+
+    class AppModule {}
+    Module({
+      imports: [
+        ScheduleModule.forRoot(),
+        CronheartModule.forRoot({
+          registry: SchedulerRegistry,
+          jobs: { offsetDigest: 'nest-job-pinned-by-offset' },
+          client: test.client,
+          report: () => {},
+        }),
+      ],
+      providers: [OffsetDigests],
+    })(AppModule)
+
+    const app = await NestFactory.createApplicationContext(AppModule, { logger: false })
+
+    try {
+      expect(app.get(SchedulerRegistry).getCronJobs().get('offsetDigest')?.cronTime.utcOffset).toBe(
+        OFFSET_MINUTES,
+      )
+
+      monitoredByCroner('croner-job-naming-nothing', SCHEDULE, {}, () => undefined, {
+        client: test.client,
+      })
+    } finally {
+      console.warn = sink
+      await app.close()
+    }
+
+    expect(warnings.filter((line) => line.includes('no zone was named'))).toEqual([
+      expect.stringContaining('"croner-job-naming-nothing"'),
+    ])
+  })
 })
+
+const OFFSET_MINUTES = 120
+
+class OffsetDigests {
+  async offsetDigest(): Promise<void> {}
+}
+
+const offsetDescriptor = Object.getOwnPropertyDescriptor(
+  OffsetDigests.prototype,
+  'offsetDigest',
+) as PropertyDescriptor
+
+Object.defineProperty(
+  OffsetDigests.prototype,
+  'offsetDigest',
+  ((Cron(SCHEDULE, { name: 'offsetDigest', utcOffset: OFFSET_MINUTES } as CronOptions) as MethodDecorator)(
+    OffsetDigests.prototype,
+    'offsetDigest',
+    offsetDescriptor,
+  ) as PropertyDescriptor | undefined) ?? offsetDescriptor,
+)
+
+Injectable()(OffsetDigests)

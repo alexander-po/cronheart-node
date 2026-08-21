@@ -35,6 +35,7 @@ export function monitored<T>(
       {
         expression: expressionIn(spec),
         zone: readOption(spec, 'tz'),
+        offset: undefined,
         dialect: DIALECT,
         zoneOption: "the tz field of node-schedule's spec",
       },

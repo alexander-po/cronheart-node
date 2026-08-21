@@ -56,6 +56,7 @@ export function monitor(
       {
         expression: patternOf(task),
         zone: readOption(options, 'timezone'),
+        offset: undefined,
         dialect: DIALECT,
         zoneOption: undefined,
       },

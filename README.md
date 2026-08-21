@@ -1029,13 +1029,17 @@ make test      # Vitest
 make lint      # tsc, fixture consumer tsc, source guard, publint, attw, size
 make vectors   # the language-neutral conformance vectors
 make matrix    # the fault matrix and its negative control
+make drift     # the wire contract against the snapshot of the published API
 make check     # the full gate, including the ESM/CJS consumption smoke
 make shell     # interactive shell in the container
 ```
 
 `make help` lists every target. CI runs the same checks natively across a Node
 version matrix, and the release workflow runs that CI workflow as its gate
-rather than a copy of its steps. Cutting a release —
+rather than a copy of its steps. One check is deliberately not in it: the drift
+watch's live half fetches the published API specification, so it runs on a
+schedule and opens a pull request when the service moves, rather than letting an
+unreachable host fail somebody's review. Cutting a release —
 `make changeset`, `make version`, tag, and what has to be configured on the
 registry before any of it works — is [RELEASING.md](RELEASING.md).
 

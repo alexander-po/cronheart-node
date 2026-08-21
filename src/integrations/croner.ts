@@ -5,6 +5,7 @@ import {
   asVoidReturn,
   bracketFor,
   bracketed,
+  readCount,
   readOption,
   wireMonitor,
 } from './run.js'
@@ -41,6 +42,7 @@ export function monitored<T>(
       {
         expression: pattern,
         zone: readOption(options, 'timezone'),
+        offset: readCount(options, 'utcOffset'),
         dialect: DIALECT,
         zoneOption: "croner's timezone option",
       },

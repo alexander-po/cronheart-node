@@ -7,6 +7,9 @@ Three artifacts, in dependency order.
 | `cronheart-contract.json` | The normative description of the Cronheart wire surface. Every fact in it was read out of the running server's source. |
 | `CLASSIFICATION.md` | The rule table that turns a diff of that file into `additive` / `breaking-*` / `undecidable`. |
 | `vectors/*.json` | Language-neutral conformance cases, written in the fixed predicate vocabulary defined in `vectors/_vocabulary.json`. |
+| `classify.mjs` | That rule table as code, plus the reader that fails the drift watch on any cell the two disagree about. |
+| `server-snapshot.json` | The published specification projected onto the pointers of the contract. Written by `contract:drift:live`, never by hand. |
+| `drift.mjs` | The watch itself: offline against the snapshot on every pull request, live against the service on a schedule. |
 
 They exist because the alternative — a hand-maintained prose table of "wire anchors" —
 is unverifiable, and has already let real bugs ship green in a sibling SDK.
@@ -49,11 +52,16 @@ Python port a port rather than a second design.
 
 ## How a server change propagates
 
-1. The server changes. Nothing here notices on its own — see the limits below.
+1. The server changes. The nightly `contract:drift:live` run sees it for the facts the
+   published specification carries, rewrites `server-snapshot.json` and opens a pull
+   request. Everything else it cannot see — the list below is not short.
 2. Someone edits `cronheart-contract.json` and bumps `contract_version`.
 3. `contract:check` validates the file against itself and fails on any anchor that stops
-   resolving or whose value drifts. Classifying the diff against `CLASSIFICATION.md` — so
-   that a verdict disagreeing with the version bump fails — is planned, not shipped.
+   resolving or whose value drifts. `contract:drift` classifies each difference between
+   the contract and the snapshot through `CLASSIFICATION.md`, so a removal, a rename or a
+   narrowed bound fails while an addition an open vocabulary tolerates does not. Reading
+   the same rules against the *previous contract version*, so that a verdict disagreeing
+   with the `contract_version` bump fails, is still not shipped.
 4. `contract:vectors` runs every case in `vectors/` against the SDK, so a behavioural
    change fails here.
 5. The SDK's constant test fails wherever an `anchors` value moved.
@@ -64,16 +72,17 @@ Python port a port rather than a second design.
 
 Stated explicitly, because a check with unstated gaps is worse than no check.
 
-**The offline comparison is trivially green on a normal pull request.** Neither the
-contract nor the server changed, so nothing is compared. It only does work when someone
-edits the contract file — which means it verifies *internal consistency*, not fidelity
-to the server. Genuine drift is caught only by a live check against a real deployment,
-and only for the facts a live check can actually reach.
+**The offline comparison does no work on a normal pull request.** Neither the contract
+nor the committed snapshot moved, so every fact compares equal. It earns its place on the
+two pull requests where one of them did move: one that edits the contract, and the one the
+nightly watch opens after the specification changed under us. That is deliberate — a job
+that fetched on every pull request would let an unreachable service turn a review red.
 
 **The published OpenAPI document is the only machine-readable thing the server offers,
 and it is a partial view.** It carries the monitor name bounds, the grace range, the
 pagination `limit` clamp, the read vocabularies, the identifier read/write asymmetry
-and the three pagination shapes — those can be diffed automatically. It carries
+and the three pagination shapes — those are the facts `contract:drift`
+compares, and the job prints the count. It carries
 **nothing at all about `/ping`**: no route, no action mapping, no dedup rule, no body
 cap, no runtime header. And it omits most of the validation surface: the twelve-token
 simple-schedule allowlist, the interval second bounds, the five-field cron dialect, the
@@ -111,9 +120,12 @@ Four more gaps worth naming:
 | --- | --- | --- |
 | `contract:check` | **shipped** | Validates `cronheart-contract.json`: every `anchors` pointer resolves, every stated `value` equals what it resolves to, ids are unique, and the validated count matches the entry count. Also compares anchors against the SDK's own constants — read from a build-time module that is never published — and sweeps that module and **both** published entry points, the check-in client and the management client, for a wire literal no anchor states. Fails on any anchor that is neither held nor named in the deferral ledger. |
 | `contract:vectors` | **shipped** | Runs every case in `vectors/` through the adapter. Fails on an unknown predicate, an unknown non-optional subject, or an executed-case count that disagrees with the files. Reports the SDK-exercising cases apart from the server-model ones — see below. |
-| `contract:check` diff classification | planned | Classifying a diff against the previous version using `CLASSIFICATION.md` needs a previous version to diff against. |
+| `contract:drift` | **shipped** | Compares every fact in `server-snapshot.json` against the pointer it was projected from, classifies each difference through `CLASSIFICATION.md`, and fails on `breaking-*` or `undecidable` while passing `additive`. Refuses to run at all if the rules it holds and the rules that file documents have parted. Reads no network. |
+| `contract:drift:live` | **shipped** | Fetches the published specification, projects it, rewrites the snapshot, and exits 3 when the projection moved so the scheduled workflow opens a pull request rather than failing at an unrelated moment. |
+| `contract:check` diff classification | planned | Classifying a contract against its own previous version needs a previous version to diff against. The rule engine is shipped; what is missing is the second document. |
 
-Both shipped scripts run in the local gate and in CI on every pull request.
+Every shipped script but `contract:drift:live` runs in the local gate and in CI on each
+pull request; that one runs on a schedule, because it fetches.
 `contract:vectors` is the one that has to be impossible to make vacuously green, which is
 why the runner asserts its own case count against the files.
 

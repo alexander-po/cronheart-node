@@ -34,6 +34,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: pnpm run contract:check
+      # Offline against a snapshot committed in the repo: an unreachable service must
+      # never be able to turn a pull request red. The live half runs on a schedule.
+      - run: pnpm run contract:drift
       - run: pnpm run contract:vectors
       - run: pnpm run typecheck
       # Compiles a sample consumer against the exports map under the strict
@@ -111,8 +114,6 @@ jobs:
       # listed them here would drift from the ranges the manifest publishes.
       - run: pnpm run min-peers
 
-# One further job is planned and deliberately absent until the artifact it runs
-# against exists:
-#
-#   contract-drift compares the checked-in wire contract against the server's
-#                  published schema. Waits on the contract layer.
+# The live half of the drift watch is absent on purpose: it fetches, and a fetch that
+# fails must not fail a pull request. It runs on a schedule in contract-drift.yml and
+# opens a pull request, which is what brings the difference back through this one.

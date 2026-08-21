@@ -5,6 +5,7 @@ import {
   asVoidReturn,
   bracketFor,
   bracketed,
+  readCount,
   readOption,
   wireMonitor,
 } from './run.js'
@@ -35,6 +36,7 @@ export function monitored<P extends CronParamsLike>(
       {
         expression: readOption(params, 'cronTime'),
         zone: readOption(params, 'timeZone'),
+        offset: readCount(params, 'utcOffset'),
         dialect: DIALECT,
         zoneOption: "cron's timeZone parameter",
       },
