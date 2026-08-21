@@ -10,6 +10,8 @@ const REPORTED =
 
 const CEILING_IN_README = /CI fails on a regression past ([\d,]+) bytes/
 
+const FIGURES_IN_README = /([\d,]+) bytes/g
+
 interface Measurement {
   readonly modules: number
   readonly minified: number
@@ -76,5 +78,15 @@ describe('the size budget is measured on what a consumer downloads', () => {
     }
 
     expect(Number(String(quoted[1]).replaceAll(',', ''))).toBe(measure().budget)
+  })
+
+  it('states no other size in bytes, so there is none the gate does not hold', () => {
+    const readme = readFileSync(new URL('README.md', root), 'utf8')
+    const stated = [...readme.matchAll(FIGURES_IN_README)].map((figure) =>
+      Number(String(figure[1]).replaceAll(',', '')),
+    )
+
+    expect(stated.length).toBeGreaterThan(0)
+    expect(stated.filter((figure) => figure !== measure().budget)).toEqual([])
   })
 })

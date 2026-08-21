@@ -333,7 +333,7 @@ import cron from 'node-cron'
 import { monitor } from 'cronheart/node-cron'
 
 const task = cron.schedule('0 3 * * *', runBackup, { timezone: 'Europe/Berlin', noOverlap: true })
-const monitored = monitor(task, 'nightly-backup')
+const monitored = monitor(task, 'nightly-backup', { timezone: 'Europe/Berlin' })
 ```
 
 ```ts
@@ -401,9 +401,11 @@ takes the zone in the same object the adapter does — croner, cron and
 node-schedule — an unknown zone is refused at wiring time, and a schedule pinned
 to an hour of the day with no zone named warns once, saying which zone it will
 actually fire in. node-cron keeps the zone in the options the task was created
-with and exposes none of them, so there the adapter has nothing to check
-against — and an hour-pinned schedule draws that warning whether or not you
-passed `timezone`.
+with and exposes none of them, so there you repeat it to the adapter —
+`monitor(task, name, { timezone: 'Europe/Berlin' })` — and a zone this runtime
+does not know is refused exactly as it is elsewhere. Say nothing and the adapter
+says nothing: it cannot see whether you named one, and a warning it has no
+evidence for is a warning you would learn to ignore.
 
 **Flushing.** Every adapter but node-cron's awaits the terminal check-in before the
 tick resolves, so a process that exits at the end of its run cannot outrun it.
@@ -954,10 +956,12 @@ one, because that identifier is the entire credential on its check-in route.
 Node 22 or newer, zero runtime dependencies. The root entry imports nothing
 from `node:`, which is what keeps non-Node runtimes on the table; the CLI is
 the only entry point that reaches for Node built-ins, and a test enforces the
-split. The ping entry is 6,635 bytes gzipped once your bundler has minified it
-— that is what your users download, so it is what the budget is measured on —
-and CI fails on a regression past 7,168 bytes. The unminified figure is
-reported beside it, so a regression in either is visible. The CLI is bundled
+split. What your users download is the ping entry gzipped once their bundler has
+minified it, and that is what the budget is measured on:
+CI fails on a regression past 7,168 bytes, which is 7 KiB. That ceiling is what
+this package promises; what a given build measures is printed by the size check
+on every run, minified and unminified both, so a regression in either is visible
+without a figure quoted here going quietly stale. The CLI is bundled
 apart from the library entries so that it cannot pull the ping path into a
 shared chunk and charge every consumer for import glue it has no use for. The
 management client is bundled apart for the same reason: a chunk shared with the

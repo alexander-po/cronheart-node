@@ -8,7 +8,12 @@ import { type AdapterOptions, bracketFor, readOption, wireMonitor } from './run.
 // never have reached, because a background task's function does not live in this process.
 export type MonitorableTask = Pick<ScheduledTask, 'on' | 'off' | 'getPattern' | 'name'>
 
-export type NodeCronMonitorOptions = AdapterOptions
+export interface NodeCronMonitorOptions extends AdapterOptions {
+  // node-cron keeps the zone in the options the task was created with and exposes none of
+  // them, so the zone the task fires in reaches the adapter only by being repeated here.
+  // Left out, the adapter has no evidence either way and says nothing about a zone.
+  readonly timezone?: string | undefined
+}
 
 export interface MonitoredTask {
   detach(): void
@@ -50,11 +55,9 @@ export function monitor(
       chosen,
       {
         expression: patternOf(task),
-        // node-cron keeps the zone in the options the task was created with and exposes
-        // none of them, so there is nothing here to check the monitor's zone against.
-        zone: undefined,
+        zone: readOption(options, 'timezone'),
         dialect: DIALECT,
-        zoneOption: "node-cron's timezone option",
+        zoneOption: undefined,
       },
       options,
     )

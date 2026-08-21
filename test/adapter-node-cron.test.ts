@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { monitored as monitoredByCroner } from '../src/integrations/croner.js'
 import { monitor } from '../src/integrations/node-cron.js'
-import { InvalidScheduleError, UnknownMonitorError } from '../src/wiring/errors.js'
+import {
+  InvalidScheduleError,
+  InvalidTimezoneError,
+  UnknownMonitorError,
+} from '../src/wiring/errors.js'
 import { clearWarnings } from '../src/testing.js'
 import { ADAPTER_MONITOR, ADAPTER_MONITOR_ID, harness } from './support/adapters.js'
 import { execution, fakeTask } from './support/node-cron-task.js'
@@ -123,5 +128,51 @@ describe('the node-cron v4 adapter', () => {
     await attached.flush(1000)
 
     expect(test.actions()).toEqual(['start', 'success'])
+  })
+
+  // The croner wiring is the control: the same hour-of-the-day pattern through an adapter
+  // that reads the scheduler's own zone option. Its warning is what separates a node-cron
+  // adapter with nothing to say from a capture that was never able to deliver one.
+  it('says nothing about a zone it cannot see, whether or not one was declared', () => {
+    clearWarnings()
+    const test = harness({
+      'zone-declared-to-the-adapter': ADAPTER_MONITOR_ID,
+      'zone-never-declared': ADAPTER_MONITOR_ID,
+      'zone-visible-to-croner': ADAPTER_MONITOR_ID,
+    })
+    const warnings: string[] = []
+    const sink = console.warn
+    console.warn = (message: unknown) => {
+      warnings.push(String(message))
+    }
+
+    try {
+      monitor(fakeTask('0 3 * * *'), 'zone-declared-to-the-adapter', {
+        client: test.client,
+        timezone: 'Europe/Berlin',
+      })
+      monitor(fakeTask('0 3 * * *'), 'zone-never-declared', { client: test.client })
+      monitoredByCroner('zone-visible-to-croner', '0 3 * * *', {}, () => undefined, {
+        client: test.client,
+      })
+    } finally {
+      console.warn = sink
+    }
+
+    expect(warnings.filter((line) => line.includes('no zone was named'))).toEqual([
+      expect.stringContaining('"zone-visible-to-croner"'),
+    ])
+  })
+
+  it('refuses a declared zone this runtime does not know, at attach time', () => {
+    const test = harness()
+
+    expect(() =>
+      monitor(fakeTask('0 3 * * *'), ADAPTER_MONITOR, {
+        client: test.client,
+        timezone: 'Europe/Berlim',
+      }),
+    ).toThrow(InvalidTimezoneError)
+    expect(test.recorder.pings).toEqual([])
   })
 })

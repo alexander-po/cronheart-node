@@ -225,7 +225,7 @@ export function scheduleWithNodeCron(runBackup: () => Promise<void>): MonitoredT
     noOverlap: true,
   })
 
-  return monitorNodeCronTask(task, 'nightly-backup')
+  return monitorNodeCronTask(task, 'nightly-backup', { timezone: 'Europe/Berlin' })
 }
 
 // The queue adapter hands back the worker's own argument list, so the options the monitor

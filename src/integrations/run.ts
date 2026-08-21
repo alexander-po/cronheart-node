@@ -151,7 +151,10 @@ export interface ScheduleFacts {
   readonly expression: string | undefined
   readonly zone: string | undefined
   readonly dialect: string
-  readonly zoneOption: string
+  // undefined where the adapter cannot see whether the scheduler was given a zone: an
+  // absent zone is then no evidence that none was named, and advice drawn from it would
+  // be wrong as often as the caller had named one.
+  readonly zoneOption: string | undefined
 }
 
 export function wireMonitor(
@@ -165,7 +168,7 @@ export function wireMonitor(
 
   if (facts.zone !== undefined) {
     assertTimezone(facts.zone, name)
-  } else if (facts.expression !== undefined) {
+  } else if (facts.expression !== undefined && facts.zoneOption !== undefined) {
     const advice = zoneUnstatedAdvice(facts.expression, name, facts.zoneOption)
 
     if (advice !== undefined) {
