@@ -244,6 +244,7 @@ const UNANCHORED = {
     'SIGNAL_EXIT_BASE',
     'SIGNALS_REACH_A_GROUP',
     'WITHHELD_FROM_THE_CHILD',
+    'WRAPPERS',
   ],
   'sentences this package writes, which no service states and no reader parses': [
     'CANCELLED',

@@ -62,17 +62,80 @@ export function openClient(options: PingClientOptions): Opened {
   }
 }
 
-export function idFlagRefusal(value: string): string | undefined {
-  return isMonitorId(value)
-    ? undefined
-    : `--uuid=${value} is not a monitor id — an id is 36 characters, hexadecimal in groups of 8-4-4-4-12. To address a monitor by the name you configured it under, pass --name.`
+const WRAPPERS = [
+  ['{', '}', 'braces'],
+  ['<', '>', 'angle brackets'],
+  ['"', '"', 'quotation marks'],
+  ["'", "'", 'quotation marks'],
+] as const
+
+interface GivenId {
+  readonly core: string
+  readonly around: string | undefined
 }
 
-// The refusal is written for the one value that triggers it — an identifier where a name
-// belongs — so the value it quotes is the check-in capability itself, on a stream cron mails.
+// A shell rarely hands over the id alone — a substituted file keeps its line break, a copied
+// GUID its braces — and reading that off is what lets the refusal cut the value it prints and
+// still name the mistake it is diagnosing.
+function readIdFlag(value: string): GivenId {
+  const trimmed = value.trim()
+  const wrapper = WRAPPERS.find(
+    ([open, close]) => trimmed.length > 2 && trimmed.startsWith(open) && trimmed.endsWith(close),
+  )
+  const around: string[] = []
+
+  if (trimmed !== value) {
+    around.push(/[\n\r]/.test(value) ? 'a line break' : 'whitespace')
+  }
+
+  if (wrapper !== undefined) {
+    around.push(wrapper[2])
+  }
+
+  return {
+    core: wrapper === undefined ? trimmed : trimmed.slice(1, -1).trim(),
+    around: around.length === 0 ? undefined : around.join(' and '),
+  }
+}
+
+function wrongWith(core: string, around: string | undefined): string {
+  if (around !== undefined) {
+    return isMonitorId(core)
+      ? `the 36 characters inside are an id, but ${around} came with them`
+      : `${around} came with it, and what is left is not an id either`
+  }
+
+  return core.length === 36
+    ? 'it is 36 characters long, but not hexadecimal in groups of 8-4-4-4-12'
+    : `it is ${core.length} characters long, not 36`
+}
+
+// This is the flag a real id is passed behind, so a refusal that quoted it would print the
+// check-in capability on every tick of the crontab entry that carries the mistake.
+export function idFlagRefusal(value: string): string | undefined {
+  if (isMonitorId(value)) {
+    return undefined
+  }
+
+  const { core, around } = readIdFlag(value)
+
+  if (!looksLikeAnId(core)) {
+    return `--uuid=${core} is not a monitor id — an id is 36 characters, hexadecimal in groups of 8-4-4-4-12. To address a monitor by the name you configured it under, pass --name.`
+  }
+
+  const fix =
+    around === undefined
+      ? 'Copy the 36-character identifier from the monitor’s page again.'
+      : 'Pass the 36 characters alone.'
+
+  return `--uuid=${labelFor(core)} is not a monitor id — ${wrongWith(core, around)}, and it is shown cut because a whole one is a working check-in capability. ${fix}`
+}
+
 export function nameFlagRefusal(value: string): string | undefined {
-  return looksLikeAnId(value)
-    ? `--name=${labelFor(value)} reads as a monitor id rather than a name, so it is shown cut — pass an id as --uuid, or pick a name that is not hexadecimal in groups of 8-4-4-4-12.`
+  const { core } = readIdFlag(value)
+
+  return looksLikeAnId(core)
+    ? `--name=${labelFor(core)} reads as a monitor id rather than a name, so it is shown cut — pass an id as --uuid, or pick a name that is not hexadecimal in groups of 8-4-4-4-12.`
     : undefined
 }
 

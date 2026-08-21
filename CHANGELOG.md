@@ -42,10 +42,13 @@ uses.
   rather than going quiet at three in the morning. A value shaped like an
   identifier the whole way through is diagnosed as a broken identifier, and no
   environment variable is looked up for one. The module-level `checkIn`,
-  `withMonitor`, `startRun` and `flush` have no wiring moment of their own — the
-  first check-in is where their client gets built, and that is inside the job —
-  so a `CRONHEART_URL` no client can be built from reaches them as a `suppressed`
-  outcome naming the problem, and the job still runs.
+  `withMonitor`, `startRun`, `checkInWith`, `flush` and `monitors` build their
+  client on first use, which is inside the job rather than at a wiring moment
+  of their own — so a `CRONHEART_URL` no client can be built from reaches them
+  as a `suppressed` outcome naming the problem, and the job still runs. The
+  client that refuses carries the host's own environment and everything defined
+  against it, so it names the base URL rather than a monitor variable that is
+  already set, and `monitors.has` still answers for one.
 - Names resolve from an explicit map or from `CRONHEART_<NAME>_UUID`, and a raw
   identifier is accepted anywhere a name is. `CRON_MONITOR_*` is read for every
   variable, permanently.
@@ -144,10 +147,12 @@ uses.
   base URL, the kill switch and each monitor, a real check-in and the clock skew
   — never a monitor identifier — and names what it did *not* check, so a clean
   report is not read as reassurance about alerting.
-- An identifier passed where `--name` expects a name is refused with the value
-  cut to its last four characters, like every other place one is named: the
-  refusal exists for the value that is a working check-in capability, and it
-  goes to the stream cron mails.
+- An identifier is cut to its last four characters wherever a flag refuses one:
+  behind `--name`, where a name was what belonged there, and behind `--uuid`,
+  where a real identifier is passed and a trailing line break, a leading space
+  or a copied GUID's braces is what made it unusable. The refusal names what
+  came with the value rather than quoting it, because the value is a working
+  check-in capability and the line prints on every tick into cron's mail.
 - `init` writes `CRONHEART_<NAME>_UUID` with owner-only permissions, through a
   temporary file and a rename, refusing to follow a symbolic link; it creates the
   monitor when an API key is configured and matches by name first, and falls back

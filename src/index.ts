@@ -2,7 +2,6 @@ import { defaultClient } from './ping/default.js'
 import type {
   CheckInThunk,
   CheckInWithOptions,
-  MonitorRegistry,
   MonitorRun,
   PingOptions,
   PingResult,
@@ -12,6 +11,7 @@ export { PING_BODY_CAP_BYTES } from './constants.js'
 export { PING_ACTIONS, PING_EMITTABLE_ACTIONS } from './ping/action.js'
 export { PING_OUTCOMES } from './ping/outcome.js'
 export { createPingClient } from './ping/client.js'
+export { defaultMonitors as monitors } from './ping/default.js'
 export { describePingResult } from './ping/describe.js'
 export { isMonitorId } from './ping/resolve.js'
 export { CONTRACT_VERSION, SDK_VERSION, userAgent } from './version.js'
@@ -62,10 +62,4 @@ export function checkInWith(name: string, options?: CheckInWithOptions): CheckIn
 
 export function flush(timeoutMs?: number): Promise<void> {
   return defaultClient().flush(timeoutMs)
-}
-
-export const monitors: MonitorRegistry = {
-  define: (next) => defaultClient().monitors.define(next),
-  resolve: (name) => defaultClient().monitors.resolve(name),
-  has: (name) => defaultClient().monitors.has(name),
 }

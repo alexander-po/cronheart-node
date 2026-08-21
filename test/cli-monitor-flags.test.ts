@@ -37,16 +37,46 @@ describe('--uuid takes an id and says so when it is handed something else', () =
     expect(server.requests).toHaveLength(0)
   })
 
-  it('shows a mistyped id back and states the shape it failed to match', async () => {
+  // Each of these exits 0 and runs the command, which is what makes the line dangerous: it
+  // prints on every tick of that crontab entry, into every cron mail, carrying a whole id.
+  it.each([
+    ['a line break', `${MONITOR_ID}\n`, 'a line break'],
+    ['a leading space left by quoting', ` ${MONITOR_ID}`, 'whitespace'],
+    ['the braces a GUID is copied inside', `{${MONITOR_ID}}`, 'braces'],
+  ])('cuts an id that arrived with %s, and names what came with it', async (_what, given, said) => {
+    const ran = await runCli(['run', `--uuid=${given}`, ...node('process.exit(3)')], {
+      env: envFor(),
+    })
+
+    expect(ran.status).toBe(3)
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(MONITOR_ID)
+    expect(ran.stderr).toContain(`id…${MONITOR_ID.slice(-4)}`)
+    expect(ran.stderr).toContain(said)
+    expect(server.requests).toHaveLength(0)
+  })
+
+  it('cuts a mistyped id too, and states what about it is wrong', async () => {
     const ran = await runCli([`run`, `--uuid=${NEARLY_AN_ID}`, ...node('process.exit(3)')], {
       env: envFor(),
     })
 
     expect(ran.status).toBe(3)
-    expect(ran.stderr).toContain(NEARLY_AN_ID)
-    expect(ran.stderr).toContain('36')
-    expect(ran.stderr).not.toContain('id…')
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(NEARLY_AN_ID)
+    expect(ran.stderr).toContain('id…')
+    expect(ran.stderr).toContain('35 characters')
     expect(server.requests).toHaveLength(0)
+  })
+
+  it('cuts it in init as well, the other command that takes the flag', async () => {
+    const ran = await runCli(['init', `--uuid=${MONITOR_ID}\n`, '--print-env'], {
+      env: envFor(),
+      input: '',
+    })
+
+    expect(ran.status).toBe(64)
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(MONITOR_ID)
+    expect(ran.stderr).toContain(`id…${MONITOR_ID.slice(-4)}`)
+    expect(ran.stderr).toContain('a line break')
   })
 
   it('still accepts a real id', async () => {

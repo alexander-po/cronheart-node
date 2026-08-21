@@ -136,8 +136,19 @@ export function createPingClient(options: PingClientOptions = {}): PingClient {
 // The module-level check-in functions have no wiring moment of their own: the first
 // check-in is where their client gets built, and that is inside the job. A configuration
 // no client can be built from therefore arrives as an outcome rather than as a throw.
-export function createRefusingPingClient(refusal: string): PingClient {
-  return build({ baseUrl: DEFAULT_BASE_URL, env: {} }, refusal)
+// It carries the host's own environment: refusing against an empty one reports a monitor
+// whose variable is set as unresolvable, which is a true sentence about the wrong variable.
+export function createRefusingPingClient(
+  refusal: string,
+  monitors: Readonly<Record<string, string>> = {},
+): PingClient {
+  return sealed('createPingClient', () => {
+    try {
+      return build({ baseUrl: DEFAULT_BASE_URL, env: ambientEnv(), monitors }, refusal)
+    } catch {
+      return build({ baseUrl: DEFAULT_BASE_URL, env: {} }, refusal)
+    }
+  })
 }
 
 function build(options: PingClientOptions, refusal?: string): PingClient {
