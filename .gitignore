@@ -19,3 +19,4 @@ coverage/
 # feature-status handoff stays on the developer's machine (the durable
 # contributor docs are README.md / CLAUDE.md / CHANGELOG.md).
 HANDOFF.md
+.claude/worktrees/

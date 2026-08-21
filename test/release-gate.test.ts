@@ -1,4 +1,7 @@
 import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -25,6 +28,12 @@ function problemsIn(output: string): string[] {
 }
 
 const UNCONSUMED = /^\.changeset\/\S+ — is unconsumed \(/
+
+// A scan that read nothing says the same about a tree as one that read all of it, so what
+// it reached is asserted rather than taken from the absence of findings.
+function filesReadIn(output: string): number {
+  return Number(/(\d+) file\(s\) read/.exec(output)?.[1] ?? -1)
+}
 
 function disclosureIdsIn(output: string): string[] {
   return [...new Set([...output.matchAll(/^ {2}- ([a-z-]+):/gm)].map((match) => match[1] as string))].sort()
@@ -80,6 +89,7 @@ describe('the generic half of the leak control', () => {
     const run = check('private-information', 'test/fixtures/private-information/dirty')
 
     expect(run.status).toBe(1)
+    expect(filesReadIn(run.output)).toBe(3)
     expect(disclosureIdsIn(run.output)).toEqual([
       'another-repository',
       'assigned-secret',
@@ -94,11 +104,39 @@ describe('the generic half of the leak control', () => {
     ])
   })
 
-  it('holds the repository itself to the same reading', () => {
+  it('holds the repository itself to the same reading, over a tree it is shown to have read', () => {
     const run = check('private-information', '.')
 
     expect(disclosureIdsIn(run.output)).toEqual([])
     expect(run.status).toBe(0)
+    // A floor, not a total: what it guards is a skip quietly swallowing the tree, and the
+    // one measured way that happens — a stray checkout over a source directory — lands here.
+    expect(filesReadIn(run.output)).toBeGreaterThan(200)
+  })
+
+  it('reads no checkout of its own that sits inside the tree, and would read it otherwise', () => {
+    // Outside the repository: a directory parked in this tree is read by whatever else
+    // enumerates that directory, and dist/ is enumerated by the packaging test.
+    const held = mkdtempSync(join(tmpdir(), 'leak-scan-'))
+    const inside = join(held, 'somebody-elses-tree')
+
+    try {
+      mkdirSync(inside)
+      // Assembled rather than written out, for the same reason the synthetic key is: a line
+      // that reads as a disclosure is one wherever it sits, including here.
+      const elsewhere = ['', 'Users', 'somebody', 'a-tree-of-their-own'].join('/')
+      writeFileSync(join(inside, 'notes.md'), `checked out under ${elsewhere}\n`)
+      const asAnyDirectory = check('private-information', relative(root, held))
+
+      writeFileSync(join(inside, '.git'), 'gitdir: somewhere else\n')
+      const asACheckout = check('private-information', relative(root, held))
+
+      expect(disclosureIdsIn(asAnyDirectory.output)).toEqual(['developer-path'])
+      expect(disclosureIdsIn(asACheckout.output)).toEqual([])
+      expect(asACheckout.status).toBe(0)
+    } finally {
+      rmSync(held, { recursive: true, force: true })
+    }
   })
 })
 
