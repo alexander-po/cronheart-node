@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.2.0",
+  "contract_version": "2.2.1",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -735,12 +735,18 @@
       "cache_control": "public, max-age=300",
       "covers": [
         "monitor.name length bounds",
-        "monitor.grace_seconds range",
-        "the limit clamp and its default",
-        "read vocabularies for status, ping kind, alert kind, channel kind, schedule kind",
-        "the read-string / write-integer-or-string identifier asymmetry",
-        "the three pagination response shapes",
-        "the snooze duration allowlist"
+        "monitor.schedule_expr maximum length",
+        "monitor.tz default",
+        "monitor.grace_seconds range and default",
+        "channel.label length bounds",
+        "channel.secret minimum length",
+        "read vocabularies for status, ping kind, alert kind, channel kind, schedule kind and snooze duration",
+        "the read-string / write-integer-or-string identifier asymmetry, and the monitor identifier's format",
+        "the limit clamp with its default, and the offset minimum",
+        "the three pagination shapes: their request parameters and their response keys",
+        "the read-shape key lists for monitor, monitor.channels[], channel, ping, alert and account",
+        "which monitor, ping and alert fields are nullable",
+        "the snooze duration allowlist and that a duration is required"
       ],
       "does_not_cover": [
         "anything about /ping: no route, no action mapping, no dedup rule, no body cap, no runtime header",
@@ -748,7 +754,8 @@
         "the interval second bounds",
         "the 5-field cron dialect",
         "monitor.tz maximum length",
-        "channel address, chat id, webhook URL and secret constraints",
+        "channel address, chat id and webhook URL constraints, which the document carries as prose only",
+        "channel.secret maximum length, and which kinds each channel field is required for",
         "the ordering guarantees",
         "the idempotency semantics beyond a prose description",
         "which statuses omit rate-limit headers"

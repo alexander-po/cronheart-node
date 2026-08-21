@@ -13,6 +13,7 @@
     "/api/constraints/monitor.grace_seconds/default": 60,
     "/api/constraints/channel.label/min_length": 2,
     "/api/constraints/channel.label/max_length": 80,
+    "/api/constraints/channel.secret/min_length": 16,
     "/api/constraints/snooze.duration/required": true,
     "/vocabularies/monitor.status/members": [
       "new",
