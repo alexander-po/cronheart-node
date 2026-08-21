@@ -1,3 +1,4 @@
+import { PING_RESPONSE_BODY_CAP_BYTES } from '../constants.js'
 import type { FetchLike } from '../ping/types.js'
 import { attemptsFor } from '../transport/attempts.js'
 import { send } from '../transport/send.js'
@@ -27,6 +28,7 @@ export async function unsafelyMonitored<T>(
     headers: {},
     body: undefined,
     timeoutMs: 60_000,
+    bodyCapBytes: PING_RESPONSE_BODY_CAP_BYTES,
     attempts: attemptsFor(0),
     signal: undefined,
     fetch: context.fetch,

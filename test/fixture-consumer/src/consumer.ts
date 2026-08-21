@@ -17,6 +17,7 @@ import type { MonitoredSchedule, ScheduledJobs } from 'cronheart/nestjs'
 import {
   PING_BODY_CAP_BYTES,
   PING_EMITTABLE_ACTIONS,
+  PING_RESPONSE_BODY_CAP_BYTES,
   SDK_VERSION,
   checkIn,
   checkInWith,
@@ -36,6 +37,8 @@ import type {
   PingClient,
   PingClientOptions,
   PingOptions,
+  PingResponseBody,
+  PingResponseBodyReader,
   PingResult,
 } from 'cronheart'
 
@@ -53,7 +56,7 @@ export type PublishedSurface = {
 }
 
 export function describeClient(): string {
-  return `${SDK_VERSION} via ${userAgent()} (body cap ${PING_BODY_CAP_BYTES})`
+  return `${SDK_VERSION} via ${userAgent()} (body cap ${PING_BODY_CAP_BYTES}, reply cap ${PING_RESPONSE_BODY_CAP_BYTES})`
 }
 
 // The documented transport hook, implemented the way a consumer implements it: the init
@@ -66,6 +69,23 @@ export const forwarding: FetchLike = (url, init) =>
     redirect: init.redirect ?? 'manual',
     signal: init.signal,
   })
+
+// The body half of the transport contract, named rather than inferred: a consumer writing
+// their own fetch has to be able to say what they are handing back.
+export async function firstChunkOf(body: PingResponseBody): Promise<number> {
+  const reader: PingResponseBodyReader | undefined = body.getReader?.()
+
+  if (reader === undefined) {
+    await body.cancel()
+
+    return 0
+  }
+
+  const chunk = await reader.read()
+  await reader.cancel()
+
+  return chunk.value?.length ?? 0
+}
 
 const options: PingClientOptions = {
   baseUrl: 'https://cronheart.com',
@@ -113,6 +133,7 @@ export async function exercise(): Promise<string[]> {
 }
 
 import {
+  API_RESPONSE_BODY_CAP_BYTES,
   CronheartApiError,
   SNOOZE_DURATIONS,
   createCronheartApi,
@@ -170,7 +191,12 @@ export async function reconcile(apiKey: string | undefined): Promise<string[]> {
 
   const seen: RateLimitSnapshot | undefined = management.rateLimit()
 
-  return [...names, String(first.total), String(seen?.resetAt ?? 'unknown')]
+  return [
+    ...names,
+    String(first.total),
+    String(seen?.resetAt ?? 'unknown'),
+    String(API_RESPONSE_BODY_CAP_BYTES),
+  ]
 }
 
 // Read one, change one field, write it back — the most ordinary management operation there

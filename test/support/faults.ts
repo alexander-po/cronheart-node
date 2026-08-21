@@ -4,6 +4,7 @@ import type {
   PingClientOptions,
   PingHttpResponse,
   PingOptions,
+  PingResponseBodyReader,
 } from '../../src/ping/types.js'
 import { createPingRecorder } from '../../src/testing.js'
 
@@ -18,6 +19,11 @@ export const BASE_URL = 'https://faults.example'
 export const BUDGET_MS = 60
 
 export const RETRIES = 1
+
+// A body that goes on arriving, fused so that a read which stopped honouring its cap
+// cannot hang the matrix. Nothing here counts bytes: what the cap is worth is asserted
+// against the check-in path, not here.
+const ENDLESS_BODY_FUSE_BYTES = 1024 * 1024
 
 export interface FaultInstance {
   readonly id: string
@@ -70,11 +76,28 @@ function countingBodies(dispatch: FetchLike): {
       }
       const cancel = stream.cancel.bind(stream)
       const read = typeof response.text === 'function' ? response.text.bind(response) : undefined
+      const take = typeof stream.getReader === 'function' ? stream.getReader.bind(stream) : undefined
 
       ;(stream as { cancel: () => Promise<void> }).cancel = () => {
         release()
 
         return cancel()
+      }
+
+      if (take !== undefined) {
+        ;(stream as { getReader: () => PingResponseBodyReader }).getReader = () => {
+          const reader = take()
+          const stop = reader.cancel.bind(reader)
+
+          return {
+            read: reader.read.bind(reader),
+            cancel: () => {
+              release()
+
+              return stop()
+            },
+          }
+        }
       }
 
       if (read !== undefined) {
@@ -177,6 +200,35 @@ export const FAULTS: readonly Fault[] = [
   })),
   fault('transport-resolves-a-bare-object', () => ({
     fetch: () => Promise.resolve({} as unknown as PingHttpResponse),
+  })),
+  fault('transport-answers-with-a-body-that-never-ends', () => ({
+    fetch: () => {
+      const chunk = new TextEncoder().encode('x'.repeat(1024))
+      let pulled = 0
+
+      return Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        // Disturbed by the first read, the way a real response is: past that point the
+        // reader is the only thing that can release it.
+        get bodyUsed() {
+          return pulled > 0
+        },
+        body: {
+          cancel: () => Promise.resolve(),
+          getReader: () => ({
+            read: () => {
+              pulled += chunk.length
+
+              return Promise.resolve(
+                pulled > ENDLESS_BODY_FUSE_BYTES ? { done: true } : { done: false, value: chunk },
+              )
+            },
+            cancel: () => Promise.resolve(),
+          }),
+        },
+      })
+    },
   })),
   recorded('transport-body-refuses-to-be-read', {
     readRejectsWith: new Error('the body cannot be read'),

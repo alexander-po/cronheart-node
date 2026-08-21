@@ -8,11 +8,21 @@ export interface AbortSignalLike {
   removeEventListener(type: 'abort', listener: () => void): void
 }
 
+export interface PingResponseBodyReader {
+  read(): Promise<{ readonly done?: boolean | undefined; readonly value?: Uint8Array | undefined }>
+  cancel(): Promise<void>
+}
+
+export interface PingResponseBody {
+  cancel(): Promise<void>
+  getReader?(): PingResponseBodyReader
+}
+
 export interface PingHttpResponse {
   readonly status: number
   readonly headers?: { get(name: string): string | null } | undefined
   readonly bodyUsed?: boolean | undefined
-  readonly body?: { cancel(): Promise<void> } | null | undefined
+  readonly body?: PingResponseBody | null | undefined
   text?(): Promise<string>
 }
 

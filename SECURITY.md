@@ -62,6 +62,16 @@ vulnerability rather than a bug.
   monitors is the failure mode this package exists to avoid. Anything that
   escapes the ping path into the calling program is a defect of the same
   severity as a leak.
+- **A monitor's reply is read under a cap.** The runtime decompresses whatever
+  the far side sends before this package sees it, so a body read whole would let
+  anything that can answer for a monitor spend the host's memory well inside the
+  request timeout. At most `PING_RESPONSE_BODY_CAP_BYTES` is retained and the rest
+  of the body is cancelled — a check-in OOM-killed by the endpoint
+  watching it has been broken by its monitor as surely as by a thrown exception.
+  The bound is on the stream, which is what every runtime this package supports
+  hands back; a `fetch` you supply that answers only through a whole-body `text()`
+  is read the way it answers. The management client reads under a far larger cap
+  of its own, because a page of monitors is not a two-word answer.
 - **A redirect is never followed.** Following one would convert a `POST` into a
   `GET`, drop the body, and send a check-in to a host the configuration never
   named.

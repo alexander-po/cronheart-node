@@ -1,5 +1,10 @@
 import { BODY_RELEASE_BUDGET_MS, RETRY_FLOOR_DELAY_MS } from '../constants.js'
-import type { AbortSignalLike, FetchLike, PingHttpResponse } from '../ping/types.js'
+import type {
+  AbortSignalLike,
+  FetchLike,
+  PingHttpResponse,
+  PingResponseBodyReader,
+} from '../ping/types.js'
 import { type Countdown, countdown, detachedCountdown } from '../timer.js'
 import type { Attempts } from './attempts.js'
 
@@ -33,6 +38,10 @@ export interface TransportRequest {
   readonly headers: Readonly<Record<string, string>>
   readonly body: string | undefined
   readonly timeoutMs: number
+  // What the caller is prepared to hold of an answer. A check-in reads a token; the
+  // management client reads a page, and one cap for both would truncate the page. It has
+  // to exceed the longest reply that must be told apart from another one.
+  readonly bodyCapBytes: number
   readonly attempts: Attempts
   readonly signal: AbortSignalLike | undefined
   readonly fetch: FetchLike | undefined
@@ -73,9 +82,21 @@ function isAbortSignalLike(value: unknown): value is AbortSignalLike {
   )
 }
 
-async function releaseBody(response: PingHttpResponse): Promise<void> {
+async function releaseWithin(cancel: () => Promise<void>): Promise<void> {
   let gaveUp: Countdown | undefined
 
+  try {
+    // A stream that never finishes releasing must not hold the check-in.
+    gaveUp = detachedCountdown(BODY_RELEASE_BUDGET_MS)
+
+    await Promise.race([cancel(), gaveUp.reached])
+  } catch {
+  } finally {
+    gaveUp?.cancel()
+  }
+}
+
+async function releaseBody(response: PingHttpResponse): Promise<void> {
   try {
     const stream = response.body
 
@@ -88,14 +109,8 @@ async function releaseBody(response: PingHttpResponse): Promise<void> {
       return
     }
 
-    // A stream that never finishes releasing must not hold the check-in.
-    gaveUp = detachedCountdown(BODY_RELEASE_BUDGET_MS)
-
-    await Promise.race([stream.cancel(), gaveUp.reached])
-  } catch {
-  } finally {
-    gaveUp?.cancel()
-  }
+    await releaseWithin(() => stream.cancel())
+  } catch {}
 }
 
 function headOf(response: PingHttpResponse): Omit<ReadResponse, 'body'> {
@@ -116,8 +131,82 @@ function headOf(response: PingHttpResponse): Omit<ReadResponse, 'body'> {
   }
 }
 
-async function readBody(response: PingHttpResponse): Promise<string> {
+function readerFor(response: PingHttpResponse): PingResponseBodyReader | undefined {
+  const stream = response.body
+
+  if (
+    response.bodyUsed === true ||
+    stream === null ||
+    stream === undefined ||
+    typeof stream.getReader !== 'function'
+  ) {
+    return undefined
+  }
+
+  const reader = stream.getReader()
+
+  return typeof reader?.read === 'function' ? reader : undefined
+}
+
+// The runtime decompresses whatever arrives before this sees it, so a reply read whole
+// hands anything that can answer for a monitor the host's heap.
+async function readCapped(
+  reader: PingResponseBodyReader,
+  capBytes: number,
+  abandoned: AbortSignal,
+): Promise<string> {
+  const decoder = new TextDecoder()
+  let remaining = capBytes
+  let text = ''
+
+  while (remaining > 0 && !abandoned.aborted) {
+    const chunk = await reader.read()
+
+    if (chunk.done === true || !ArrayBuffer.isView(chunk.value)) {
+      return text
+    }
+
+    if (chunk.value.length === 0) {
+      // A chunk carrying nothing is not the end of a body, and it is not progress either:
+      // without a turn for the event loop the deadline's own timer would never run, and
+      // a stream that only ever yields nothing would hold this loop for good.
+      await countdown(0).reached
+
+      continue
+    }
+
+    const kept = chunk.value.length <= remaining ? chunk.value : chunk.value.subarray(0, remaining)
+    remaining -= kept.length
+    text += decoder.decode(kept, { stream: true })
+  }
+
+  return text
+}
+
+async function readBody(
+  response: PingHttpResponse,
+  capBytes: number,
+  abandoned: AbortSignal,
+): Promise<string> {
   try {
+    const reader = readerFor(response)
+
+    if (reader !== undefined) {
+      // A transport that ignores the signal never settles the read, so the release below
+      // never runs. The signal is then the only thing left that can let the body go.
+      abandoned.addEventListener('abort', () => void releaseWithin(() => reader.cancel()), {
+        once: true,
+      })
+
+      try {
+        return await readCapped(reader, capBytes, abandoned)
+      } finally {
+        // Not awaited: the answer is already in hand, and a cancel the far side lets stall
+        // would spend the caller's remaining budget on a body nobody is waiting for.
+        void releaseWithin(() => reader.cancel())
+      }
+    }
+
     const body = typeof response.text === 'function' ? await response.text() : ''
 
     return typeof body === 'string' ? body : ''
@@ -235,7 +324,10 @@ async function attemptOnce(
       // The same deadline covers the read, because a transport that ignores the signal
       // ignores it while handing the body over too.
       const answer = headOf(response)
-      const read = await Promise.race([readBody(response), reached])
+      const read = await Promise.race([
+        readBody(response, request.bodyCapBytes, controller.signal),
+        reached,
+      ])
 
       if (read !== EXPIRED) {
         return { ...answer, body: read }

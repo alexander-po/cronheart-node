@@ -42,6 +42,48 @@ export interface ApiRecorder {
   respondWith(next: ApiResponder | ApiStub): void
 }
 
+// A body that arrives in pieces with no whole-body read to fall back on, which is the
+// shape a real fetch hands back and the one a stub answering through text() never exercises.
+export function streamingFetch(
+  body: Uint8Array,
+  chunkBytes: number,
+): { readonly fetch: FetchLike; pulledBytes(): number } {
+  let pulled = 0
+
+  const fetch: FetchLike = () => {
+    let sent = 0
+
+    return Promise.resolve<PingHttpResponse>({
+      status: 200,
+      headers: {
+        get: (name) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      get bodyUsed() {
+        return sent > 0
+      },
+      body: {
+        cancel: () => Promise.resolve(),
+        getReader: () => ({
+          read: () => {
+            const from = sent
+            sent = Math.min(body.length, sent + chunkBytes)
+            pulled += sent - from
+
+            return Promise.resolve(
+              from >= body.length
+                ? { done: true }
+                : { done: false, value: body.subarray(from, sent) },
+            )
+          },
+          cancel: () => Promise.resolve(),
+        }),
+      },
+    })
+  }
+
+  return { fetch, pulledBytes: () => pulled }
+}
+
 export function createApiRecorder(initial?: ApiResponder | ApiStub): ApiRecorder {
   const requests: RecordedRequest[] = []
   const drained: { consumed: boolean }[] = []

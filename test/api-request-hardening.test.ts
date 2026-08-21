@@ -17,7 +17,10 @@ import {
   MONITOR_UUID,
   apiWith,
   createApiRecorder,
+  streamingFetch,
 } from './support/api-recorder.js'
+import { API_RESPONSE_BODY_CAP_BYTES } from '../src/api/constants.js'
+import { ApiTransportError } from '../src/api/errors.js'
 
 const CREATE = {
   name: 'nightly-backup',
@@ -41,6 +44,28 @@ function surfacesOf(error: unknown): string[] {
       .join(' '),
   ]
 }
+
+// Stated here rather than derived from the cap the client reads: a bound taken from that
+// constant holds however far it moves, and a body twice the cap classifies the same either
+// way, so the bytes pulled are the only thing that tells a capped read from an uncapped one.
+const MANAGEMENT_READ_CEILING_BYTES = 5 * 1024 * 1024
+
+describe('an answer larger than this client reads', () => {
+  it('reports the client as the one that stopped, not the service as having answered badly', async () => {
+    const oversized = streamingFetch(
+      new Uint8Array(API_RESPONSE_BODY_CAP_BYTES * 2).fill(0x78),
+      65536,
+    )
+    const { api } = apiWith({}, { fetch: oversized.fetch })
+
+    const refusal = await api.monitors.list().catch((error: unknown) => error)
+
+    expect(refusal).toBeInstanceOf(ApiTransportError)
+    expect((refusal as ApiTransportError).reason).toBe('unbounded')
+    expect((refusal as ApiTransportError).message).toContain('stops reading')
+    expect(oversized.pulledBytes()).toBeLessThan(MANAGEMENT_READ_CEILING_BYTES)
+  })
+})
 
 describe('the retry cap', () => {
   it.each([

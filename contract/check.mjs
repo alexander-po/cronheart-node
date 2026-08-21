@@ -167,6 +167,7 @@ const UNANCHORED = {
     'SDK_VERSION',
   ],
   'budgets, timeouts and retry counts this client picks for itself and sends to nobody': [
+    'API_RESPONSE_BODY_CAP_BYTES',
     'BODY_RELEASE_BUDGET_MS',
     'BUFFERED_STDIO_POLL_MS',
     'COMPACTION_SLACK_BYTES',
@@ -183,6 +184,7 @@ const UNANCHORED = {
     'MAX_OUTPUT_TAIL_BYTES',
     'MAX_RETRIES',
     'MAX_TIMER_MS',
+    'PING_RESPONSE_BODY_CAP_BYTES',
     'REDACTION_REACH_BYTES',
     'RETRY_FLOOR_DELAY_MS',
     'STDERR_DRAIN_BUDGET_MS',
