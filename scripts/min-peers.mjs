@@ -12,6 +12,15 @@ export const PEERS_BY_SUBPATH = {
   './cron': ['cron'],
   './node-cron': ['node-cron'],
   './node-schedule': ['node-schedule'],
+  './bullmq': ['bullmq'],
+  './nestjs': ['@nestjs/schedule', '@nestjs/common'],
+}
+
+// Packages that are peers of a peer rather than of ours, and that a framework releasing its
+// halves in lockstep will not load without: pinning one half to its floor and leaving the
+// other at head produces a graph whose failure reads as the adapter's rather than the run's.
+export const COMPANIONS_BY_PEER = {
+  '@nestjs/common': ['@nestjs/core'],
 }
 
 const rootPath = new URL('../package.json', import.meta.url)
@@ -32,6 +41,8 @@ const CHECKS = [
     'test/adapter-cron.test.ts',
     'test/adapter-node-cron.test.ts',
     'test/adapter-node-schedule.test.ts',
+    'test/adapter-bullmq.test.ts',
+    'test/adapter-nestjs.test.ts',
     'test/fault-matrix.test.ts',
   ],
 ]
@@ -63,6 +74,18 @@ export function floors(peerDependencies) {
   })
 }
 
+export function withCompanions(pinned) {
+  const alongside = pinned.flatMap((entry) => {
+    const at = entry.lastIndexOf('@')
+
+    return (COMPANIONS_BY_PEER[entry.slice(0, at)] ?? []).map(
+      (companion) => `${companion}@${entry.slice(at + 1)}`,
+    )
+  })
+
+  return [...pinned, ...alongside]
+}
+
 function run(command) {
   const [file, ...args] = command
   const result = spawnSync(file, args, { stdio: 'inherit', cwd: fileURLToPath(new URL('../', import.meta.url)) })
@@ -77,7 +100,7 @@ function main() {
   }))
   const root = JSON.parse(originals[0].source)
   const fixture = JSON.parse(originals[1].source)
-  const pinned = floors(root.peerDependencies ?? {})
+  const pinned = withCompanions(floors(root.peerDependencies ?? {}))
 
   process.stdout.write(`min-peers — installing ${pinned.join(', ')}\n`)
 

@@ -1,9 +1,22 @@
+import type { Job, Processor, WorkerOptions } from 'bullmq'
 import { unsafelyMonitored } from '../../src/integrations/__selftest__.js'
+import {
+  type BullMqMonitorOptions,
+  monitored as monitoredByBullMq,
+} from '../../src/integrations/bullmq.js'
 import { monitored as monitoredByCron } from '../../src/integrations/cron.js'
 import { monitored as monitoredByCroner } from '../../src/integrations/croner.js'
 import { monitor as monitorNodeCronTask } from '../../src/integrations/node-cron.js'
+import {
+  CronheartModule,
+  type NestMonitorOptions,
+  type ScheduledJobs,
+  monitorScheduledJobs,
+} from '../../src/integrations/nestjs.js'
 import { monitored as monitoredBySchedule } from '../../src/integrations/node-schedule.js'
 import type { AdapterOptions } from '../../src/integrations/run.js'
+import { fakeJob } from './bullmq-job.js'
+import { fakeCronJob, fakeRegistry } from './nest-registry.js'
 import { execution, fakeTask } from './node-cron-task.js'
 import { unsafelyManaged } from '../../src/api/__selftest__.js'
 import { createCronheartApi } from '../../src/api/client.js'
@@ -333,6 +346,19 @@ function wired<T>(build: () => T): T | undefined {
 
 const SCHEDULE = '0 3 * * *'
 
+const QUEUED_JOB = 'nightly-digest'
+
+const REGISTERED_JOB = 'nightlyDigest'
+
+// Assigned onto the options object rather than spread into a new one, for the reason the
+// note above gives: spreading would read the fault's exploding accessors here.
+function mappedOptions<T>(context: InvocationContext, job: string): T {
+  return Object.assign(adapterOptions(context), {
+    jobs: { [job]: context.fault.monitor },
+    report: () => {},
+  }) as T
+}
+
 export const ADAPTER_ENTRY_POINTS: readonly EntryPoint[] = [
   {
     id: 'croner.monitored',
@@ -435,10 +461,103 @@ export const ADAPTER_ENTRY_POINTS: readonly EntryPoint[] = [
   },
 ]
 
+export const QUEUE_ENTRY_POINTS: readonly EntryPoint[] = [
+  {
+    id: 'bullmq.monitored',
+    exports: ['./bullmq#monitored'],
+    pings: 2,
+    unsafe: false,
+    invoke: async (context) => {
+      const args = wired(() =>
+        monitoredByBullMq(
+          'digests',
+          {} as WorkerOptions,
+          (() => Promise.resolve(context.host())) as Processor,
+          mappedOptions<BullMqMonitorOptions>(context, QUEUED_JOB),
+        ),
+      )
+
+      if (args === undefined) {
+        return context.host()
+      }
+
+      return (args[1] as unknown as (job: Job) => Promise<unknown>)(fakeJob())
+    },
+  },
+  // The nestjs adapter never runs the host itself either: it replaces the callback the
+  // scheduler holds, so the case fires the job the way the scheduler fires it.
+  {
+    id: 'nestjs.monitorScheduledJobs',
+    exports: ['./nestjs#monitorScheduledJobs'],
+    pings: 2,
+    unsafe: false,
+    invoke: async (context) => {
+      const job = fakeCronJob(SCHEDULE, context.host)
+      const attached = wired(() =>
+        monitorScheduledJobs(
+          fakeRegistry({ [REGISTERED_JOB]: job }),
+          mappedOptions<NestMonitorOptions>(context, REGISTERED_JOB),
+        ),
+      )
+
+      if (attached === undefined) {
+        return context.host()
+      }
+
+      try {
+        return await job.fire()
+      } finally {
+        await attached.flush(BUDGET_MS * 2)
+      }
+    },
+  },
+  {
+    id: 'nestjs.CronheartModule',
+    exports: ['./nestjs#CronheartModule'],
+    pings: 2,
+    unsafe: false,
+    invoke: async (context) => {
+      const job = fakeCronJob(SCHEDULE, context.host)
+      const registry = fakeRegistry({ [REGISTERED_JOB]: job })
+      const dynamic = wired(() =>
+        CronheartModule.forRoot(
+          Object.assign(mappedOptions<NestMonitorOptions>(context, REGISTERED_JOB), {
+            registry: class StandInRegistry {} as never,
+          }),
+        ),
+      )
+      const provider = (dynamic?.providers ?? [])[0] as unknown as
+        | {
+            useFactory(held: ScheduledJobs): {
+              onApplicationBootstrap(): void
+              onApplicationShutdown(): Promise<void>
+            }
+          }
+        | undefined
+
+      if (provider === undefined) {
+        return context.host()
+      }
+
+      const instance = provider.useFactory(registry)
+      wired(() => {
+        instance.onApplicationBootstrap()
+      })
+
+      try {
+        return await job.fire()
+      } finally {
+        await instance.onApplicationShutdown()
+      }
+    },
+  },
+]
+
 export const ENTRY_POINTS: readonly EntryPoint[] = [
   ...CHECK_IN_ENTRY_POINTS,
   ...SYNC_ENTRY_POINTS,
   ...ADAPTER_ENTRY_POINTS,
+  ...QUEUE_ENTRY_POINTS,
 ]
 
 export const REGISTRY: readonly EntryPoint[] = [

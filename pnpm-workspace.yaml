@@ -3,3 +3,7 @@ packages:
   - test/fixture-consumer
 
 autoInstallPeers: false
+
+allowBuilds:
+  '@nestjs/core': false
+  msgpackr-extract: false

@@ -275,9 +275,13 @@ const UNANCHORED = {
   ],
   'the scheduler adapters’ own vocabulary — the sentences they say and what they read to say them': [
     'DIALECT',
+    'DIALECT_WARNING',
     'HOUR_FIELD_INDEX',
+    'NOTHING_REGISTERED',
+    'ONE_OFF_WARNING',
     'OVERLAP_ADVICE',
     'OVERLAP_WARNING',
+    'PARALLEL_WARNING',
     'ZONE_FREE_ALIASES',
     'ZONE_WARNING',
   ],

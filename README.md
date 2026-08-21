@@ -10,10 +10,9 @@ for [cronheart.com](https://cronheart.com).
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > **Pre-release.** The ping path, the CLI, the management API, the reconciler and
-> the croner / cron / node-cron / node-schedule adapters are implemented; the
-> BullMQ and NestJS adapters are not, and nothing is published to npm yet. Every
-> section below marked _Not implemented yet_ has no behaviour behind it — this
-> README documents only what ships.
+> all six scheduler adapters are implemented; nothing is published to npm yet.
+> Every section below marked _Not implemented yet_ has no behaviour behind it —
+> this README documents only what ships.
 
 ## Why
 
@@ -134,20 +133,23 @@ into a GET without a body, which would drop the job's output on the way.
 ## Schedulers
 
 Adapters instrument the scheduler rather than each job's call site, so jobs added
-later are covered without another edit. Four ship today —
+later are covered without another edit. Six ship today —
 [`croner`](https://www.npmjs.com/package/croner),
 [`cron`](https://www.npmjs.com/package/cron) (the `kelektiv/node-cron`
 repository, whose package is named `cron`),
-[`node-cron`](https://www.npmjs.com/package/node-cron) v4 and
-[`node-schedule`](https://www.npmjs.com/package/node-schedule). Each is a
+[`node-cron`](https://www.npmjs.com/package/node-cron) v4,
+[`node-schedule`](https://www.npmjs.com/package/node-schedule),
+[`bullmq`](https://www.npmjs.com/package/bullmq) and
+[`@nestjs/schedule`](https://www.npmjs.com/package/@nestjs/schedule). Each is a
 subpath export with its peer declared optional and imported for its types only:
 nothing is required at runtime, and an adapter never constructs the scheduler's
-objects. `cronheart/bullmq` and `cronheart/nestjs` are _not implemented yet_.
+objects.
 
-Three of the four hand back the scheduler's own argument list, so the schedule the
+Four of the six hand back the scheduler's own argument list, so the schedule the
 monitor is checked against is by construction the schedule the scheduler runs. The
-fourth attaches to node-cron's events, because a callback wrapper cannot see a
-file-path or background task at all.
+node-cron adapter attaches to that scheduler's events, because a callback wrapper
+cannot see a file-path or background task at all, and the NestJS one is a module
+that walks the framework's own registry once the application has booted.
 
 ```ts
 import { Cron } from 'croner'
@@ -189,6 +191,35 @@ const task = cron.schedule('0 3 * * *', runBackup, { timezone: 'Europe/Berlin', 
 const monitored = monitor(task, 'nightly-backup')
 ```
 
+```ts
+import { Worker } from 'bullmq'
+import { monitored } from 'cronheart/bullmq'
+
+const worker = new Worker(
+  ...monitored('digests', { connection, concurrency: 1 }, sendDigest, {
+    jobs: { 'nightly-digest': 'nightly-backup', 'warm-cache': false },
+  }),
+)
+```
+
+```ts
+import { Module } from '@nestjs/common'
+import { ScheduleModule, SchedulerRegistry } from '@nestjs/schedule'
+import { CronheartModule } from 'cronheart/nestjs'
+
+@Module({
+  imports: [
+    ScheduleModule.forRoot(),
+    CronheartModule.forRoot({
+      registry: SchedulerRegistry,
+      jobs: { nightlyDigest: 'nightly-backup', cleanupTmp: false },
+    }),
+  ],
+  providers: [Digests],
+})
+export class AppModule {}
+```
+
 A monitored run sends a `start` check-in when it begins and a `success` or `fail`
 one when it ends, with the run's duration and — on a failure — the error's
 description in the body. The job's own value comes back by identity and its error
@@ -199,19 +230,24 @@ the morning.
 
 **Overlap.** A schedule shorter than the job interleaves start and terminal
 check-ins, and the service reads the span between them as the job's runtime — so
-interleaved ones describe a run that never happened. Each adapter reports
+interleaved ones describe a run that never happened. Each scheduler adapter reports
 overlapping runs as one, failed if any of them failed, and says once which of the
 scheduler's own guards would have prevented it: croner's `protect: true`, cron 4's
-`waitForCompletion: true`, node-cron's `noOverlap: true`. node-schedule has none,
-and the warning says so. The collapse never skips the job.
+and NestJS's `waitForCompletion: true`, node-cron's `noOverlap: true`. node-schedule
+has none, and the warning says so. The collapse never skips the job. A queue is the
+one case where parallel runs are the point rather than an accident, and the BullMQ
+adapter answers it differently — see **Queues** below.
 
-**Cron dialect.** All four schedulers accept a six-field expression whose first
-field is seconds; a cronheart schedule has five fields plus seven `@` aliases and
-no seconds field. An expression only the scheduler would take is refused at wiring
-time with a message naming the dialect, because sending it would leave the
+**Cron dialect.** Every one of these schedulers accepts a six-field expression whose
+first field is seconds; a cronheart schedule has five fields plus seven `@` aliases
+and no seconds field. An expression only the scheduler would take is refused at
+wiring time with a message naming the dialect, because sending it would leave the
 monitor's schedule and the job's schedule disagreeing with nobody told. A one-off
 `Date`, a `RecurrenceRule` and node-schedule's object spec carry no cron dialect
-and are passed through untouched.
+and are passed through untouched. A BullMQ schedule is the exception: it lives on
+the queue rather than on the worker, so the pattern is only visible when a job
+arrives, and a dialect the service would refuse is a warning there rather than a
+refusal.
 
 **Time zone.** The zone the scheduler fires in has to be the monitor's, or the
 alert lands at the wrong hour and reads as a service fault. Where the scheduler
@@ -221,11 +257,44 @@ to an hour of the day with no zone named warns once, saying which zone it will
 actually fire in. node-cron keeps the zone in options it does not expose on the
 task, so there the adapter has nothing to check it against.
 
-**Flushing.** The three callback adapters await the terminal check-in before the
+**Flushing.** Every adapter but node-cron's awaits the terminal check-in before the
 tick resolves, so a process that exits at the end of its run cannot outrun it.
 node-cron emits on an event emitter that neither awaits a listener nor reads what
 it returns, so its adapter holds the work itself: `await monitored.flush()` before
-the process exits, or `flush()` from `cronheart` for the shared client.
+the process exits, or `flush()` from `cronheart` for the shared client. The NestJS
+module flushes what it started when the application shuts down.
+
+**Queues.** A monitor stands for a schedule, and a queue is not one. The BullMQ
+adapter wraps the processor rather than the worker's events, so a check-in is tied
+to the job name that asked for one and nothing is sent for the rest of the queue,
+and it answers three things a queue does that a scheduler does not:
+
+- **Retries.** A queue that retries a failed job would drive the monitor down on
+  the first attempt of a job that succeeds on its third. The failure is reported
+  once the job has exhausted the attempts it was given, and not before.
+- **One-off jobs.** A job added by hand is not on a schedule, so it arriving late
+  or not at all says nothing about a monitor. Those are left alone, with one
+  warning naming the job; `allowOneOff: true` checks in for them anyway.
+- **Concurrency.** A worker running jobs in parallel would interleave the start
+  check-ins of runs that are genuinely separate. Above a concurrency of 1 the
+  start check-in is off by default and the adapter says so once, each run still
+  reporting how long it took; `pingStart: true` sends them anyway.
+
+**NestJS.** `CronheartModule.forRoot()` walks the scheduler's registry once the
+application has booted and wraps every registered job the mapping names, so no
+call site changes and no decorator has to sit in the right place. It takes the
+framework's own `SchedulerRegistry` class as the injection token, because the
+module imports nothing of the framework at runtime. At startup it writes one line
+saying what it covers — `cronheart: monitoring 3 of 5 cron jobs; unmapped:
+cleanupTmp, warmCache` — so a job nobody monitors is visible rather than silent;
+map a job to `false` to leave it out on purpose, and out of that line. Pass
+`report` to send the line somewhere other than the console.
+
+A `@Cron` method that throws is caught and logged by the scheduler itself before
+anything outside it can see the failure, so a run that failed inside the method
+checks in as a completed one. Where a job's own failures have to reach the monitor,
+bracket the work inside the method with `withMonitor` from `cronheart` and leave
+that job out of the mapping.
 
 **Not covered.** cron also accepts a shell command string as its tick; nothing in
 this process can bracket one, and `cronheart run` is the wrapper for that.

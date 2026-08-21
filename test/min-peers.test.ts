@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error — a plain script, deliberately not part of the typed source tree
-import { PEERS_BY_SUBPATH, floorOf } from '../scripts/min-peers.mjs'
+import { COMPANIONS_BY_PEER, PEERS_BY_SUBPATH, floorOf, withCompanions } from '../scripts/min-peers.mjs'
 
 const manifest = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
@@ -57,6 +57,24 @@ describe('the minimum-peer floor run', () => {
     expect(floorOf('^4.4.0')).toBe('4.4.0')
     expect(floorOf('>=2.1.0')).toBe('2.1.0')
     expect(() => floorOf('latest')).toThrow(/floor/)
+  })
+
+  // A framework that releases its halves in lockstep will not load with one at its floor
+  // and the other at head, and that failure looks exactly like an adapter that is broken.
+  it('moves the halves of a framework in step with the peer it pins', () => {
+    const pinned = withCompanions(['@nestjs/common@10.0.0', 'croner@9.0.0']) as string[]
+
+    expect(pinned).toContain('@nestjs/core@10.0.0')
+    expect(pinned).toContain('@nestjs/common@10.0.0')
+    expect(pinned.filter((entry) => entry.startsWith('croner@'))).toEqual(['croner@9.0.0'])
+  })
+
+  it('names companions only for packages the run actually pins', () => {
+    const pinnable = new Set(Object.values(map).flat())
+
+    expect(Object.keys(COMPANIONS_BY_PEER as object).filter((name) => !pinnable.has(name))).toEqual(
+      [],
+    )
   })
 
   it('resolves every declared range to a floor the run can install', () => {

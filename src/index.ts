@@ -1,14 +1,12 @@
-import { createPingClient } from './ping/client.js'
+import { defaultClient } from './ping/default.js'
 import type {
   CheckInThunk,
   CheckInWithOptions,
   MonitorRegistry,
   MonitorRun,
-  PingClient,
   PingOptions,
   PingResult,
 } from './ping/types.js'
-import { SDK_VERSION } from './version.js'
 
 export { PING_BODY_CAP_BYTES } from './constants.js'
 export { PING_ACTIONS } from './ping/action.js'
@@ -39,26 +37,6 @@ export type {
   PingRequestInit,
   PingResult,
 } from './ping/types.js'
-
-// The registry key is a well-known symbol on globalThis so that the ESM copy and the
-// CommonJS copy of this package share one client: otherwise flush() on one would silently
-// ignore the check-ins the other started. Symbol.for is shared across versions too, so the
-// major rides in the key — a v1 call site must not adopt a v2 client and return its shape.
-const CLIENT_KEY = Symbol.for(`cronheart.defaultClient/${Number.parseInt(SDK_VERSION, 10)}`)
-
-function defaultClient(): PingClient {
-  const globals = globalThis as unknown as Record<symbol, unknown>
-  const existing = globals[CLIENT_KEY]
-
-  if (typeof (existing as PingClient | undefined)?.ping === 'function') {
-    return existing as PingClient
-  }
-
-  const created = createPingClient()
-  globals[CLIENT_KEY] = created
-
-  return created
-}
 
 export function checkIn(name: string, options?: PingOptions): Promise<PingResult> {
   return defaultClient().ping(name, options)

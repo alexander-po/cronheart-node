@@ -1,3 +1,6 @@
+import type { DynamicModule } from '@nestjs/common'
+import { ScheduleModule, SchedulerRegistry } from '@nestjs/schedule'
+import { type Job as QueueJob, Worker } from 'bullmq'
 import { Cron } from 'croner'
 import { CronJob } from 'cron'
 import nodeCron from 'node-cron'
@@ -8,6 +11,9 @@ import { monitored as monitoredByCron } from 'cronheart/cron'
 import { monitor as monitorNodeCronTask } from 'cronheart/node-cron'
 import type { MonitoredTask } from 'cronheart/node-cron'
 import { monitored as monitoredBySchedule } from 'cronheart/node-schedule'
+import { monitored as monitoredByBullMq } from 'cronheart/bullmq'
+import { CronheartModule, monitorScheduledJobs } from 'cronheart/nestjs'
+import type { MonitoredSchedule, ScheduledJobs } from 'cronheart/nestjs'
 import {
   PING_BODY_CAP_BYTES,
   SDK_VERSION,
@@ -202,4 +208,35 @@ export function scheduleWithNodeCron(runBackup: () => Promise<void>): MonitoredT
   })
 
   return monitorNodeCronTask(task, 'nightly-backup')
+}
+
+// The queue adapter hands back the worker's own argument list, so the options the monitor
+// reads its parallelism from are the ones the worker runs under.
+export function workDigestQueue(sendDigest: (job: QueueJob) => Promise<number>): Worker {
+  return new Worker(
+    ...monitoredByBullMq(
+      'digests',
+      { connection: { host: '127.0.0.1', port: 6379 }, concurrency: 4 },
+      sendDigest,
+      { jobs: { 'nightly-digest': 'nightly-backup', 'warm-cache': false } },
+    ),
+  )
+}
+
+// The module form, written the way an application writes it: the framework's own registry
+// class goes in as the injection token, because the module imports none of the framework.
+export function schedulerModules(): DynamicModule[] {
+  return [
+    ScheduleModule.forRoot(),
+    CronheartModule.forRoot({
+      registry: SchedulerRegistry,
+      jobs: { nightlyDigest: 'nightly-backup', cleanupTmp: false },
+    }),
+  ]
+}
+
+export function monitorRegistry(registry: SchedulerRegistry): MonitoredSchedule {
+  const held: ScheduledJobs = registry
+
+  return monitorScheduledJobs(held, { jobs: { nightlyDigest: 'nightly-backup' } })
 }

@@ -1,4 +1,5 @@
-import { flush as defaultFlush, monitors as defaultMonitors, startRun as defaultStartRun } from '../index.js'
+import { describeError } from '../ping/client.js'
+import { defaultClient } from '../ping/default.js'
 import { rethrow } from '../ping/safely.js'
 import type { MonitorRun, PingClient, PingOptions, PingResult } from '../ping/types.js'
 import { warnOnce } from '../ping/warn.js'
@@ -41,12 +42,21 @@ function callOptions(options: AdapterOptions | undefined): PingOptions {
   return built as PingOptions
 }
 
+export interface RunSink {
+  readonly client: PingClient
+  readonly options: PingOptions
+}
+
+// Built where the job is wired, never on the job's own frame: what the caller passed is an
+// object the host wrote, and a getter on one of those can throw.
+export function sinkFor(options: AdapterOptions | undefined): RunSink {
+  return { client: options?.client ?? defaultClient(), options: callOptions(options) }
+}
+
 // Resolution happens where the job is wired, so an id nothing defines crashes the deploy
 // rather than going quiet at three in the morning.
 export function resolveAtWiringTime(name: string, options: AdapterOptions | undefined): void {
-  const registry = options?.client?.monitors ?? defaultMonitors
-
-  registry.resolve(name)
+  sinkFor(options).client.monitors.resolve(name)
 }
 
 // One bracket at a time, whatever the scheduler does. Two runs in flight would interleave a
@@ -58,10 +68,7 @@ export function bracketFor(
   options: AdapterOptions | undefined,
   overlapAdvice: string,
 ): RunBracket {
-  const client = options?.client
-  const start = client === undefined ? defaultStartRun : (n: string, o: PingOptions) => client.startRun(n, o)
-  const drain = client === undefined ? defaultFlush : (ms: number | undefined) => client.flush(ms)
-  const shared = callOptions(options)
+  const { client, options: shared } = sinkFor(options)
   let open = 0
   let run: MonitorRun | undefined
   let failed = false
@@ -81,7 +88,7 @@ export function bracketFor(
       failure = undefined
 
       try {
-        run = start(name, shared)
+        run = client.startRun(name, shared)
       } catch {
         run = undefined
       }
@@ -111,7 +118,7 @@ export function bracketFor(
 
       await terminal
     },
-    flush: (timeoutMs?: number) => drain(timeoutMs),
+    flush: (timeoutMs?: number) => client.flush(timeoutMs),
   }
 }
 
@@ -171,15 +178,88 @@ export function wireMonitor(
 
 // What a scheduler's options object hands over is the host's, and a getter on one can
 // throw. Reading it here rather than in the adapter keeps every such read behind sealed().
-export function readOption(source: unknown, key: string): string | undefined {
+export function readMember(source: unknown, key: string): unknown {
   try {
-    const value = (source as Record<string, unknown> | null | undefined)?.[key]
-
-    return typeof value === 'string' ? value : undefined
+    return (source as Record<string, unknown> | null | undefined)?.[key]
   } catch {
     return undefined
   }
 }
+
+export function readOption(source: unknown, key: string): string | undefined {
+  const value = readMember(source, key)
+
+  return typeof value === 'string' ? value : undefined
+}
+
+export function readCount(source: unknown, key: string): number | undefined {
+  const value = readMember(source, key)
+
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+export type MonitorMapping = Readonly<Record<string, string | false>>
+
+// A worker or a scheduler carries jobs the mapping says nothing about, so a lookup that
+// finds nothing is the ordinary case rather than a fault. false is a job the caller has
+// deliberately left out, which is not the same answer as one nobody has decided about.
+export function mappedMonitor(mapping: MonitorMapping, job: string | undefined): string | false | undefined {
+  if (job === undefined || !Object.hasOwn(mapping, job)) {
+    return undefined
+  }
+
+  const named = mapping[job]
+
+  return typeof named === 'string' || named === false ? named : undefined
+}
+
+export interface RunReport {
+  success(): Promise<void>
+  fail(error: unknown): Promise<void>
+}
+
+// One run reported on its own rather than through a shared bracket, and with the start
+// check-in optional: a worker running jobs in parallel would interleave the starts of runs
+// that are genuinely separate, and the service reads the span between a start and a
+// terminal check-in as one run's duration. Without a start, the duration is measured here
+// and carried on the terminal check-in instead.
+export function reportRun(sink: RunSink, name: string, withStart: boolean): RunReport {
+  const { client, options: shared } = sink
+  const startedAt = Date.now()
+  let run: MonitorRun | undefined
+
+  if (withStart) {
+    try {
+      run = client.startRun(name, shared)
+    } catch {
+      run = undefined
+    }
+  }
+
+  const terminal = async (failed: boolean, error: unknown): Promise<void> => {
+    try {
+      if (run !== undefined) {
+        await (failed ? run.fail(error) : run.success())
+
+        return
+      }
+
+      const described = failed ? describeError(error, false) : undefined
+
+      await client[failed ? 'fail' : 'success'](name, {
+        ...shared,
+        runtimeMs: Date.now() - startedAt,
+        ...(described === undefined ? {} : { body: described }),
+      })
+    } catch {}
+  }
+
+  return {
+    success: () => terminal(false, undefined),
+    fail: (error) => terminal(true, error),
+  }
+}
+
 
 // croner and cron type their callback as returning nothing and do discard what comes back,
 // but the value still has to reach the caller of the wrapper by identity.

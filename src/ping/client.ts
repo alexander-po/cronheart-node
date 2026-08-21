@@ -71,7 +71,7 @@ function runtimeHeaderValue(runtimeMs: number | undefined): string | undefined {
 
 // Total by construction: the accessors it reads belong to the host's error, and in V8
 // reading a stack runs whatever the host installed as Error.prepareStackTrace.
-function describeError(error: unknown, includeStack: boolean): string {
+export function describeError(error: unknown, includeStack: boolean): string {
   try {
     const failure = toError(error)
 

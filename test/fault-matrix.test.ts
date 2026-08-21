@@ -75,6 +75,14 @@ const NEEDS_NO_CASE: Readonly<Record<string, string>> = {
   './node-schedule#InvalidScheduleError': 'an error class',
   './node-schedule#InvalidTimezoneError': 'an error class',
   './node-schedule#UnknownMonitorError': 'an error class',
+  './bullmq#CronheartConfigurationError': 'an error class',
+  './bullmq#InvalidScheduleError': 'an error class',
+  './bullmq#InvalidTimezoneError': 'an error class',
+  './bullmq#UnknownMonitorError': 'an error class',
+  './nestjs#CronheartConfigurationError': 'an error class',
+  './nestjs#InvalidScheduleError': 'an error class',
+  './nestjs#InvalidTimezoneError': 'an error class',
+  './nestjs#UnknownMonitorError': 'an error class',
 }
 
 const SECRETS = { monitorId: MONITOR_ID, apiKey: API_KEY }
