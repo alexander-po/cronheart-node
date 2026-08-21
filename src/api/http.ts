@@ -3,7 +3,11 @@ import { positiveOr } from '../numbers.js'
 import { type Attempts } from '../transport/attempts.js'
 import { countdown } from '../timer.js'
 import { errorForStatus } from './classify.js'
-import { API_BASE_PATH, CREATE_RETRY_BASE_DELAY_MS } from './constants.js'
+import {
+  API_BASE_PATH,
+  API_RESPONSE_BODY_CAP_BYTES,
+  CREATE_RETRY_BASE_DELAY_MS,
+} from './constants.js'
 import {
   ApiInvalidRequestError,
   ApiTransportError,
@@ -14,6 +18,14 @@ import { EMPTY_PROBLEM, parseProblem } from './problem.js'
 import { type WireRequest, exchange } from './transport.js'
 import type { RateLimitSnapshot, RequestOptions } from './types.js'
 import { idempotencyKeyFor } from './validate.js'
+
+// A body this client stopped reading is unparseable for a reason the service is not
+// answerable for, and saying so is the difference between a support request and a page
+// size. The read stops on a byte boundary and drops a character it split, so a body within
+// one character of the cap is one that was cut rather than one that ended.
+function reachedTheReadCap(body: string): boolean {
+  return new TextEncoder().encode(body).length >= API_RESPONSE_BODY_CAP_BYTES - 3
+}
 
 // Whether a repeat of this request is safe, decided per route rather than per verb: a
 // rotate leaves a different resource behind every time it runs, and a channel test sends a
@@ -184,9 +196,13 @@ export function createSession(settings: SessionSettings): Session {
     try {
       return JSON.parse(answered.body)
     } catch {
+      const cutShort = reachedTheReadCap(answered.body)
+
       throw new ApiTransportError(
-        'unparseable',
-        `The service answered ${where.method} ${where.path} with HTTP ${answered.status} and a body that is not JSON.`,
+        cutShort ? 'unbounded' : 'unparseable',
+        cutShort
+          ? `The service answered ${where.method} ${where.path} with more than ${API_RESPONSE_BODY_CAP_BYTES} bytes. This client stops reading there rather than hold a body without bound, so the answer it has is one it cut short itself.`
+          : `The service answered ${where.method} ${where.path} with HTTP ${answered.status} and a body that is not JSON.`,
         { status: answered.status, request: where, rateLimit, problem: EMPTY_PROBLEM },
       )
     }

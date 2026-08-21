@@ -7,7 +7,7 @@ import type {
   PingResult,
 } from './ping/types.js'
 
-export { PING_BODY_CAP_BYTES } from './constants.js'
+export { PING_BODY_CAP_BYTES, PING_RESPONSE_BODY_CAP_BYTES } from './constants.js'
 export { PING_ACTIONS, PING_EMITTABLE_ACTIONS } from './ping/action.js'
 export { PING_OUTCOMES } from './ping/outcome.js'
 export { createPingClient } from './ping/client.js'
@@ -37,6 +37,8 @@ export type {
   PingOptions,
   PingOutcome,
   PingRequestInit,
+  PingResponseBody,
+  PingResponseBodyReader,
   PingResult,
 } from './ping/types.js'
 

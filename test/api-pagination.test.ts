@@ -9,7 +9,9 @@ import {
   PING_JSON,
   type RecordedRequest,
   apiWith,
+  streamingFetch,
 } from './support/api-recorder.js'
+import type { FetchLike } from '../src/ping/types.js'
 
 function query(request: RecordedRequest | undefined): URLSearchParams {
   return new URL(String(request?.url)).searchParams
@@ -34,6 +36,39 @@ async function collect<T>(iterator: AsyncIterableIterator<T>): Promise<T[]> {
 
   return seen
 }
+
+function encoded(json: unknown, chunkBytes: number): FetchLike {
+  return streamingFetch(new TextEncoder().encode(JSON.stringify(json)), chunkBytes).fetch
+}
+
+describe('a page that arrives as a stream', () => {
+  it('hydrates whole, because what bounds a check-in reply does not bound a management page', async () => {
+    const data = UUIDS.flatMap((uuid) =>
+      Array.from({ length: 40 }, (_, index) => ({ ...monitor(uuid), name: `job-${index}` })),
+    )
+    const { api } = apiWith(
+      {},
+      { fetch: encoded({ data, total: data.length, limit: API_PAGE_LIMIT_MAX, offset: 0 }, 4096) },
+    )
+
+    const page = await api.monitors.list({ limit: API_PAGE_LIMIT_MAX })
+
+    expect(page.data).toHaveLength(data.length)
+    expect(page.data.at(-1)?.name).toBe('job-39')
+  })
+
+  it('decodes a character the chunks cut in half, rather than replacing it', async () => {
+    const named = { ...monitor(UUIDS[0] ?? ''), name: 'nightly-café' }
+    const { api } = apiWith(
+      {},
+      { fetch: encoded({ data: [named], total: 1, limit: 50, offset: 0 }, 1) },
+    )
+
+    const page = await api.monitors.list()
+
+    expect(page.data[0]?.name).toBe('nightly-café')
+  })
+})
 
 describe('offset listings', () => {
   it('asks for the default page size and the first page when told nothing', async () => {

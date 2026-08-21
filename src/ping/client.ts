@@ -3,6 +3,7 @@ import {
   DEFAULT_RETRIES,
   DEFAULT_TIMEOUT_MS,
   PING_METHOD,
+  PING_RESPONSE_BODY_CAP_BYTES,
   RUNTIME_HEADER_MAX_VALUE,
   RUNTIME_HEADER_NAME,
 } from '../constants.js'
@@ -275,6 +276,7 @@ function build(options: PingClientOptions, refusal?: string): PingClient {
         headers,
         body,
         timeoutMs: positiveOr(callOptions.timeoutMs, timeoutMs),
+        bodyCapBytes: PING_RESPONSE_BODY_CAP_BYTES,
         attempts: attemptsFor(nonNegativeOr(callOptions.retries, retries)),
         signal: callOptions.signal ?? options.signal,
         fetch: options.fetch,

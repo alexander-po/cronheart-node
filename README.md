@@ -224,11 +224,21 @@ rejected promise outside the layer that owns them; and a fault matrix runs every
 entry point against every way a transport can misbehave, every way a deployment
 can be misconfigured, and every way the calling program can hand in something
 hostile — an options object whose getter throws, an error whose `stack` accessor
-throws, a result sink that rejects, a response whose body never arrives. Each
-case asserts that the job's return value comes back by identity, that its
-exception propagates unchanged, that overhead stays bounded, that no promise is
-left unhandled and that no identifier reaches a log line. A deliberately unsafe
-control proves the matrix can go red.
+throws, a result sink that rejects, a response whose body never arrives, a
+response whose body never stops arriving. Each case asserts that the job's
+return value comes back by identity, that its exception propagates unchanged,
+that overhead stays bounded, that no promise is left unhandled and that no
+identifier reaches a log line. A deliberately unsafe control proves the matrix
+can go red.
+
+The reply is read under a cap of its own. A monitor's answer only has to
+distinguish an accepted check-in from a duplicate one, and the runtime
+decompresses whatever the far side sends before this package sees it — so at
+most `PING_RESPONSE_BODY_CAP_BYTES` is retained and the rest of the body is
+cancelled rather than buffered. A `fetch` you supply yourself that answers
+only through a whole-body `text()` is read the way it answers. The constant is
+exported, because a bound a consumer cannot read is a bound they have to take on
+trust.
 
 ## Configuration
 

@@ -2,6 +2,8 @@ export const PING_BODY_CAP_BYTES = 10000
 
 export const PING_BODY_TRUNCATION_MARKER = '\n[truncated by SDK]'
 
+export const PING_RESPONSE_BODY_CAP_BYTES = 8192
+
 export const RUNTIME_HEADER_NAME = 'X-Cronheart-Runtime-Ms'
 
 export const RUNTIME_HEADER_MAX_VALUE = 86400000

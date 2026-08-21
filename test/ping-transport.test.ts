@@ -3,6 +3,7 @@ import {
   MAX_RETRIES,
   PING_BODY_CAP_BYTES,
   PING_BODY_TRUNCATION_MARKER,
+  PING_RESPONSE_BODY_CAP_BYTES,
   RUNTIME_HEADER_MAX_VALUE,
   RUNTIME_HEADER_NAME,
 } from '../src/constants.js'
@@ -255,6 +256,245 @@ describe('response bodies', () => {
     // rejected rather than the option being quietly ignored.
     expect(result.outcome).toBe('accepted')
     expect(recorder.undrainedBodies).toBe(0)
+  })
+})
+
+const RESPONSE_CHUNK_BYTES = 1024
+
+// The fuse is not part of the fiction of a body that never ends: it is what makes an
+// unbounded read fail the assertion below rather than exhaust the worker.
+const ENDLESS_BODY_FUSE_BYTES = 4 * 1024 * 1024
+
+// Stated here rather than read from the constant the transport reads: an assertion derived
+// from that constant holds however far it moves, including all the way off.
+const BOUNDED_READ_CEILING_BYTES = 128 * 1024
+
+function answersWith(
+  nextChunk: () => Uint8Array | undefined | Promise<Uint8Array | undefined>,
+): {
+  readonly fetch: FetchLike
+  cancelled(): boolean
+} {
+  let cancelled = false
+  let pulled = 0
+  const release = (): Promise<void> => {
+    cancelled = true
+
+    return Promise.resolve()
+  }
+  const read = (): Promise<{ done: boolean; value?: Uint8Array }> => {
+    pulled += 1
+
+    return Promise.resolve(nextChunk()).then((value) =>
+      value === undefined ? { done: true } : { done: false, value },
+    )
+  }
+
+  return {
+    fetch: () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        // Disturbed by the first read, the way a real response is: past that point the
+        // reader is the only thing that can release it.
+        get bodyUsed() {
+          return pulled > 0
+        },
+        body: { cancel: release, getReader: () => ({ read, cancel: release }) },
+        // Offered the way a real response offers it: declining to call this is the fix.
+        text: async () => {
+          const decoder = new TextDecoder()
+          let text = ''
+
+          for (let chunk = await read(); chunk.done !== true; chunk = await read()) {
+            text += decoder.decode(chunk.value, { stream: true })
+          }
+
+          return text
+        },
+      }),
+    cancelled: () => cancelled,
+  }
+}
+
+function answersEndlessly(): {
+  readonly fetch: FetchLike
+  cancelled(): boolean
+  pulledBytes(): number
+} {
+  const chunk = new TextEncoder().encode('x'.repeat(RESPONSE_CHUNK_BYTES))
+  let pulled = 0
+  const answers = answersWith(() => {
+    if (pulled >= ENDLESS_BODY_FUSE_BYTES) {
+      return undefined
+    }
+
+    pulled += chunk.length
+
+    return chunk
+  })
+
+  return { fetch: answers.fetch, cancelled: answers.cancelled, pulledBytes: () => pulled }
+}
+
+// The fuse turns a loop that makes no progress into a failed assertion rather than a pinned
+// core, which is what a body of nothing but empty chunks would otherwise be.
+const EMPTY_CHUNK_FUSE_READS = 200000
+
+function answersWithNothing(): { readonly fetch: FetchLike; reads(): number } {
+  const nothing = new Uint8Array(0)
+  let handed = 0
+  const answers = answersWith(() => {
+    handed += 1
+
+    return handed > EMPTY_CHUNK_FUSE_READS ? undefined : nothing
+  })
+
+  return { fetch: answers.fetch, reads: () => handed }
+}
+
+function answersOneByteEvery(everyMs: number): {
+  readonly fetch: FetchLike
+  cancelled(): boolean
+  reads(): number
+} {
+  const byte = new TextEncoder().encode('x')
+  let handed = 0
+  const answers = answersWith(
+    () =>
+      new Promise<Uint8Array>((resolve) => {
+        setTimeout(() => {
+          handed += 1
+          resolve(byte)
+        }, everyMs)
+      }),
+  )
+
+  return { fetch: answers.fetch, cancelled: answers.cancelled, reads: () => handed }
+}
+
+function ignoresTheAbort(): { readonly fetch: FetchLike; released(): boolean } {
+  let released = false
+  let pulled = 0
+  const release = (): Promise<void> => {
+    released = true
+
+    return Promise.resolve()
+  }
+
+  return {
+    fetch: () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        get bodyUsed() {
+          return pulled > 0
+        },
+        body: {
+          cancel: release,
+          getReader: () => ({
+            read: () => {
+              pulled += 1
+
+              return new Promise<{ done: boolean; value?: Uint8Array }>(() => {})
+            },
+            cancel: release,
+          }),
+        },
+      }),
+    released: () => released,
+  }
+}
+
+function answersInPieces(pieces: readonly string[]): { readonly fetch: FetchLike } {
+  const encoder = new TextEncoder()
+  let sent = 0
+
+  return answersWith(() => {
+    const piece = pieces[sent]
+    sent += 1
+
+    return piece === undefined ? undefined : encoder.encode(piece)
+  })
+}
+
+describe('a reply that arrives as a stream', () => {
+  it('is classified from the pieces it arrived in, because a stream is not one string', async () => {
+    const chunked = answersInPieces(['OK (dup', 'licate)'])
+
+    const result = await client({ fetch: chunked.fetch, retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('duplicate')
+  })
+
+  it('is not ended by a piece that carries nothing, which is not the end of a body', async () => {
+    const interrupted = answersInPieces(['OK (dup', '', 'licate)'])
+
+    const result = await client({ fetch: interrupted.fetch, retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('duplicate')
+  })
+
+  it('ends on a piece that is not bytes, keeping what arrived instead of losing all of it', async () => {
+    const pieces: (Uint8Array | undefined)[] = [
+      new TextEncoder().encode(PING_DUPLICATE_BODY),
+      'not bytes at all' as unknown as Uint8Array,
+    ]
+    let sent = 0
+    const answers = answersWith(() => {
+      const piece = pieces[sent]
+      sent += 1
+
+      return piece
+    })
+
+    const result = await client({ fetch: answers.fetch, retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('duplicate')
+  })
+
+  it('stops at the cap and cancels the rest, so an endless one cannot exhaust the host', async () => {
+    const endless = answersEndlessly()
+
+    const result = await client({ fetch: endless.fetch, retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('accepted')
+    expect(endless.pulledBytes()).toBeLessThan(BOUNDED_READ_CEILING_BYTES)
+    expect(endless.pulledBytes()).toBeLessThanOrEqual(
+      PING_RESPONSE_BODY_CAP_BYTES + RESPONSE_CHUNK_BYTES,
+    )
+    expect(endless.cancelled()).toBe(true)
+  })
+
+  it('leaves a body of nothing but empty pieces to the deadline, rather than reading it forever', async () => {
+    const nothing = answersWithNothing()
+
+    const result = await client({ fetch: nothing.fetch, retries: 0, timeoutMs: 60 }).ping('job')
+
+    expect(result.outcome).toBe('timeout')
+    expect(nothing.reads()).toBeLessThan(EMPTY_CHUNK_FUSE_READS)
+  })
+
+  it('releases the body of a transport that ignores the abort, which nothing else can', async () => {
+    const deaf = ignoresTheAbort()
+
+    const result = await client({ fetch: deaf.fetch, retries: 0, timeoutMs: 60 }).ping('job')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(result.outcome).toBe('timeout')
+    expect(deaf.released()).toBe(true)
+  })
+
+  it('stops reading once the attempt is abandoned, so a trickle cannot outlive it', async () => {
+    const trickle = answersOneByteEvery(5)
+
+    const result = await client({ fetch: trickle.fetch, retries: 0, timeoutMs: 60 }).ping('job')
+    const atTheDeadline = trickle.reads()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+
+    expect(result.outcome).toBe('timeout')
+    expect(trickle.reads()).toBeLessThanOrEqual(atTheDeadline + 1)
+    expect(trickle.cancelled()).toBe(true)
   })
 })
 

@@ -1,4 +1,5 @@
 import { attemptsFor } from '../transport/attempts.js'
+import { API_RESPONSE_BODY_CAP_BYTES } from './constants.js'
 import { TransportFailure, ambientFetch, send } from '../transport/send.js'
 import type { AbortSignalLike, FetchLike } from '../ping/types.js'
 import { ApiConfigurationError, ApiTransportError, type ApiTransportReason } from './errors.js'
@@ -75,6 +76,7 @@ export async function exchange(request: WireRequest): Promise<WireResponse> {
       headers: request.headers,
       body: request.body,
       timeoutMs: request.timeoutMs,
+      bodyCapBytes: API_RESPONSE_BODY_CAP_BYTES,
       attempts: attemptsFor(0),
       signal: request.signal,
       fetch: observing,
