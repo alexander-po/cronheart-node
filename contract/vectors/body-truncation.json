@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.1.0",
+  "contract_version": "2.2.0",
   "group": "body.truncation",
   "default_subject": "body.truncate",
   "description": "The client-side body cap. The rule is byte-exact against a 10000-byte cap with a 19-byte marker, leaving a 9981-byte budget — but only for ASCII. When the budget lands inside a multi-byte character the character is dropped whole, so the result is 1 to 3 bytes short of the cap. The cap is inclusive: a body of exactly 10000 bytes is sent unchanged, with no marker. Every case here would pass trivially in a language whose string length happened to be bytes, and fail in both of the languages this contract targets.",

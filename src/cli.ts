@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { CONTRACT_VERSION, SDK_VERSION } from './version.js'
 import { type ParsedArgs, parseArgv, readFlag } from './cli/args.js'
 import { EXIT_INTERNAL, EXIT_OK, EXIT_USAGE, finish } from './cli/exit.js'
@@ -12,7 +14,7 @@ async function dispatch(args: ParsedArgs, io: Io): Promise<number> {
   const command = args.positional[0]
 
   if (readFlag(args, 'version') || readFlag(args, 'V')) {
-    io.out(`cronheart-node ${SDK_VERSION} (contract ${CONTRACT_VERSION})\n`)
+    io.out(`cronheart ${SDK_VERSION} (contract ${CONTRACT_VERSION})\n`)
 
     return EXIT_OK
   }
@@ -56,9 +58,29 @@ async function dispatch(args: ParsedArgs, io: Io): Promise<number> {
   return EXIT_USAGE
 }
 
-silenceStreamErrors()
+// This file is published under a specifier as well as under bin, and a module somebody
+// imported rather than launched must not read that program's arguments or end its process.
+// The comparison is by real path because every route onto a machine — a bin shim, a package
+// manager's link — is a symlink, and the loader already resolved this module's URL through one.
+function launchedDirectly(): boolean {
+  const entry = process.argv[1]
 
-void dispatch(parseArgv(process.argv.slice(2)), processIo).then(finish, (error: unknown) => {
-  processIo.err(`cronheart: ${error instanceof Error ? error.message : String(error)}\n`)
-  finish(EXIT_INTERNAL)
-})
+  if (entry === undefined) {
+    return false
+  }
+
+  try {
+    return realpathSync(entry) === fileURLToPath(import.meta.url)
+  } catch {
+    return true
+  }
+}
+
+if (launchedDirectly()) {
+  silenceStreamErrors()
+
+  void dispatch(parseArgv(process.argv.slice(2)), processIo).then(finish, (error: unknown) => {
+    processIo.err(`cronheart: ${error instanceof Error ? error.message : String(error)}\n`)
+    finish(EXIT_INTERNAL)
+  })
+}

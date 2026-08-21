@@ -2,16 +2,16 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { constants } from 'node:os'
 import process from 'node:process'
 import { PING_BODY_BUDGET_BYTES } from '../ping/body.js'
+import { describePingResult } from '../ping/describe.js'
 import type { EnvSource } from '../ping/env.js'
 import { countdown } from '../timer.js'
 import { type ParsedArgs, type Read, readText, unknownFlags } from './args.js'
 import {
   environment,
+  idFlagRefusal,
   monitorSecrets,
+  nameFlagRefusal,
   openClient,
-  readMonitorId,
-  readMonitorName,
-  sentenceFor,
 } from './client.js'
 import { MAX_TIMER_MS, describeDuration, parseDuration } from './duration.js'
 import {
@@ -58,7 +58,8 @@ const NOT_STARTED: Readonly<Record<string, string>> = {
 export const MAX_OUTPUT_TAIL_BYTES = PING_BODY_BUDGET_BYTES - 256
 
 export interface RunSpec {
-  readonly monitor: string
+  readonly monitor: string | undefined
+  readonly monitorRefusal: string | undefined
   readonly timeoutMs: number | undefined
   readonly killAfterMs: number | undefined
   readonly outputBytes: number
@@ -84,6 +85,32 @@ interface Completed {
 
 function refuse(problem: string): Read<RunSpec> {
   return { ok: false, problem }
+}
+
+function unmonitored(problem: string): string {
+  return `cronheart: ${problem} The command still ran, unmonitored.\n`
+}
+
+// A monitor this wrapper cannot use is never a reason not to run the command. The flag was
+// written, so monitoring was asked for; what went missing is the value behind it, which in a
+// crontab is one unset variable. Exiting here would trade the job for the diagnosis.
+function monitorProblem(
+  name: string | undefined,
+  uuid: string | undefined,
+): string | undefined {
+  if (name !== undefined && uuid !== undefined) {
+    return 'both --name and --uuid were given, so there is no one monitor this run belongs to.'
+  }
+
+  if (name === '' || uuid === '') {
+    return 'the monitor this run was given is empty, which is what an unset variable expands to.'
+  }
+
+  if (uuid !== undefined) {
+    return idFlagRefusal(uuid)
+  }
+
+  return name === undefined ? undefined : nameFlagRefusal(name)
 }
 
 interface GivenDuration {
@@ -121,8 +148,8 @@ export function planRun(args: ParsedArgs, env: EnvSource): Read<RunSpec> {
     return refuse(`run does not take --${unknown.join(', --')}`)
   }
 
-  const name = readMonitorName(args)
-  const uuid = readMonitorId(args)
+  const name = readText(args, 'name')
+  const uuid = readText(args, 'uuid')
 
   if (!name.ok) {
     return name
@@ -132,15 +159,12 @@ export function planRun(args: ParsedArgs, env: EnvSource): Read<RunSpec> {
     return uuid
   }
 
-  if (name.value !== undefined && uuid.value !== undefined) {
-    return refuse('pass either --name or --uuid, not both')
-  }
-
-  const monitor = name.value ?? uuid.value
-
-  if (monitor === undefined || monitor === '') {
+  if (name.value === undefined && uuid.value === undefined) {
     return refuse('run needs a monitor — pass --name=<name> or --uuid=<id>')
   }
+
+  const monitorRefusal = monitorProblem(name.value, uuid.value)
+  const monitor = monitorRefusal === undefined ? (name.value ?? uuid.value) : undefined
 
   const timeout = duration(args, 'timeout')
 
@@ -209,6 +233,7 @@ export function planRun(args: ParsedArgs, env: EnvSource): Read<RunSpec> {
     ok: true,
     value: {
       monitor,
+      monitorRefusal,
       timeoutMs: timeout.value?.ms,
       killAfterMs:
         killAfter.value === undefined
@@ -551,28 +576,43 @@ export async function runCommand(args: ParsedArgs, io: Io): Promise<number> {
   }
 
   const reported = new Set<string>()
-  const opened = openClient({
-    truncate: 'tail',
-    redact: spec.redact,
-    onResult: (result) => {
-      if (result.ok || reported.has(result.outcome)) {
-        return
-      }
+  const monitor = spec.monitor
+  const opened =
+    monitor === undefined
+      ? undefined
+      : openClient({
+          truncate: 'tail',
+          redact: spec.redact,
+          onResult: (result) => {
+            if (result.ok || reported.has(result.outcome)) {
+              return
+            }
 
-      reported.add(result.outcome)
-      io.err(`cronheart: ${sentenceFor(result)} The command's exit status is unchanged.\n`)
-    },
-  })
+            reported.add(result.outcome)
+            io.err(
+              `cronheart: ${describePingResult(result)} The command's exit status is unchanged.\n`,
+            )
+          },
+        })
 
-  if (!opened.ok) {
-    io.err(`cronheart: ${opened.problem} — the command still ran, unmonitored.\n`)
+  if (spec.monitorRefusal !== undefined) {
+    io.err(unmonitored(spec.monitorRefusal))
   }
 
-  const client = opened.ok ? opened.client : undefined
+  if (opened?.ok === false) {
+    io.err(unmonitored(opened.problem))
+  }
 
-  void client?.start(spec.monitor)
+  const client = opened?.ok === true ? opened.client : undefined
 
-  const completed = await execute(spec, [...spec.redact, ...monitorSecrets(env, spec.monitor)])
+  if (monitor !== undefined) {
+    void client?.start(monitor)
+  }
+
+  const completed = await execute(spec, [
+    ...spec.redact,
+    ...(monitor === undefined ? [] : monitorSecrets(env, monitor)),
+  ])
   const code = exitCodeFor(completed.ended)
   const summary = summaryFor(completed.ended, spec)
 
@@ -580,12 +620,12 @@ export async function runCommand(args: ParsedArgs, io: Io): Promise<number> {
     io.err(`cronheart: ${summary}\n`)
   }
 
-  if (client !== undefined) {
+  if (client !== undefined && monitor !== undefined) {
     const body = completed.tail === '' ? summary : `${summary}\n\n${completed.tail}`
     const delivered = (async (): Promise<void> => {
       await (code === EXIT_OK
-        ? client.success(spec.monitor, { runtimeMs: completed.runtimeMs })
-        : client.fail(spec.monitor, { body, runtimeMs: completed.runtimeMs, truncate: 'tail' }))
+        ? client.success(monitor, { runtimeMs: completed.runtimeMs })
+        : client.fail(monitor, { body, runtimeMs: completed.runtimeMs, truncate: 'tail' }))
       await client.flush(TERMINAL_CHECK_IN_BUDGET_MS)
     })()
 

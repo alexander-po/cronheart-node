@@ -93,7 +93,12 @@ arrow, a default export and a class method are all visible to it.
   shared with the root puts part of the ping path behind import glue every
   consumer of the check-in client then pays for. Measured at 266 gzipped bytes,
   against a budget with 21 to spare. The command-line tool is split for the same
-  reason, so `build` is three `tsdown` invocations in order.
+  reason, so `build` is three `tsdown` invocations in order. It is published
+  under the `cronheart/cli` specifier as well as under `bin`, so a container
+  build can resolve and copy it without a global install — which is why its
+  dispatch sits behind an entry-point check: the file must do nothing at all
+  when it is imported rather than launched. It is excluded from the
+  type-resolution check, being a program rather than an API.
 - The SDK version and the contract version are injected at build time — from
   `package.json` and `contract/cronheart-contract.json` — and each appears in
   exactly one place per build format. Never hardcode either in source: a test

@@ -16,10 +16,13 @@ import { CronheartModule, monitorScheduledJobs } from 'cronheart/nestjs'
 import type { MonitoredSchedule, ScheduledJobs } from 'cronheart/nestjs'
 import {
   PING_BODY_CAP_BYTES,
+  PING_EMITTABLE_ACTIONS,
   SDK_VERSION,
   checkIn,
   checkInWith,
   createPingClient,
+  describePingResult,
+  isMonitorId,
   monitors,
   startRun,
   userAgent,
@@ -29,6 +32,7 @@ import type {
   CheckInThunk,
   FetchLike,
   MonitorRun,
+  PingAction,
   PingClient,
   PingClientOptions,
   PingOptions,
@@ -70,7 +74,21 @@ const options: PingClientOptions = {
   truncate: 'tail',
   redact: [/token=\S+/g],
   fetch: forwarding,
-  onResult: (result: PingResult) => outcomes.push(result.outcome),
+  onResult: (result: PingResult) => outcomes.push(describePingResult(result)),
+}
+
+// What a consumer validating its own configuration needs at load time, and what it needs
+// to tell a check-in nobody answered from one the server refused.
+export function configured(id: string): boolean {
+  return isMonitorId(id)
+}
+
+export function reachedTheServer(result: PingResult): boolean {
+  return result.sent && result.answered
+}
+
+export function emittableActions(): readonly PingAction[] {
+  return PING_EMITTABLE_ACTIONS
 }
 
 const outcomes: string[] = []

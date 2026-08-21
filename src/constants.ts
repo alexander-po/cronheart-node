@@ -8,6 +8,8 @@ export const RUNTIME_HEADER_MAX_VALUE = 86400000
 
 export const DEFAULT_BASE_URL = 'https://cronheart.com'
 
+export const PING_METHOD = 'POST'
+
 export const DEFAULT_TIMEOUT_MS = 5000
 
 export const DEFAULT_RETRIES = 2

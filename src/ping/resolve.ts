@@ -4,6 +4,10 @@ const CANONICAL_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 
 const OPENS_LIKE_AN_ID = /^[0-9a-fA-F]{8}-/
 
+const GROUPED_LIKE_AN_ID = /^[^-]{8}-[^-]{4}-[^-]{4}-[^-]{4}-[^-]{12}$/
+
+const HEX_AND_DASHES = /^[0-9a-fA-F-]{30,40}$/
+
 export type ResolutionReason = 'ok' | 'unset' | 'malformed'
 
 export interface Resolution {
@@ -19,8 +23,16 @@ export function isMonitorId(value: unknown): value is string {
   return typeof value === 'string' && CANONICAL_SHAPE.test(value)
 }
 
-export function opensLikeAnId(value: string): boolean {
-  return OPENS_LIKE_AN_ID.test(value)
+// Shaped like an identifier the whole way through, one edit from a real one. Nobody names
+// a monitor this, which is what makes it safe to read as a broken id rather than a name.
+function hasIdShape(value: string): boolean {
+  return GROUPED_LIKE_AN_ID.test(value) || HEX_AND_DASHES.test(value)
+}
+
+// Weaker: a name may legitimately open with eight hexadecimal digits and a dash, so this
+// decides how a value is printed back, never whether it is a name.
+export function looksLikeAnId(value: string): boolean {
+  return OPENS_LIKE_AN_ID.test(value) || hasIdShape(value)
 }
 
 function screaming(name: string): string {
@@ -39,7 +51,7 @@ export function labelFor(name: unknown): string {
     return '<no monitor>'
   }
 
-  return opensLikeAnId(name) ? `id…${name.slice(-4)}` : name
+  return looksLikeAnId(name) ? `id…${name.slice(-4)}` : name
 }
 
 function definedFor(
@@ -70,8 +82,8 @@ function settle(
 }
 
 // Only a full id is read as an id, and a name that resolved through the map or the
-// environment is a name whatever its own first group looks like. Reading the shape first
-// lets a name shadow the configuration written for it, and prints its tail as an id.
+// environment is a name whatever its own first group looks like. Nothing wholly id-shaped
+// is looked up: screaming a mistyped id into a variable name searches the environment.
 export function resolveMonitor(
   name: string,
   defined: Readonly<Record<string, string>>,
@@ -81,9 +93,10 @@ export function resolveMonitor(
     return { id: name, reason: 'ok', envVar: undefined, label: labelFor(name) }
   }
 
-  const idShaped = opensLikeAnId(name)
+  const idShaped = looksLikeAnId(name)
   const envVar = idShaped ? undefined : envVarFor(name)
-  const configured = definedFor(defined, name) ?? configuredIn(env, name)
+  const configured =
+    definedFor(defined, name) ?? (hasIdShape(name) ? undefined : configuredIn(env, name))
 
   if (configured !== undefined) {
     return settle(configured, { envVar, label: name })

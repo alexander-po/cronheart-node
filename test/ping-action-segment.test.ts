@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
+import { PING_ACTIONS, PING_EMITTABLE_ACTIONS } from '../src/index.js'
 import { type PingAction, segmentFor } from '../src/ping/action.js'
 import { InvalidActionError } from '../src/wiring/errors.js'
 import { pingPath } from '../src/wiring/validate.js'
+
+describe('both action vocabularies are published, because they are not the same set', () => {
+  it('separates every action the SDK sends from the subset that becomes a URL segment', () => {
+    expect([...PING_ACTIONS]).toContain('heartbeat')
+    expect([...PING_EMITTABLE_ACTIONS]).not.toContain('heartbeat')
+    expect(PING_EMITTABLE_ACTIONS.length).toBe(PING_ACTIONS.length - 1)
+    expect(PING_EMITTABLE_ACTIONS.filter((action) => !PING_ACTIONS.includes(action))).toEqual([])
+  })
+})
 
 describe('the action segment', () => {
   it('is absent for a heartbeat and is the action itself for everything this SDK emits', () => {

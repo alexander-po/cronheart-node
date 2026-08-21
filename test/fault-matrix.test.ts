@@ -22,6 +22,8 @@ const NEEDS_NO_CASE: Readonly<Record<string, string>> = {
   './testing#clearWarnings':
     'a test helper for consumers — it resets a warning ledger, it sends nothing',
   '.#userAgent': 'builds a string',
+  '.#describePingResult': 'formats a result the caller already holds',
+  '.#isMonitorId': 'a shape check over a value the caller already holds',
   './api#userAgent': 'builds a string',
   '.#flush': 'takes a deadline, not a callable',
   '.#start': 'a bare check-in — the bracketing entry points are the ones handed a callable',

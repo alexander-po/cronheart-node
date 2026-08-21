@@ -37,9 +37,12 @@ Options
   The command's exit status is passed through. A run that ends in anything but 0 writes its
   summary to stderr, so cron mails it; a run that succeeds writes nothing. A check-in that
   fails writes one line to stderr and changes nothing else, and a server that never answers
-  costs the command at most 2s. Three statuses are the wrapper's own, each where there is no
-  command status to report: 64 for a usage error, before anything is spawned; 124 for
-  --timeout; and 127 or 126 when the command cannot be started at all.
+  costs the command at most 2s. A monitor this wrapper cannot use — an empty --uuid where a
+  variable went missing, a stale id, a name behind --uuid, both flags at once — is reported
+  the same way and the command still runs, unmonitored. Three statuses are the wrapper's
+  own, each where there is no command status to report: 64 when the invocation could not be
+  read at all, before anything is spawned; 124 for --timeout; and 127 or 126 when the
+  command cannot be started at all.
 
 Examples
   Every five minutes from a crontab, with the id written out. Cron sets almost no PATH and
@@ -61,15 +64,16 @@ ${ENVIRONMENT}`
 const PING_HELP = `cronheart ping — send one check-in
 
 Usage
-  cronheart ping <name-or-id> [--action=start|success|fail] [--body=- | <text>]
+  cronheart ping <name-or-id> [--action=heartbeat|start|success|fail] [--body=- | <text>]
                               [--strict] [--verbose] [--redact=<pattern>]
 
   The monitor is either a name, resolved through CRONHEART_<NAME>_UUID, or an id written out.
 
 Options
-  --action=<action>   start, success or fail. Left off, the check-in is a plain heartbeat.
-                      Validated here against a closed list, because the server reads an
-                      action it does not know as a heartbeat — which marks the monitor up.
+  --action=<action>   heartbeat, start, success or fail; heartbeat is what leaving it off
+                      sends. Validated here against the closed list the package exports as
+                      PING_ACTIONS, because the server reads an action it does not know as
+                      a heartbeat — which marks the monitor up.
   --body=<text>       text to send with the check-in. --body=- reads it from standard input.
   --strict            exit 1 when the check-in fails. Off, the exit status is 0 whatever
                       happened, so a check-in cannot break the job around it.

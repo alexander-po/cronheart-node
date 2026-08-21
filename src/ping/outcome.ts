@@ -31,17 +31,6 @@ export const PING_STATUS_OUTCOMES = {
 
 type StatusKey = keyof typeof PING_STATUS_OUTCOMES
 
-const CONFIGURATION_OUTCOMES = new Set<PingOutcome>([
-  'disabled',
-  'suppressed',
-  'not-found',
-  'paused',
-])
-
-export function isConfigurationOutcome(outcome: PingOutcome): boolean {
-  return CONFIGURATION_OUTCOMES.has(outcome)
-}
-
 export function classifyStatus(status: number, body: string): PingOutcome {
   if (status >= 200 && status < 300) {
     return body.trim() === PING_DUPLICATE_BODY ? 'duplicate' : PING_STATUS_OUTCOMES['2xx']

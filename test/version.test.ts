@@ -1,11 +1,12 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { runCli } from './support/cli.js'
 import { wholeGraph } from './support/module-graph.js'
 
 const repoRoot = new URL('../', import.meta.url)
 const pkg = JSON.parse(
   readFileSync(new URL('package.json', repoRoot), 'utf8'),
-) as { version: string }
+) as { name: string; version: string }
 const contract = JSON.parse(
   readFileSync(new URL('contract/cronheart-contract.json', repoRoot), 'utf8'),
 ) as { contract_version: string }
@@ -87,5 +88,24 @@ describe('version single-sourcing', () => {
     expect(built.userAgent()).toBe(
       `cronheart-node/${pkg.version} contract/${contract.contract_version} node/${process.versions.node}`,
     )
+  })
+})
+
+describe('what --version names', () => {
+  it('is the package a reader can install, not the repository it is built from', async () => {
+    const ran = await runCli(['--version'])
+
+    expect(pkg.name).not.toContain('-node')
+    expect(ran.stdout.trim()).toBe(
+      `${pkg.name} ${pkg.version} (contract ${contract.contract_version})`,
+    )
+  })
+
+  it('keeps the language in the User-Agent, where a server log needs to tell the SDKs apart', async () => {
+    const built = (await import(new URL('dist/index.mjs', repoRoot).href)) as {
+      userAgent: () => string
+    }
+
+    expect(built.userAgent()).toContain('cronheart-node/')
   })
 })

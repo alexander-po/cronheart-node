@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url))
 const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
+const { contract_version: contractVersion } = JSON.parse(
+  readFileSync(join(repoRoot, 'contract', 'cronheart-contract.json'), 'utf8'),
+)
 
 const SUBPATHS = [
   'api',
@@ -49,6 +52,8 @@ try {
 ${SUBPATHS.map((subpath) => `import 'cronheart/${subpath}'`).join('\n')}
 import { SDK_VERSION, checkIn, userAgent } from 'cronheart'
 
+assert.ok(import.meta.resolve('cronheart/cli').endsWith('/dist/cli.mjs'))
+
 assert.equal(SDK_VERSION, ${JSON.stringify(pkg.version)})
 assert.ok(userAgent().startsWith(${JSON.stringify(`cronheart-node/${pkg.version} `)}))
 
@@ -67,6 +72,8 @@ console.log('esm consumption ok —', userAgent())
 ${SUBPATHS.map((subpath) => `require('cronheart/${subpath}')`).join('\n')}
 const { SDK_VERSION, checkIn, userAgent } = require('cronheart')
 
+assert.ok(require.resolve('cronheart/cli').endsWith('/dist/cli.mjs'))
+
 assert.equal(SDK_VERSION, ${JSON.stringify(pkg.version)})
 assert.ok(userAgent().startsWith(${JSON.stringify(`cronheart-node/${pkg.version} `)}))
 
@@ -77,14 +84,29 @@ checkIn('a-monitor-nobody-configured').then((result) => {
 })
 `,
   })
-  const bin = join(workspace, 'esm', 'node_modules', '.bin', 'cronheart')
-  const reported = run(bin, ['--version'], join(workspace, 'esm')).trim()
+  const esmProject = join(workspace, 'esm')
+  const bin = join(esmProject, 'node_modules', '.bin', 'cronheart')
+  const reported = run(bin, ['--version'], esmProject).trim()
 
-  if (!reported.startsWith(`cronheart-node ${pkg.version} `)) {
+  if (reported !== `${pkg.name} ${pkg.version} (contract ${contractVersion})`) {
     throw new Error(`the installed bin reported ${JSON.stringify(reported)}`)
   }
 
+  // The route the specifier exists for: resolve it, then run what it resolved to. A global
+  // install is not the only way onto a machine, and a bin shim is not a specifier.
+  const resolved = run(
+    'node',
+    ['--input-type=module', '-e', "process.stdout.write(import.meta.resolve('cronheart/cli'))"],
+    esmProject,
+  ).trim()
+  const throughTheSpecifier = run('node', [fileURLToPath(resolved), '--version'], esmProject).trim()
+
+  if (throughTheSpecifier !== reported) {
+    throw new Error(`the resolved cli reported ${JSON.stringify(throughTheSpecifier)}`)
+  }
+
   process.stdout.write(`bin consumption ok — ${reported}\n`)
+  process.stdout.write(`specifier consumption ok — cronheart/cli\n`)
 } finally {
   rmSync(workspace, { recursive: true, force: true })
 }

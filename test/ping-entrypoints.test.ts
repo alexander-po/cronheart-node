@@ -285,7 +285,7 @@ describe('the off switches are audible', () => {
     expect(warnings[0]).toContain('CRONHEART_DISABLED')
   })
 
-  it('warns once per process per configuration outcome and never for a transient one', async () => {
+  it('warns once per process per cause, for a refusal and for a failure alike', async () => {
     recorder.respondWith({ status: 404, body: 'Monitor not found' })
     const sdk = named({ retries: 0 })
     await sdk.ping('job')
@@ -295,8 +295,9 @@ describe('the off switches are audible', () => {
     await sdk.ping('job')
     await sdk.ping('job')
 
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('cronheart:')
+    expect(warnings).toHaveLength(2)
+    expect(new Set(warnings).size).toBe(2)
+    expect(warnings.filter((line) => !line.startsWith('cronheart:'))).toEqual([])
   })
 
   it('hands results to onResult instead of the warner, so nobody gets double output', async () => {

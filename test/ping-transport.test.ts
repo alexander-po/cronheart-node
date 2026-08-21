@@ -53,12 +53,15 @@ describe('the ping request', () => {
     expect(recorder.pings.map((ping) => ping.action)).toEqual(['start', 'success', 'fail'])
   })
 
-  it('posts when there is a body and gets otherwise, because only a post is stored', async () => {
+  // A GET answered from a cache reports a check-in the service never saw, so the verb does
+  // not depend on the body. The contract states the emitted method under ping.request.
+  it('posts whether or not it carries a body, so no intermediary may answer for the server', async () => {
     const sdk = client()
     await sdk.ping('job')
     await sdk.fail('job', { body: 'stderr tail' })
 
-    expect(recorder.pings.map((ping) => ping.method)).toEqual(['GET', 'POST'])
+    expect(recorder.pings.map((ping) => ping.method)).toEqual(['POST', 'POST'])
+    expect(recorder.pings[0]?.body).toBeUndefined()
     expect(recorder.pings[1]?.body).toBe('stderr tail')
   })
 

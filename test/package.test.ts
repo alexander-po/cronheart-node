@@ -1,8 +1,12 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
+import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { wholeGraph } from './support/module-graph.js'
 
 const dist = new URL('../dist/', import.meta.url)
+
+const CLI_SUBPATH = './cli'
 
 const NODE_BUILTIN = /["']node:/
 
@@ -10,10 +14,13 @@ const { exports: exportsMap } = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ) as { exports: Record<string, unknown> }
 
+// The command-line tool is the one entry allowed to reach Node built-ins. Naming it keeps
+// the exemption visible rather than resting on the shape its export target happens to take.
 const RUNTIME_ENTRIES = [
   ...new Set(
-    Object.values(exportsMap)
-      .flatMap((target) => [
+    Object.entries(exportsMap)
+      .filter(([subpath]) => subpath !== CLI_SUBPATH)
+      .flatMap(([, target]) => [
         (target as { import?: { default?: unknown } }).import?.default,
         (target as { require?: { default?: unknown } }).require?.default,
       ])
@@ -59,6 +66,40 @@ describe('package shape', () => {
     const cli = readFileSync(new URL('cli.mjs', dist), 'utf8')
 
     expect(cli.startsWith('#!/usr/bin/env node')).toBe(true)
+  })
+})
+
+describe('the command-line tool is reachable by a specifier, not only by a global install', () => {
+  it('publishes a subpath for it, so an image build can resolve and copy it', () => {
+    const target = exportsMap[CLI_SUBPATH]
+
+    expect(typeof target).toBe('string')
+    expect(readFileSync(new URL(String(target).replace('./dist/', ''), dist), 'utf8')).toContain(
+      '#!/usr/bin/env node',
+    )
+  })
+
+  it('does not take over a process that imported it rather than launching it', () => {
+    const imported = execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `await import(${JSON.stringify(new URL('cli.mjs', dist).href)});console.log('SURVIVED')`,
+      ],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+
+    expect(imported).toContain('SURVIVED')
+  })
+
+  it('still runs when it is the process entry, which is the whole of what bin means', () => {
+    const launched = execFileSync(process.execPath, [new URL('cli.mjs', dist).pathname, '--version'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    expect(launched).toContain('(contract ')
   })
 })
 

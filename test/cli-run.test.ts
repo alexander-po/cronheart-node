@@ -107,8 +107,8 @@ describe('cronheart run check-ins', () => {
 
     expect(ran.status).toBe(0)
     expect(server.requests.map((request) => `${request.method} ${request.action}`)).toEqual([
-      'GET start',
-      'GET success',
+      'POST start',
+      'POST success',
     ])
     expect(ping(0).headers['x-cronheart-runtime-ms']).toBeUndefined()
     expect(ping(1).headers['x-cronheart-runtime-ms']).toMatch(/^[0-9]+$/)
@@ -263,7 +263,6 @@ describe('cronheart run usage errors', () => {
     ['no command after the separator', ['run', '--name=job', '--']],
     ['no separator at all', ['run', '--name=job', 'echo', 'hi']],
     ['no monitor', ['run', '--', 'true']],
-    ['both a name and an id', ['run', '--name=job', `--uuid=${MONITOR_ID}`, '--', 'true']],
     ['an unknown flag', ['run', '--name=job', '--nope=1', '--', 'true']],
     ['a timeout that is not a duration', ['run', '--name=job', '--timeout=soon', '--', 'true']],
     ['a zero timeout', ['run', '--name=job', '--timeout=0', '--', 'true']],

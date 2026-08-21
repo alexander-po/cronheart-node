@@ -11,6 +11,7 @@ import { dirname } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
 import { escapeLiteral } from '../ping/body.js'
+import { outcomeLine } from '../ping/describe.js'
 import { envVarFor, isMonitorId } from '../ping/resolve.js'
 import { isSyncConfigurationError } from '../sync/errors.js'
 import { idempotencyKeyFor } from '../sync/key.js'
@@ -18,7 +19,6 @@ import { describeApiRefusal } from '../sync/refusal.js'
 import { normaliseSchedule } from '../sync/schedule.js'
 import { type ParsedArgs, readFlag, readText, unknownFlags } from './args.js'
 import {
-  describeResult,
   environment,
   hasApiKey,
   openClient,
@@ -553,7 +553,7 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
 
   const result = await opened.client.ping(answers.name)
 
-  io.out(`  test ${describeResult(result)}\n`)
+  io.out(`  test ${outcomeLine(result)}\n`)
   io.out(nextSteps(variable, answers.name, printEnv))
 
   return result.ok ? EXIT_OK : EXIT_PROBLEM

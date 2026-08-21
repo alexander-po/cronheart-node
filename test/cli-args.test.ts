@@ -116,8 +116,8 @@ describe('every declared flag reaches the CLI rather than the runtime that launc
   it.each([
     [['--help'], 'Usage'],
     [['-h'], 'Usage'],
-    [['--version'], 'cronheart-node '],
-    [['-V'], 'cronheart-node '],
+    [['--version'], 'cronheart '],
+    [['-V'], 'cronheart '],
   ] as const)('answers %s itself', async (args, shown) => {
     const ran = await runCli([...args])
 

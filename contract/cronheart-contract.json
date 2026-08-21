@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.1.0",
+  "contract_version": "2.2.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -109,6 +109,14 @@
         "note": "An action outside this pattern does not reach the action mapper at all: no route matches and the response is a routing 404 that is indistinguishable from an unknown monitor."
       }
     ],
+    "request": {
+      "layer": "client-convention",
+      "method": "POST",
+      "applies_to": "every check-in, with or without a body",
+      "why": "The route accepts all three verbs, so the choice is the SDK fleet's rather than the server's. A check-in is a write, and GET is the one verb a cache or a scanning intermediary may answer on the server's behalf — which reports an accepted check-in the service never saw, the single failure a monitoring client cannot detect from its own result. Emitting one verb also keeps a check-in the same request whether or not the caller happened to pass a body.",
+      "redirects": "never followed: the specification turns a redirected POST into a GET and drops the body with it, so a base URL that moved would go on answering while carrying nothing",
+      "authorization_header": "never sent; the identifier in the path is the whole credential"
+    },
     "body": {
       "captured_on_methods": ["POST"],
       "get_and_head_capture": null,
@@ -809,6 +817,7 @@
     { "id": "ping.body.cap_bytes", "pointer": "/ping/body/cap_bytes", "value": 10000 },
     { "id": "ping.default_base_url", "pointer": "/ping/default_base_url", "value": "https://cronheart.com" },
     { "id": "ping.action.emit", "pointer": "/vocabularies/ping.action/emit", "value": ["start", "success", "fail"] },
+    { "id": "ping.request.method", "pointer": "/ping/request/method", "value": "POST" },
     { "id": "ping.responses.duplicate_body", "pointer": "/ping/responses/table/1/body", "value": "OK (duplicate)" },
     { "id": "ping.responses.status_to_outcome", "pointer": "/ping/responses/status_to_outcome" },
     { "id": "retry_after.max_seconds", "pointer": "/retry_after/max_seconds", "value": 2147483647 },

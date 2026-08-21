@@ -2,6 +2,7 @@ import {
   DEFAULT_BASE_URL,
   DEFAULT_RETRIES,
   DEFAULT_TIMEOUT_MS,
+  PING_METHOD,
   RUNTIME_HEADER_MAX_VALUE,
   RUNTIME_HEADER_NAME,
 } from '../constants.js'
@@ -21,8 +22,9 @@ import { countdown } from '../timer.js'
 import { userAgent } from '../version.js'
 import { type PingAction, isTerminal } from './action.js'
 import { type TruncateMode, inAnyCase, redactSecrets, truncateBody } from './body.js'
+import { messageFor } from './describe.js'
 import { ambientEnv, isDisabled, numberFrom, readEnv } from './env.js'
-import { classifyStatus, isAccepted, isConfigurationOutcome } from './outcome.js'
+import { classifyStatus, isAccepted } from './outcome.js'
 import { type Resolution, labelFor, resolveMonitor } from './resolve.js'
 import { rethrow, safely, toError } from './safely.js'
 import type {
@@ -33,7 +35,6 @@ import type {
   PingClient,
   PingClientOptions,
   PingOptions,
-  PingOutcome,
   PingResult,
 } from './types.js'
 import { warnOnce } from './warn.js'
@@ -128,39 +129,6 @@ function callOptionsFrom(
   return next as PingOptions
 }
 
-function messageFor(outcome: PingOutcome, resolution: Resolution): string | undefined {
-  if (!isConfigurationOutcome(outcome)) {
-    return undefined
-  }
-
-  const monitor = JSON.stringify(resolution.label)
-  const envVar = resolution.envVar
-
-  if (outcome === 'disabled') {
-    return `CRONHEART_DISABLED is set, so no check-in was sent for ${monitor}. Unset it to resume monitoring.`
-  }
-
-  if (outcome === 'suppressed') {
-    if (envVar === undefined || resolution.reason === 'malformed') {
-      const source = envVar === undefined ? 'the id passed for it' : `the value ${envVar} holds`
-      return `${source} is not a monitor id, so nothing was sent for ${monitor}.`
-    }
-
-    return `no monitor id for ${monitor}, so nothing was sent. Set ${envVar}, or pass monitors: { … } to createPingClient.`
-  }
-
-  if (outcome === 'not-found') {
-    const where = envVar === undefined ? 'the id it was given' : envVar
-    return `the server does not recognise the monitor for ${monitor} (HTTP 404). Check ${where}.`
-  }
-
-  if (outcome === 'paused') {
-    return `the monitor for ${monitor} is paused (HTTP 410). Check-ins are recorded, but no alert will fire.`
-  }
-
-  return undefined
-}
-
 export function createPingClient(options: PingClientOptions = {}): PingClient {
   return sealed('createPingClient', () => build(options))
 }
@@ -225,14 +193,14 @@ function build(options: PingClientOptions): PingClient {
     startedAt: number,
   ): Promise<PingResult> {
     const resolution = resolveMonitor(name, defined, env)
-    const finish = (partial: Partial<PingResult>): PingResult => {
-      const result: PingResult = {
+    const finish = (partial: Partial<Omit<PingResult, 'message'>>): PingResult => {
+      const reported: Omit<PingResult, 'message'> = {
         ...fallback,
         ...partial,
         monitor: resolution.label,
         durationMs: Date.now() - startedAt,
-        message: messageFor(partial.outcome ?? fallback.outcome, resolution),
       }
+      const result: PingResult = { ...reported, message: messageFor(reported, resolution) }
 
       report(result, resolution, callOptions)
 
@@ -275,7 +243,7 @@ function build(options: PingClientOptions): PingClient {
     try {
       const response = await transportSend({
         url: `${baseUrl}/ping/${resolution.id}${pingPath(action)}`,
-        method: body === undefined ? 'GET' : 'POST',
+        method: PING_METHOD,
         headers,
         body,
         timeoutMs: positiveOr(callOptions.timeoutMs, timeoutMs),
@@ -289,6 +257,7 @@ function build(options: PingClientOptions): PingClient {
         outcome,
         ok: isAccepted(outcome),
         sent: true,
+        answered: true,
         status: response.status,
         attempts: response.attempts,
         retryAfterSeconds: parseRetryAfter(response.retryAfter, Date.now()),
@@ -326,6 +295,7 @@ function build(options: PingClientOptions): PingClient {
       outcome: 'unexpected',
       ok: false,
       sent: false,
+      answered: false,
       monitor: labelFor(name),
       action,
       status: undefined,

@@ -46,7 +46,7 @@ const run = startRun('nightly-backup')
 await run.success()
 
 // Or build a thunk once, at wiring time, and hand it to a timer.
-const beat = checkInWith('heartbeat', { action: 'success' })
+const beat = checkInWith('nightly-backup', { action: 'success' })
 setInterval(beat, 60_000)
 ```
 
@@ -72,9 +72,24 @@ path returns a `PingResult` instead:
 ```ts
 const result = await checkIn('nightly-backup')
 
-result.outcome // 'accepted' | 'duplicate' | 'paused' | 'not-found' | …
-result.ok      // the server recorded the check-in
-result.sent    // a request actually left the process
+result.outcome  // 'accepted' | 'duplicate' | 'paused' | 'not-found' | …
+result.ok       // the server recorded the check-in
+result.sent     // a request actually left the process
+result.answered // the server replied to one — a refused connection is sent, never answered
+```
+
+`sent` and `answered` are not the same question, and the difference is the one you want at
+3am: a refused connection is `sent: true`, `answered: false`, `status: undefined`. `status`
+is set exactly when `answered` is true.
+
+`describePingResult(result)` turns any of the twelve outcomes into the sentence this package
+would have written for it, so replacing the built-in warner with your own logger is two
+lines rather than a switch over the vocabulary:
+
+```ts
+import { describePingResult } from 'cronheart'
+
+createPingClient({ onResult: (result) => log.info(describePingResult(result)) })
 ```
 
 A cancellation you asked for is reported as its own outcome: aborting a
@@ -83,13 +98,22 @@ read as a deadline nobody set. And when the budget runs out after the server
 has already answered with a 5xx, that answer is what comes back — `server-error`
 with its status — rather than a timeout that hides which of the two happened.
 
-Configuration mistakes are loud rather than silent: an id that resolves to
-nothing, and the `CRONHEART_DISABLED` kill switch, each produce their own
-outcome plus one `console.warn` per process naming the variable to set. Pass
-`onResult` to replace that warner with your own logger. Names, however, are
-validated at wiring time: `createPingClient`, `monitors.define`,
-`monitors.resolve` and `checkInWith` throw on an unresolvable name, so a
-typo fails the deploy rather than going quiet at 3am.
+A check-in that did not happen is loud rather than silent, whichever way it failed to
+happen. A monitor id that resolves to nothing, the `CRONHEART_DISABLED` kill switch, a
+refusal from the server and a connection that was never answered each produce their own
+outcome plus one `console.warn` — **once per process per cause per monitor**, because a
+per-minute crontab that logs a line per tick is how a monitoring library gets removed. A
+cancellation you asked for through your own `signal` is the one failure that says nothing:
+you already know. Pass `onResult` to replace the warner with your own logger.
+
+Names, however, are validated at wiring time: `createPingClient`, `monitors.define`,
+`monitors.resolve` and `checkInWith` throw on an unresolvable name, so a typo fails the
+deploy rather than going quiet at 3am. A value that is shaped like an id the whole way
+through is diagnosed as a **broken id** rather than as a name whose variable nobody set —
+and no variable is looked up for one, because screaming a mistyped identifier into a
+variable name turns a typo into a search of the environment. `isMonitorId(value)` is
+exported so a configuration loader can make the same check at boot without keeping a copy
+of the pattern.
 
 The guarantee is mechanical, not aspirational. One `safely()` chokepoint covers
 name resolution, URL construction, option reading and body encoding as well as
@@ -119,7 +143,10 @@ control proves the matrix can go red.
 deprecation warning.
 
 A check-in retries a failed connection and a 5xx, never a 4xx — `404`, `410`
-and `429` are answers rather than failures. The count is capped at 5 however it
+and `429` are answers rather than failures. **The default is two retries, so one logical
+check-in is up to three requests**, all of them inside one `CRONHEART_TIMEOUT_MS` budget;
+set `CRONHEART_RETRIES=0` if your service-side rate limit counts requests rather than
+check-ins. The count is capped at 5 however it
 is configured, attempts are spaced by at least 50 ms, and the whole sequence,
 delays included, is spent inside `CRONHEART_TIMEOUT_MS`. The base URL is
 validated when the client is built: a query string, a fragment or a scheme that
@@ -129,6 +156,13 @@ credential in the URL is refused too, and so is plain `http:` to anywhere but
 loopback — a check-in body carries a job's own output. A
 redirect is never followed either: the specification turns a redirected POST
 into a GET without a body, which would drop the job's output on the way.
+
+**Every check-in is a `POST`**, with or without a body. The route also accepts `GET` and
+`HEAD`, and a hand-rolled `curl` in a crontab will keep using `GET` — but `GET` is the one
+verb a cache or a scanning intermediary may answer on the server's behalf, and a check-in
+answered by an intermediary is reported as accepted while the service never saw it. That is
+the single failure a monitoring client cannot detect from its own result, so the verb does
+not depend on whether you passed a body.
 
 ## Schedulers
 
@@ -320,6 +354,12 @@ body — and **exits with the command's own exit status**. A check-in that fails
 writes one line to stderr and changes nothing else: a monitoring outage must
 never turn a working job into a failing one.
 
+**Nor may a monitor it cannot use.** `--uuid=$BACKUP_ID` in a crontab whose variable went
+missing expands to an empty flag value; the same is true of a stale id, a name behind
+`--uuid`, or both flags at once. Each of those writes a line to stderr saying the command
+ran **unmonitored**, and then runs it. Refusing to spawn would trade a working nightly
+backup for a diagnosis, which is a worse outcome than an unmonitored one.
+
 A run that ends in anything but `0` also writes its summary to **stderr**, so
 cron mails it the way it would have mailed the unwrapped command's own error; a
 run that succeeds writes nothing at all. A wrapper may be silent on success. It
@@ -355,11 +395,16 @@ so on stderr. The command being wrapped is not given `CRONHEART_API_KEY`:
 check-ins need no key, so there is nothing to trade away.
 
 Three exit statuses are the wrapper's own rather than the command's, and each
-is a case where there is no command status to report: `64` for a usage error,
-which happens before anything is spawned; `124` when `--timeout` expires,
-matching `timeout(1)`; and `127` / `126` when the command cannot be started at
-all. A command that has already exited can no longer time out, whatever is
-still holding its output streams open.
+is a case where there is no command status to report: `64` when the invocation
+could not be read at all — an unknown flag, a flag given no value, no monitor
+flag, nothing after the `--` — which happens before anything is spawned; `124`
+when `--timeout` expires, matching `timeout(1)`; and `127` / `126` when the
+command cannot be started at all. A command that has already exited can no
+longer time out, whatever is still holding its output streams open.
+
+The line between `64` and an unmonitored run is worth stating, because it is the line a
+crontab crosses at 3am: **`64` means the wrapper could not read what you asked it to do;
+a monitor it read and cannot use is not that.**
 
 Run with no terminal — from cron, a systemd timer, a supervisor — the command
 leads its own process group, so `SIGINT`, `SIGTERM` and the `--timeout`
@@ -377,14 +422,18 @@ and its flush share one 2 s budget, after which the status already in hand is
 returned and whatever is in flight is abandoned. An interrupt arriving during
 that budget does the same rather than replacing the status with `130`.
 
-`ping` sends one check-in and exits `0` even when the check-in fails, for the
-same reason `run` does; `--strict` turns a failed check-in into exit `1`. It is
+`ping` sends one check-in and exits `0` even when the check-in fails — including when the
+monitor resolves to nothing — for the same reason `run` does; `--strict` turns a failed
+check-in into exit `1`. It is
 **silent on a check-in that worked** and writes to stderr on one that did not,
 the way `curl -fsS` behaves — one mail per run from a per-minute crontab is how
 a monitoring tool gets uninstalled. At a terminal, or under `--verbose`, the
 confirmation is printed. `--action` is validated against a closed set of
 literals before a URL exists, because the server maps an action it does not
-recognise to a plain heartbeat — which marks the monitor *up*.
+recognise to a plain heartbeat — which marks the monitor *up*. That set is
+`PING_ACTIONS`, exported from the package, so a caller generating the flag can check the
+value before passing it; `heartbeat` is in it and means the same as leaving `--action` off.
+`PING_EMITTABLE_ACTIONS` is the subset that becomes a path segment.
 
 Whatever the outcome, what gets printed is the sentence the client wrote for
 it — *no monitor id for "cleanup", so nothing was sent. Set
@@ -431,6 +480,25 @@ CRONHEART_CLEANUP_UUID=00000000-0000-4000-8000-000000000000
 Install it globally and pin the version. `npx` re-resolves the package on
 every run and needs a warm cache at cron time, which for a monitoring wrapper
 is an availability regression — use it to try the tool, not to run one.
+
+A global install is not the only route onto a machine. The built wrapper is published under
+the `cronheart/cli` specifier as well as under `bin`, so a container build or a deploy
+script that already depends on the package can resolve it and copy it where cron will find
+it:
+
+```js
+import { copyFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+copyFileSync(fileURLToPath(import.meta.resolve('cronheart/cli')), '/usr/local/bin/cronheart')
+```
+
+`require.resolve('cronheart/cli')` does the same from CommonJS. **Resolve it and run it; do
+not import it** — it is a program rather than an API, and importing it deliberately does
+nothing at all rather than reading your process's arguments and exiting it. There is no
+programmatic entry point on purpose: the wrapper's contract is its exit statuses and its
+streams, and everything it does with the service is already reachable through `cronheart`,
+`cronheart/api` and `cronheart/sync`.
 
 ## Management API
 
@@ -747,10 +815,10 @@ a monitor's identifier is the entire credential on its check-in route.
 Node 22 or newer, zero runtime dependencies. The root entry imports nothing
 from `node:`, which is what keeps non-Node runtimes on the table; the CLI is
 the only entry point that reaches for Node built-ins, and a test enforces the
-split. The ping entry is about 6 KB gzipped once your bundler has minified it
+split. The ping entry is 6,635 bytes gzipped once your bundler has minified it
 — that is what your users download, so it is what the budget is measured on —
-and CI fails on a regression past 7,168 bytes. The unminified figure, about
-8.7 KB gzipped, is reported alongside it so a regression in either is
+and CI fails on a regression past 7,168 bytes. The unminified figure, 9,511
+bytes gzipped, is reported alongside it so a regression in either is
 visible. The CLI is bundled apart from the
 library entries so that it cannot pull the ping path into a shared chunk and
 charge every consumer for import glue it has no use for. The management client

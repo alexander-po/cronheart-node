@@ -1,7 +1,7 @@
 {
   "name": "cronheart",
   "version": "0.0.0",
-  "description": "Cron job monitoring and dead man's switch for Node.js and TypeScript \u2014 heartbeat check-ins that alert you when a scheduled job stops running. Works with node-cron, croner, cron, node-schedule, BullMQ, NestJS schedule, plain crontab and systemd timers, plus a CLI wrapper for any command. Official SDK for cronheart.com.",
+  "description": "Cron job monitoring and dead man's switch for Node.js and TypeScript — heartbeat check-ins that alert you when a scheduled job stops running. Works with node-cron, croner, cron, node-schedule, BullMQ, NestJS schedule, plain crontab and systemd timers, plus a CLI wrapper for any command. Official SDK for cronheart.com.",
   "keywords": [
     "cron",
     "cron-monitoring",
@@ -148,6 +148,7 @@
         "default": "./dist/nestjs.cjs"
       }
     },
+    "./cli": "./dist/cli.mjs",
     "./package.json": "./package.json"
   },
   "files": [
@@ -170,7 +171,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:fixture": "tsc --project test/fixture-consumer",
     "publint": "publint --strict",
-    "attw": "attw --pack .",
+    "attw": "attw --pack . --exclude-entrypoints cli",
     "size": "node scripts/size-budget.mjs",
     "guard": "node scripts/source-guard.mjs src",
     "smoke": "node scripts/consumption-smoke.mjs",

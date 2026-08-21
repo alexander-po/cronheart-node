@@ -1,4 +1,5 @@
 import process from 'node:process'
+import { outcomeLine } from '../ping/describe.js'
 import type { EnvSource } from '../ping/env.js'
 import { isMonitorId, resolveMonitor } from '../ping/resolve.js'
 import type { FetchLike, PingHttpResponse } from '../ping/types.js'
@@ -7,7 +8,6 @@ import { CONTRACT_VERSION, SDK_VERSION } from '../version.js'
 import { type ParsedArgs, unknownFlags } from './args.js'
 import {
   baseUrlOf,
-  describeResult,
   environment,
   hasApiKey,
   killSwitchOn,
@@ -225,7 +225,7 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
 
   const result = await opened.client.ping(target)
 
-  io.out(label('check-in', `${describeResult(result)} in ${result.durationMs} ms`))
+  io.out(label('check-in', `${outcomeLine(result)} in ${result.durationMs} ms`))
 
   if (result.message !== undefined) {
     io.out(label('', result.message))

@@ -9,9 +9,11 @@ import type {
 } from './ping/types.js'
 
 export { PING_BODY_CAP_BYTES } from './constants.js'
-export { PING_ACTIONS } from './ping/action.js'
+export { PING_ACTIONS, PING_EMITTABLE_ACTIONS } from './ping/action.js'
 export { PING_OUTCOMES } from './ping/outcome.js'
 export { createPingClient } from './ping/client.js'
+export { describePingResult } from './ping/describe.js'
+export { isMonitorId } from './ping/resolve.js'
 export { CONTRACT_VERSION, SDK_VERSION, userAgent } from './version.js'
 export {
   CronheartConfigurationError,

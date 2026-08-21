@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { PING_ACTIONS } from '../src/index.js'
 import { MONITOR_ID, type PingServer, runCli, startPingServer } from './support/cli.js'
 
 let server: PingServer
@@ -27,8 +28,23 @@ describe('cronheart ping', () => {
 
     expect(ran.status).toBe(0)
     expect(server.requests.map((request) => [request.method, request.monitorId, request.action])).toEqual(
-      [['GET', MONITOR_ID, null]],
+      [['POST', MONITOR_ID, null]],
     )
+  })
+
+  it('takes --action=heartbeat, which is what the library sends when no action is named', async () => {
+    const ran = await runCli(['ping', 'job', '--action=heartbeat'], { env: envFor() })
+
+    expect(ran.status).toBe(0)
+    expect(server.requests.map((request) => request.action)).toEqual([null])
+  })
+
+  it.each(PING_ACTIONS)('accepts %s, so the exported list is the list it validates against', async (action) => {
+    const ran = await runCli(['ping', 'job', `--action=${action}`], { env: envFor() })
+
+    expect(PING_ACTIONS.length).toBe(4)
+    expect(ran.status).toBe(0)
+    expect(server.requests).toHaveLength(1)
   })
 
   it.each(['start', 'success', 'fail'])('emits the %s segment verbatim', async (action) => {
@@ -68,7 +84,7 @@ describe('cronheart ping', () => {
 })
 
 describe('cronheart ping refuses an action the server would silently read as a heartbeat', () => {
-  it.each(['run', 'ok', '0', '-1', '7', 'START', 'Success', 'heartbeat', 'succeeded', ''])(
+  it.each(['run', 'ok', '0', '-1', '7', 'START', 'Success', 'HEARTBEAT', 'succeeded', ''])(
     'exits 64 on --action=%s before any URL exists',
     async (action) => {
       const ran = await runCli(['ping', 'job', `--action=${action}`], { env: envFor() })
@@ -79,12 +95,10 @@ describe('cronheart ping refuses an action the server would silently read as a h
     },
   )
 
-  it('names the three segments it will emit, so the message is actionable', async () => {
+  it('names every action it will take, so the message is actionable', async () => {
     const ran = await runCli(['ping', 'job', '--action=run'], { env: envFor() })
 
-    expect(ran.stderr).toContain('start')
-    expect(ran.stderr).toContain('success')
-    expect(ran.stderr).toContain('fail')
+    expect(PING_ACTIONS.filter((action) => !ran.stderr.includes(action))).toEqual([])
   })
 })
 

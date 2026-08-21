@@ -31,7 +31,10 @@ export type { PingOutcome }
 export interface PingResult {
   readonly outcome: PingOutcome
   readonly ok: boolean
+  // sent says a request left this process; answered says the server replied to one. A
+  // refused connection is sent without being answered, and status is set only when answered.
   readonly sent: boolean
+  readonly answered: boolean
   readonly monitor: string
   readonly action: PingAction
   readonly status: number | undefined

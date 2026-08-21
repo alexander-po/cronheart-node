@@ -13,6 +13,13 @@ interface Run {
   readonly stderr: string
 }
 
+// A check-in that never reached the server writes one line and says why. Anything else on
+// this stream — a stack, an unhandled rejection, a warning from the runtime — is the thing
+// these two cases exist to catch.
+function beyondTheCheckInWarning(stderr: string): string[] {
+  return stderr.split('\n').filter((line) => line !== '' && !line.startsWith('cronheart: '))
+}
+
 // Vitest holds the event loop open for the whole run, so a timer that cannot keep
 // the process alive is indistinguishable in-process from one that can. Only a real
 // process with nothing else pending tells the two apart.
@@ -48,7 +55,8 @@ describe('a check-in in a process with nothing else pending', () => {
       process.stdout.write('outcome=' + result.outcome + '\\n')
     `)
 
-    expect(outcome.stderr).toBe('')
+    expect(beyondTheCheckInWarning(outcome.stderr)).toEqual([])
+    expect(outcome.stderr).toContain('cronheart: ')
     expect(outcome.stdout.trim()).toBe('outcome=timeout')
     expect(outcome.status).toBe(0)
   })
@@ -61,7 +69,7 @@ describe('a check-in in a process with nothing else pending', () => {
       process.stdout.write('after-flush\\n')
     `)
 
-    expect(outcome.stderr).toBe('')
+    expect(beyondTheCheckInWarning(outcome.stderr)).toEqual([])
     expect(outcome.stdout.trim()).toBe('after-flush')
     expect(outcome.status).toBe(0)
   })
