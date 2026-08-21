@@ -195,7 +195,9 @@ createPingClient({ onResult: (result) => log.info(describePingResult(result)) })
 
 A cancellation you asked for is reported as its own outcome: aborting a
 `signal` you passed in gives `aborted`, never `timeout`, so a shutdown does not
-read as a deadline nobody set. And when the budget runs out after the server
+read as a deadline nobody set — and never an answer whose body the cancellation
+stopped it reading, which is how a duplicate check-in would come back as an
+accepted one. And when the budget runs out after the server
 has already answered with a 5xx, that answer is what comes back — `server-error`
 with its status — rather than a timeout that hides which of the two happened.
 

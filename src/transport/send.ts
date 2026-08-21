@@ -330,6 +330,12 @@ async function attemptOnce(
       ])
 
       if (read !== EXPIRED) {
+        // A read the caller's own cancellation ended is not an answer: what came back is
+        // whatever had arrived, and a fragment of a duplicate reads as an accepted check-in.
+        if (stoppedBy === 'caller') {
+          throw gaveUp()
+        }
+
         return { ...answer, body: read }
       }
 
