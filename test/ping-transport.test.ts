@@ -170,29 +170,46 @@ describe('retries', () => {
   })
 })
 
-// The one shape where an answer is in hand and none of its body is.
+// The one shape where an answer is in hand and none of its body is. Modelled the way a real
+// response behaves: a read disturbs the body, and aborting the request is what tears it down.
 function stallsAfterAnswering(status: number): {
   readonly fetch: FetchLike
-  cancelled(): boolean
+  released(): boolean
 } {
-  let cancelled = false
+  let released = false
+  let reading = false
 
   return {
-    fetch: () =>
+    fetch: (_url, init) =>
       Promise.resolve<PingHttpResponse>({
         status,
         headers: { get: () => null },
-        bodyUsed: false,
+        get bodyUsed() {
+          return reading
+        },
         body: {
           cancel: () => {
-            cancelled = true
+            released = true
 
             return Promise.resolve()
           },
         },
-        text: () => new Promise<string>(() => {}),
+        text: () => {
+          reading = true
+
+          return new Promise<string>((_resolve, reject) => {
+            init.signal.addEventListener(
+              'abort',
+              () => {
+                released = true
+                reject(new Error('the body was torn down with the request'))
+              },
+              { once: true },
+            )
+          })
+        },
       }),
-    cancelled: () => cancelled,
+    released: () => released,
   }
 }
 
@@ -210,12 +227,14 @@ describe('an answer already in hand when the budget runs out', () => {
     expect(result.attempts).toBe(1)
   })
 
-  it('cancels the body it gave up on, so the socket does not stay pooled', async () => {
+  // Nothing here cancels it: a response is disturbed from its first read, and cancelling one
+  // a read holds throws rather than releasing it. Giving up on the request is the release.
+  it('releases the body it gave up on, because giving up aborts the request', async () => {
     const stalled = stallsAfterAnswering(503)
 
     await client({ fetch: stalled.fetch, retries: 0, timeoutMs: 60 }).ping('job')
 
-    expect(stalled.cancelled()).toBe(true)
+    expect(stalled.released()).toBe(true)
   })
 })
 

@@ -146,10 +146,14 @@ export const CHECK_IN_ENTRY_POINTS: readonly EntryPoint[] = [
       }
 
       beat?.()
-      const value = await host()
-      await beat?.flush()
 
-      return value
+      // Flushed however the job ends: a thunk does not block the job, so a job that throws
+      // leaves the check-in in flight and every invariant read before it settles is read early.
+      try {
+        return await host()
+      } finally {
+        await beat?.flush()
+      }
     },
   },
   {
