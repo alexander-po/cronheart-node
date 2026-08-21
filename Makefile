@@ -1,7 +1,7 @@
 COMPOSE ?= docker compose
 RUN := $(COMPOSE) run --rm node
 
-.PHONY: help image install build test lint guard contract vectors matrix check smoke shell changeset clean
+.PHONY: help image install build test lint guard contract vectors matrix min-peers check smoke shell changeset clean
 
 help:
 	@echo "Targets (everything runs inside the container — no host Node or pnpm):"
@@ -14,6 +14,7 @@ help:
 	@echo "  contract   Validate the wire contract against its own anchors and the SDK constants"
 	@echo "  vectors    Run the language-neutral conformance vectors"
 	@echo "  matrix     Run the fault matrix and its negative control"
+	@echo "  min-peers  Recheck the adapters against the lowest peer version each range admits"
 	@echo "  smoke      Pack the tarball and consume it from a scratch ESM and CJS project"
 	@echo "  check      The full gate: contract + build + lint + test + smoke"
 	@echo "  shell      Interactive shell in the container"
@@ -49,6 +50,9 @@ vectors:
 
 matrix: build
 	$(RUN) pnpm run fault-matrix
+
+min-peers:
+	$(RUN) pnpm run min-peers
 
 check:
 	$(RUN) pnpm run check

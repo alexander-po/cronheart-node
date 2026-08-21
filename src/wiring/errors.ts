@@ -17,3 +17,11 @@ export class InvalidMonitorIdError extends CronheartConfigurationError {
 export class UnknownMonitorError extends CronheartConfigurationError {
   override readonly name: string = 'UnknownMonitorError'
 }
+
+export class InvalidScheduleError extends CronheartConfigurationError {
+  override readonly name: string = 'InvalidScheduleError'
+}
+
+export class InvalidTimezoneError extends CronheartConfigurationError {
+  override readonly name: string = 'InvalidTimezoneError'
+}

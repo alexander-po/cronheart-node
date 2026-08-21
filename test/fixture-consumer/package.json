@@ -5,5 +5,12 @@
   "type": "module",
   "dependencies": {
     "cronheart": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node-schedule": "2.1.8",
+    "cron": "4.4.0",
+    "croner": "10.0.1",
+    "node-cron": "4.6.0",
+    "node-schedule": "2.1.1"
   }
 }

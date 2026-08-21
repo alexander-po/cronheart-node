@@ -1,4 +1,10 @@
 import { unsafelyMonitored } from '../../src/integrations/__selftest__.js'
+import { monitored as monitoredByCron } from '../../src/integrations/cron.js'
+import { monitored as monitoredByCroner } from '../../src/integrations/croner.js'
+import { monitor as monitorNodeCronTask } from '../../src/integrations/node-cron.js'
+import { monitored as monitoredBySchedule } from '../../src/integrations/node-schedule.js'
+import type { AdapterOptions } from '../../src/integrations/run.js'
+import { execution, fakeTask } from './node-cron-task.js'
 import { unsafelyManaged } from '../../src/api/__selftest__.js'
 import { createCronheartApi } from '../../src/api/client.js'
 import { isCronheartApiError } from '../../src/api/errors.js'
@@ -75,7 +81,7 @@ async function managed(
 export const CHECK_IN_ENTRY_POINTS: readonly EntryPoint[] = [
   {
     id: 'checkIn',
-    exports: ['checkIn', 'ping'],
+    exports: ['.#checkIn', '.#ping'],
     pings: 1,
     unsafe: false,
     invoke: async ({ client, fault, host }) => {
@@ -86,14 +92,14 @@ export const CHECK_IN_ENTRY_POINTS: readonly EntryPoint[] = [
   },
   {
     id: 'withMonitor',
-    exports: ['withMonitor'],
+    exports: ['.#withMonitor'],
     pings: 2,
     unsafe: false,
     invoke: ({ client, fault, host }) => client.withMonitor(fault.monitor, host, fault.pingOptions),
   },
   {
     id: 'startRun',
-    exports: ['startRun'],
+    exports: ['.#startRun'],
     pings: 2,
     unsafe: false,
     invoke: async ({ client, fault, host }) => {
@@ -112,7 +118,7 @@ export const CHECK_IN_ENTRY_POINTS: readonly EntryPoint[] = [
   },
   {
     id: 'checkInWith',
-    exports: ['checkInWith'],
+    exports: ['.#checkInWith'],
     pings: 1,
     unsafe: false,
     invoke: async ({ client, fault, host }) => {
@@ -135,7 +141,7 @@ export const CHECK_IN_ENTRY_POINTS: readonly EntryPoint[] = [
   },
   {
     id: 'api.monitors.list',
-    exports: ['createCronheartApi'],
+    exports: ['./api#createCronheartApi'],
     pings: 1,
     unsafe: false,
     invoke: async (context) => {
@@ -242,7 +248,7 @@ async function reconciled(
 export const SYNC_ENTRY_POINTS: readonly EntryPoint[] = [
   {
     id: 'sync.planSync',
-    exports: ['planSync'],
+    exports: ['./sync#planSync'],
     pings: 1,
     unsafe: false,
     invoke: async (context) => {
@@ -259,7 +265,7 @@ export const SYNC_ENTRY_POINTS: readonly EntryPoint[] = [
   },
   {
     id: 'sync.applySync',
-    exports: ['applySync'],
+    exports: ['./sync#applySync'],
     pings: 1,
     unsafe: false,
     invoke: async (context) => {
@@ -289,7 +295,7 @@ export const UNSAFE_MANAGEMENT_ENTRY_POINT: EntryPoint = {
 
 export const UNSAFE_ENTRY_POINT: EntryPoint = {
   id: '__selftest__',
-  exports: ['unsafelyMonitored'],
+  exports: ['__selftest__#unsafelyMonitored'],
   pings: 1,
   unsafe: true,
   invoke: ({ fault, host }) =>
@@ -299,9 +305,140 @@ export const UNSAFE_ENTRY_POINT: EntryPoint = {
     ),
 }
 
+
+// The adapters take their own options object, so the hostile-input axis reaches them the
+// same way it reaches a check-in: by inheritance rather than by copying, because reading
+// the fault's exploding accessors here would put the explosion in the harness's frame
+// instead of the SDK's, and the case would then prove nothing about the SDK at all.
+function adapterOptions(context: InvocationContext): AdapterOptions {
+  const options = Object.create(context.fault.pingOptions) as AdapterOptions
+
+  return Object.assign(options, { client: context.client })
+}
+
+// A refusal at wiring time is the documented behaviour, not an escape: the adapters resolve
+// the monitor and check the schedule where the job is wired. What must still hold is that
+// the host runs and its value or its error comes back untouched.
+function wired<T>(build: () => T): T | undefined {
+  try {
+    return build()
+  } catch (error) {
+    if (!(error instanceof CronheartConfigurationError)) {
+      throw error
+    }
+
+    return undefined
+  }
+}
+
+const SCHEDULE = '0 3 * * *'
+
+export const ADAPTER_ENTRY_POINTS: readonly EntryPoint[] = [
+  {
+    id: 'croner.monitored',
+    exports: ['./croner#monitored'],
+    pings: 2,
+    unsafe: false,
+    invoke: async (context) => {
+      const args = wired(() =>
+        monitoredByCroner(
+          context.fault.monitor,
+          SCHEDULE,
+          {},
+          context.host,
+          adapterOptions(context),
+        ),
+      )
+
+      if (args === undefined) {
+        return context.host()
+      }
+
+      return args[2](undefined as never, undefined)
+    },
+  },
+  {
+    id: 'cron.monitored',
+    exports: ['./cron#monitored'],
+    pings: 2,
+    unsafe: false,
+    invoke: async (context) => {
+      const params = wired(() =>
+        monitoredByCron(
+          context.fault.monitor,
+          { cronTime: SCHEDULE, onTick: context.host as () => unknown },
+          adapterOptions(context),
+        ),
+      )
+
+      if (params === undefined) {
+        return context.host()
+      }
+
+      return (params.onTick as (this: unknown) => Promise<unknown>).call(undefined)
+    },
+  },
+  {
+    id: 'node-schedule.monitored',
+    exports: ['./node-schedule#monitored'],
+    pings: 2,
+    unsafe: false,
+    invoke: async (context) => {
+      const args = wired(() =>
+        monitoredBySchedule(
+          context.fault.monitor,
+          SCHEDULE,
+          context.host,
+          adapterOptions(context),
+        ),
+      )
+
+      if (args === undefined) {
+        return context.host()
+      }
+
+      return args[2](new Date())
+    },
+  },
+  // The one adapter that never runs the host: it attaches to node-cron's events, so the
+  // case drives the events around a host it calls itself, which is exactly the sequence a
+  // task emits — and the failure event hands the host's own error to the SDK to describe.
+  {
+    id: 'node-cron.monitor',
+    exports: ['./node-cron#monitor'],
+    pings: 2,
+    unsafe: false,
+    invoke: async (context) => {
+      const task = fakeTask(SCHEDULE)
+      const attached = wired(() =>
+        monitorNodeCronTask(task, context.fault.monitor, adapterOptions(context)),
+      )
+
+      if (attached === undefined) {
+        return context.host()
+      }
+
+      task.emit('execution:started', execution('one'))
+
+      try {
+        const value = await context.host()
+        task.emit('execution:finished', execution('one', { result: value }))
+        await attached.flush(BUDGET_MS * 2)
+
+        return value
+      } catch (error) {
+        task.emit('execution:failed', execution('one', { error }))
+        await attached.flush(BUDGET_MS * 2)
+        throw error
+      }
+    },
+  },
+]
+
 export const ENTRY_POINTS: readonly EntryPoint[] = [
   ...CHECK_IN_ENTRY_POINTS,
   ...SYNC_ENTRY_POINTS,
+  ...ADAPTER_ENTRY_POINTS,
 ]
 
 export const REGISTRY: readonly EntryPoint[] = [

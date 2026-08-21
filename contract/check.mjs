@@ -209,6 +209,7 @@ const UNANCHORED = {
     'MONTHS',
     'OPENS_LIKE_AN_ID',
     'PREFIXED_OFFSET',
+    'PURE_STEP',
     'PING_PATH',
     'RFC_850',
     'SCALE',
@@ -271,6 +272,14 @@ const UNANCHORED = {
     'EXPIRED',
     'MARKER',
     'STORE_KEY',
+  ],
+  'the scheduler adapters’ own vocabulary — the sentences they say and what they read to say them': [
+    'DIALECT',
+    'HOUR_FIELD_INDEX',
+    'OVERLAP_ADVICE',
+    'OVERLAP_WARNING',
+    'ZONE_FREE_ALIASES',
+    'ZONE_WARNING',
   ],
   'the reconciler’s own vocabulary, layout and sentences, which no service states': [
     'ACTION_WIDTH',

@@ -90,10 +90,28 @@ jobs:
       # go red proves nothing.
       - run: pnpm run fault-matrix
 
-# Two further jobs are planned and deliberately absent until the artifacts they
-# run against exist:
+  min-peers:
+    name: Minimum peers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      # The floor in engines, not the newest LTS: an adapter's peer range and the
+      # oldest Node the package claims are two promises that have to hold together.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      # One step, and the script is what decides which versions those are — a job that
+      # listed them here would drift from the ranges the manifest publishes.
+      - run: pnpm run min-peers
+
+# One further job is planned and deliberately absent until the artifact it runs
+# against exists:
 #
-#   min-peers      each adapter's lowest declared peer range on the Node floor.
-#                  Waits on the adapters and their peer ranges.
 #   contract-drift compares the checked-in wire contract against the server's
 #                  published schema. Waits on the contract layer.

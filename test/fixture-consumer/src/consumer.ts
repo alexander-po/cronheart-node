@@ -1,3 +1,13 @@
+import { Cron } from 'croner'
+import { CronJob } from 'cron'
+import nodeCron from 'node-cron'
+import type { ScheduledTask } from 'node-cron'
+import { type Job, scheduleJob } from 'node-schedule'
+import { monitored as monitoredByCroner } from 'cronheart/croner'
+import { monitored as monitoredByCron } from 'cronheart/cron'
+import { monitor as monitorNodeCronTask } from 'cronheart/node-cron'
+import type { MonitoredTask } from 'cronheart/node-cron'
+import { monitored as monitoredBySchedule } from 'cronheart/node-schedule'
 import {
   PING_BODY_CAP_BYTES,
   SDK_VERSION,
@@ -156,4 +166,40 @@ export async function retune(management: CronheartApi, uuid: string): Promise<st
 
 export function mirrored(channel: Channel): CreateChannelRequest {
   return { kind: channel.kind, label: `${channel.label} (copy)` }
+}
+
+// The four scheduler adapters, written the way the README writes them: the peer's own
+// entry point, spread or handed the adapter's result. This compiles under the consumer's
+// exact flags against the built declarations, which is the only place the peer types and
+// ours meet the way a user meets them.
+export function scheduleWithCroner(runBackup: () => Promise<number>): Cron {
+  return new Cron(
+    ...monitoredByCroner('nightly-backup', '0 3 * * *', { timezone: 'Europe/Berlin', protect: true }, runBackup),
+  )
+}
+
+export function scheduleWithCron(runBackup: () => Promise<void>): CronJob {
+  return CronJob.from(
+    monitoredByCron('nightly-backup', {
+      cronTime: '0 3 * * *',
+      timeZone: 'Europe/Berlin',
+      waitForCompletion: true,
+      onTick: runBackup,
+    }),
+  )
+}
+
+export function scheduleWithNodeSchedule(runBackup: (fireDate: Date) => Promise<number>): Job {
+  return scheduleJob(
+    ...monitoredBySchedule('nightly-backup', { rule: '0 3 * * *', tz: 'Europe/Berlin' }, runBackup),
+  )
+}
+
+export function scheduleWithNodeCron(runBackup: () => Promise<void>): MonitoredTask {
+  const task: ScheduledTask = nodeCron.schedule('0 3 * * *', runBackup, {
+    timezone: 'Europe/Berlin',
+    noOverlap: true,
+  })
+
+  return monitorNodeCronTask(task, 'nightly-backup')
 }

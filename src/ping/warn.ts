@@ -1,5 +1,3 @@
-import type { PingOutcome } from './types.js'
-
 const STORE_KEY = Symbol.for('cronheart.warnedOutcomes')
 
 function warned(): Set<string> {
@@ -16,11 +14,11 @@ function warned(): Set<string> {
   return created
 }
 
-// Keyed by monitor as well as outcome: one warning per process for a whole fleet of
+// Keyed by monitor as well as subject: one warning per process for a whole fleet of
 // misconfigured monitors would name the first and leave the rest silent forever.
-export function warnOnce(outcome: PingOutcome, monitor: string, message: string): void {
+export function warnOnce(subject: string, monitor: string, message: string): void {
   const seen = warned()
-  const key = `${outcome}\u0000${monitor}`
+  const key = `${subject}\u0000${monitor}`
 
   if (seen.has(key)) {
     return

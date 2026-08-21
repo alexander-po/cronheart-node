@@ -9,10 +9,11 @@ for [cronheart.com](https://cronheart.com).
 [![CI](https://github.com/alexander-po/cronheart-node/actions/workflows/ci.yml/badge.svg)](https://github.com/alexander-po/cronheart-node/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **Pre-release.** The ping path and the CLI are implemented; the management
-> API, the reconciler and the scheduler adapters are not, and nothing is
-> published to npm yet. Every section below marked _Not implemented yet_ has no
-> behaviour behind it — this README documents only what ships.
+> **Pre-release.** The ping path, the CLI, the management API, the reconciler and
+> the croner / cron / node-cron / node-schedule adapters are implemented; the
+> BullMQ and NestJS adapters are not, and nothing is published to npm yet. Every
+> section below marked _Not implemented yet_ has no behaviour behind it — this
+> README documents only what ships.
 
 ## Why
 
@@ -132,12 +133,102 @@ into a GET without a body, which would drop the job's output on the way.
 
 ## Schedulers
 
-Adapters instrument the scheduler library rather than each job's call site, so
-jobs added later are covered without another edit. Planned subpaths:
-`cronheart/croner`, `cronheart/cron`, `cronheart/node-cron`,
-`cronheart/node-schedule`, `cronheart/bullmq`, `cronheart/nestjs`.
+Adapters instrument the scheduler rather than each job's call site, so jobs added
+later are covered without another edit. Four ship today —
+[`croner`](https://www.npmjs.com/package/croner),
+[`cron`](https://www.npmjs.com/package/cron) (the `kelektiv/node-cron`
+repository, whose package is named `cron`),
+[`node-cron`](https://www.npmjs.com/package/node-cron) v4 and
+[`node-schedule`](https://www.npmjs.com/package/node-schedule). Each is a
+subpath export with its peer declared optional and imported for its types only:
+nothing is required at runtime, and an adapter never constructs the scheduler's
+objects. `cronheart/bullmq` and `cronheart/nestjs` are _not implemented yet_.
 
-_Not implemented yet._
+Three of the four hand back the scheduler's own argument list, so the schedule the
+monitor is checked against is by construction the schedule the scheduler runs. The
+fourth attaches to node-cron's events, because a callback wrapper cannot see a
+file-path or background task at all.
+
+```ts
+import { Cron } from 'croner'
+import { monitored } from 'cronheart/croner'
+
+const job = new Cron(
+  ...monitored('nightly-backup', '0 3 * * *', { timezone: 'Europe/Berlin', protect: true }, runBackup),
+)
+```
+
+```ts
+import { CronJob } from 'cron'
+import { monitored } from 'cronheart/cron'
+
+const job = CronJob.from(
+  monitored('nightly-backup', {
+    cronTime: '0 3 * * *',
+    timeZone: 'Europe/Berlin',
+    waitForCompletion: true,
+    onTick: runBackup,
+  }),
+)
+```
+
+```ts
+import { scheduleJob } from 'node-schedule'
+import { monitored } from 'cronheart/node-schedule'
+
+const job = scheduleJob(
+  ...monitored('nightly-backup', { rule: '0 3 * * *', tz: 'Europe/Berlin' }, runBackup),
+)
+```
+
+```ts
+import cron from 'node-cron'
+import { monitor } from 'cronheart/node-cron'
+
+const task = cron.schedule('0 3 * * *', runBackup, { timezone: 'Europe/Berlin', noOverlap: true })
+const monitored = monitor(task, 'nightly-backup')
+```
+
+A monitored run sends a `start` check-in when it begins and a `success` or `fail`
+one when it ends, with the run's duration and — on a failure — the error's
+description in the body. The job's own value comes back by identity and its error
+is rethrown as the same object, so the scheduler sees the run it would have seen.
+An unresolvable monitor, a schedule the service would refuse and a time zone this
+runtime does not know are all refused where the job is wired, never at three in
+the morning.
+
+**Overlap.** A schedule shorter than the job interleaves start and terminal
+check-ins, and the service reads the span between them as the job's runtime — so
+interleaved ones describe a run that never happened. Each adapter reports
+overlapping runs as one, failed if any of them failed, and says once which of the
+scheduler's own guards would have prevented it: croner's `protect: true`, cron 4's
+`waitForCompletion: true`, node-cron's `noOverlap: true`. node-schedule has none,
+and the warning says so. The collapse never skips the job.
+
+**Cron dialect.** All four schedulers accept a six-field expression whose first
+field is seconds; a cronheart schedule has five fields plus seven `@` aliases and
+no seconds field. An expression only the scheduler would take is refused at wiring
+time with a message naming the dialect, because sending it would leave the
+monitor's schedule and the job's schedule disagreeing with nobody told. A one-off
+`Date`, a `RecurrenceRule` and node-schedule's object spec carry no cron dialect
+and are passed through untouched.
+
+**Time zone.** The zone the scheduler fires in has to be the monitor's, or the
+alert lands at the wrong hour and reads as a service fault. Where the scheduler
+takes the zone in the same object the adapter does — croner, cron and
+node-schedule — an unknown zone is refused at wiring time, and a schedule pinned
+to an hour of the day with no zone named warns once, saying which zone it will
+actually fire in. node-cron keeps the zone in options it does not expose on the
+task, so there the adapter has nothing to check it against.
+
+**Flushing.** The three callback adapters await the terminal check-in before the
+tick resolves, so a process that exits at the end of its run cannot outrun it.
+node-cron emits on an event emitter that neither awaits a listener nor reads what
+it returns, so its adapter holds the work itself: `await monitored.flush()` before
+the process exits, or `flush()` from `cronheart` for the shared client.
+
+**Not covered.** cron also accepts a shell command string as its tick; nothing in
+this process can bracket one, and `cronheart run` is the wrapper for that.
 
 ## CLI
 
