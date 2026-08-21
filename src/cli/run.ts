@@ -75,6 +75,7 @@ interface Ended {
   readonly startFailure: string | undefined
   readonly timedOut: boolean
   readonly forwarded: string | undefined
+  readonly escalated: boolean
 }
 
 interface Completed {
@@ -308,6 +309,7 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
           startFailure: (error as { code?: string }).code ?? 'spawn failed',
           timedOut: false,
           forwarded: undefined,
+          escalated: false,
         },
         tail: '',
         runtimeMs: 0,
@@ -322,6 +324,7 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
     let endedWith: { readonly code: number | null; readonly signal: string | null } | undefined
     let timedOut = false
     let forwarded: string | undefined
+    let escalated = false
     let escalation: ReturnType<typeof setTimeout> | undefined
     let deadline: ReturnType<typeof setTimeout> | undefined
     let drain: ReturnType<typeof setTimeout> | undefined
@@ -361,6 +364,7 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
       }
 
       escalation ??= setTimeout(() => {
+        escalated = true
         signalTree(child, 'SIGKILL', ownGroup)
       }, spec.killAfterMs)
     }
@@ -375,7 +379,7 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
       child.stdout?.destroy()
       child.stderr?.destroy()
       resolve({
-        ended: { code, signal, startFailure: undefined, timedOut, forwarded },
+        ended: { code, signal, startFailure: undefined, timedOut, forwarded, escalated },
         tail: tail.text(),
         runtimeMs: Date.now() - startedAt,
       })
@@ -458,6 +462,7 @@ function execute(spec: RunSpec, patterns: readonly (string | RegExp)[]): Promise
           startFailure: (error as { code?: string }).code ?? 'spawn failed',
           timedOut: false,
           forwarded,
+          escalated,
         },
         tail: tail.text(),
         runtimeMs: Date.now() - startedAt,
@@ -508,8 +513,23 @@ function exitCodeFor(ended: Ended): number {
   return ended.code ?? EXIT_OK
 }
 
+// An outside kill and one this wrapper sent end on the same signal, so the summary says which.
+function whatTheWrapperDid(ended: Ended): string {
+  const acts: string[] = []
+
+  if (ended.forwarded !== undefined) {
+    acts.push(`forwarded ${ended.forwarded}`)
+  }
+
+  if (ended.escalated) {
+    acts.push('escalated to SIGKILL')
+  }
+
+  return acts.length === 0 ? '' : ` (cronheart ${acts.join(', then ')})`
+}
+
 function summaryFor(ended: Ended, spec: RunSpec): string {
-  const relayed = ended.forwarded === undefined ? '' : ` (cronheart forwarded ${ended.forwarded})`
+  const relayed = whatTheWrapperDid(ended)
 
   if (ended.startFailure !== undefined) {
     const why = NOT_STARTED[ended.startFailure] ?? 'could not be started'

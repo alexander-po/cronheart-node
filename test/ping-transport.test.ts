@@ -169,6 +169,55 @@ describe('retries', () => {
   })
 })
 
+// The one shape where an answer is in hand and none of its body is.
+function stallsAfterAnswering(status: number): {
+  readonly fetch: FetchLike
+  cancelled(): boolean
+} {
+  let cancelled = false
+
+  return {
+    fetch: () =>
+      Promise.resolve<PingHttpResponse>({
+        status,
+        headers: { get: () => null },
+        bodyUsed: false,
+        body: {
+          cancel: () => {
+            cancelled = true
+
+            return Promise.resolve()
+          },
+        },
+        text: () => new Promise<string>(() => {}),
+      }),
+    cancelled: () => cancelled,
+  }
+}
+
+describe('an answer already in hand when the budget runs out', () => {
+  // retries: 0, so there is no second attempt for the answer to be carried into. The only
+  // thing that can report the status here is the attempt the deadline landed inside.
+  it('reports the server error the attempt was holding rather than the deadline', async () => {
+    const stalled = stallsAfterAnswering(503)
+
+    const result = await client({ fetch: stalled.fetch, retries: 0, timeoutMs: 60 }).ping('job')
+
+    expect(result.outcome).toBe('server-error')
+    expect(result.status).toBe(503)
+    expect(result.answered).toBe(true)
+    expect(result.attempts).toBe(1)
+  })
+
+  it('cancels the body it gave up on, so the socket does not stay pooled', async () => {
+    const stalled = stallsAfterAnswering(503)
+
+    await client({ fetch: stalled.fetch, retries: 0, timeoutMs: 60 }).ping('job')
+
+    expect(stalled.cancelled()).toBe(true)
+  })
+})
+
 describe('response bodies', () => {
   it('drains or cancels every body, so no socket stays pooled after the job ends', async () => {
     recorder.respondWith((_request, attempt) =>

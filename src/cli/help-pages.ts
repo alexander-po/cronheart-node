@@ -33,7 +33,8 @@ Options
   process group, so SIGINT, SIGTERM and the --timeout deadline reach a shell script's
   children with it. Run from a terminal it does not: a group of its own would cost it the
   terminal a sudo or ssh prompt needs, and the terminal delivers the interrupt itself.
-  The escalation to SIGKILL after --kill-after follows either way.
+  The escalation to SIGKILL after --kill-after follows either way, and the check-in body
+  records that this wrapper was the one that sent it.
 
   The command's exit status is passed through. A run that ends in anything but 0 writes its
   summary to stderr, so cron mails it; a run that succeeds writes nothing. A check-in that

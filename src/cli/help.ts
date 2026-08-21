@@ -26,6 +26,9 @@ Commands
   init      create or record a monitor and verify it (creating one needs an API key)
   sync      reconcile the monitors of a project against a configuration file
 
-  cronheart <command> --help   the options that command takes, with examples
+Options
+  -h, --help      this page. Written after a command — cronheart run --help — the options
+                  that command takes, with examples.
+  -V, --version   the package version and the wire contract it was built against.
 
 ${ENVIRONMENT}`

@@ -51,6 +51,10 @@ interface ReadResponse {
   readonly retryAfter: string | null
 }
 
+function isServerError(status: number): boolean {
+  return status >= 500
+}
+
 export function ambientFetch(): FetchLike | undefined {
   const globals = globalThis as { fetch?: unknown }
 
@@ -94,31 +98,31 @@ async function releaseBody(response: PingHttpResponse): Promise<void> {
   }
 }
 
-async function readResponse(response: PingHttpResponse): Promise<ReadResponse> {
+function headOf(response: PingHttpResponse): Omit<ReadResponse, 'body'> {
+  const status = response.status
+
+  if (typeof status !== 'number' || !Number.isFinite(status)) {
+    throw new TransportFailure(
+      'unexpected',
+      'the transport resolved to something that is not an HTTP response',
+    )
+  }
+
+  const headers = response.headers
+
+  return {
+    status,
+    retryAfter: typeof headers?.get === 'function' ? headers.get('retry-after') : null,
+  }
+}
+
+async function readBody(response: PingHttpResponse): Promise<string> {
   try {
-    const status = response.status
+    const body = typeof response.text === 'function' ? await response.text() : ''
 
-    if (typeof status !== 'number' || !Number.isFinite(status)) {
-      throw new TransportFailure(
-        'unexpected',
-        'the transport resolved to something that is not an HTTP response',
-      )
-    }
-
-    const headers = response.headers
-    const retryAfter = typeof headers?.get === 'function' ? headers.get('retry-after') : null
-
-    let body = ''
-
-    try {
-      if (typeof response.text === 'function') {
-        body = await response.text()
-      }
-    } catch {
-      body = ''
-    }
-
-    return { status, body: typeof body === 'string' ? body : '', retryAfter }
+    return typeof body === 'string' ? body : ''
+  } catch {
+    return ''
   } finally {
     await releaseBody(response)
   }
@@ -228,21 +232,28 @@ async function attemptOnce(
     }
 
     try {
-      // The same deadline covers the read: a transport that ignores the signal ignores
-      // it while handing the body over as readily as while opening the connection.
-      const read = await Promise.race([readResponse(response), reached])
+      // The same deadline covers the read, because a transport that ignores the signal
+      // ignores it while handing the body over too.
+      const answer = headOf(response)
+      const read = await Promise.race([readBody(response), reached])
 
-      if (read === EXPIRED) {
-        void releaseBody(response)
-
-        throw gaveUp()
+      if (read !== EXPIRED) {
+        return { ...answer, body: read }
       }
 
-      return read
+      // The answer send() would carry into another attempt is the answer this attempt
+      // keeps: reaching the deadline over its body does not un-answer a server error.
+      if (isServerError(answer.status)) {
+        return { ...answer, body: '' }
+      }
+
+      throw gaveUp()
     } catch (cause) {
       throw cause instanceof TransportFailure
         ? cause
         : new TransportFailure('unexpected', 'the transport response could not be read', cause, 1)
+    } finally {
+      void releaseBody(response)
     }
   } finally {
     deadline.cancel()
@@ -286,7 +297,7 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
     try {
       const outcome = await attemptOnce(request, transport, budget)
 
-      if (outcome.status >= 500 && attempt < request.attempts) {
+      if (isServerError(outcome.status) && attempt < request.attempts) {
         answered = outcome
 
         continue

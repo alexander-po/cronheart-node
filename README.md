@@ -461,6 +461,7 @@ cronheart ping nightly-backup --action=fail --body=-
 cronheart sync --check                            # does the account match the configuration file?
 cronheart doctor
 cronheart run --help                              # options and examples for one command
+cronheart --version                               # the version, and the wire contract it was built against
 ```
 
 `sync` reconciles a whole project's monitors against a file it never writes to;
@@ -544,7 +545,9 @@ with it. Run **from a terminal** it does not: a process group of its own means
 interrupt to the whole foreground group anyway — so the wrapper does not relay
 it a second time, which many tools read as *abort now*. Escalation to `SIGKILL`
 follows after `--kill-after` (5s by default, and never when it is longer than a
-timer can hold). The check-in body says the run was signalled.
+timer can hold). The check-in body says the run was signalled, and says so when
+the wrapper was the one that escalated — otherwise an alert cannot tell a job
+something else killed from one this wrapper killed.
 
 A server that never answers cannot hold the command up: the terminal check-in
 and its flush share one 2 s budget, after which the status already in hand is

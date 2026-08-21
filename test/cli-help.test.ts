@@ -56,6 +56,43 @@ describe('cronheart --help answers for the command that was asked about', () => 
   })
 })
 
+// The doc-claims gate proves that a documented flag exists. This is the other direction,
+// which nothing mechanical can take: a flag the program answers and no page names.
+const ENTRY = readFileSync(new URL('../src/cli.ts', import.meta.url), 'utf8')
+
+const GLOBAL_FLAG_READ = /readFlag\(args, '([\w-]+)'\)/g
+
+const GLOBAL_FLAGS = [
+  ...new Set([...ENTRY.matchAll(GLOBAL_FLAG_READ)].map((match) => String(match[1]))),
+].sort()
+
+// --help is a substring of --helpful and -h is one of --help, so a page naming neither
+// would satisfy a plain containment check on both.
+function names(page: string, flag: string): boolean {
+  const written = flag.length === 1 ? `-${flag}` : `--${flag}`
+
+  return new RegExp(`(?<![-\\w])${written}(?![\\w-])`).test(page)
+}
+
+describe('the flags answered before any command is dispatched', () => {
+  it('reads them off the entry point, so the list below cannot go stale', () => {
+    expect(GLOBAL_FLAGS).toEqual(['V', 'h', 'help', 'version'])
+  })
+
+  it.each(GLOBAL_FLAGS)('names %s on the page a reader with no command reaches', async (flag) => {
+    const ran = await runCli(['--help'])
+
+    expect(ran.status).toBe(0)
+    expect(names(ran.stdout, flag)).toBe(true)
+  })
+
+  it('proves that check can fail, on a flag no page has any reason to name', async () => {
+    const ran = await runCli(['--help'])
+
+    expect(names(ran.stdout, 'quiet')).toBe(false)
+  })
+})
+
 describe('the examples the help gives a crontab', () => {
   it('shows the run command with the id inline, which is what cron can resolve', async () => {
     const ran = await runCli(['run', '--help'])

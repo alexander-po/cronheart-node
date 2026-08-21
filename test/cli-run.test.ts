@@ -245,6 +245,43 @@ describe('cronheart run deadlines and signals', () => {
     expect(ping(1).body).toContain('SIGKILL')
   })
 
+  it('records the escalation, so an alert tells a wrapper kill from an outside one', async () => {
+    const live = startCli(
+      [
+        'run',
+        '--name=job',
+        '--kill-after=400ms',
+        ...node('process.on("SIGTERM", () => {}); setInterval(() => {}, 50)'),
+      ],
+      { env: envFor() },
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    live.child.kill('SIGTERM')
+
+    const ran = await live.settled
+
+    expect(ran.status).toBe(137)
+    expect(ping(1).body).toContain('escalated to SIGKILL')
+  })
+
+  it('records it after --timeout too, where the summary names no signal at all', async () => {
+    const ran = await runCli(
+      [
+        'run',
+        '--name=job',
+        '--timeout=300ms',
+        '--kill-after=300ms',
+        ...node('process.on("SIGTERM", () => {}); setInterval(() => {}, 50)'),
+      ],
+      { env: envFor() },
+    )
+
+    expect(ran.status).toBe(124)
+    expect(ping(1).body).toContain('timed out')
+    expect(ping(1).body).toContain('escalated to SIGKILL')
+  })
+
   it('synthesises 128 + signum when the child dies by a signal nobody forwarded', async () => {
     const ran = await runCli(
       ['run', '--name=job', ...node('process.kill(process.pid, "SIGKILL")')],
@@ -255,6 +292,7 @@ describe('cronheart run deadlines and signals', () => {
     expect(server.requests).toHaveLength(2)
     expect(ping(1).body).toContain('SIGKILL')
     expect(ping(1).body).toContain('137')
+    expect(ping(1).body).not.toContain('escalated')
   })
 })
 

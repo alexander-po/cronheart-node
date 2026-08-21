@@ -10,8 +10,29 @@ import { type Io, processIo, silenceStreamErrors } from './cli/io.js'
 import { pingCommand } from './cli/ping.js'
 import { runCommand } from './cli/run.js'
 
+type Command = (args: ParsedArgs, io: Io) => Promise<number>
+
+// A Map rather than an object literal, so a name every object inherits is not a command
+// this program appears to have. The last three are loaded on demand: a wrapper a crontab
+// runs every minute pays the startup cost of everything the entry file reaches.
+const COMMANDS = new Map<string, Command>([
+  ['run', runCommand],
+  ['ping', pingCommand],
+  ['doctor', async (args, io) => (await import('./cli/doctor.js')).doctorCommand(args, io)],
+  ['init', async (args, io) => (await import('./cli/init.js')).initCommand(args, io)],
+  ['sync', async (args, io) => (await import('./cli/sync.js')).syncCommand(args, io)],
+])
+
 async function dispatch(args: ParsedArgs, io: Io): Promise<number> {
-  const command = args.positional[0]
+  const name = args.positional[0]
+  const command = name === undefined ? undefined : COMMANDS.get(name)
+
+  // Ahead of --help and --version: a typo in a crontab that answers 0 reads as a success.
+  if (name !== undefined && command === undefined) {
+    io.err(`cronheart: ${JSON.stringify(name)} is not a cronheart command\n${HELP}`)
+
+    return EXIT_USAGE
+  }
 
   if (readFlag(args, 'version') || readFlag(args, 'V')) {
     io.out(`cronheart ${SDK_VERSION} (contract ${CONTRACT_VERSION})\n`)
@@ -20,7 +41,7 @@ async function dispatch(args: ParsedArgs, io: Io): Promise<number> {
   }
 
   if (readFlag(args, 'help') || readFlag(args, 'h')) {
-    io.out(command === undefined ? HELP : (await import('./cli/help-pages.js')).helpFor(command))
+    io.out(name === undefined ? HELP : (await import('./cli/help-pages.js')).helpFor(name))
 
     return EXIT_OK
   }
@@ -31,31 +52,7 @@ async function dispatch(args: ParsedArgs, io: Io): Promise<number> {
     return EXIT_USAGE
   }
 
-  if (command === 'run') {
-    return runCommand(args, io)
-  }
-
-  if (command === 'ping') {
-    return pingCommand(args, io)
-  }
-
-  // Loaded on demand: a wrapper a crontab runs every minute pays the startup cost of
-  // everything the entry file reaches, and neither of these is on that path.
-  if (command === 'doctor') {
-    return (await import('./cli/doctor.js')).doctorCommand(args, io)
-  }
-
-  if (command === 'init') {
-    return (await import('./cli/init.js')).initCommand(args, io)
-  }
-
-  if (command === 'sync') {
-    return (await import('./cli/sync.js')).syncCommand(args, io)
-  }
-
-  io.err(`cronheart: ${JSON.stringify(command)} is not a cronheart command\n${HELP}`)
-
-  return EXIT_USAGE
+  return command(args, io)
 }
 
 // This file is published under a specifier as well as under bin, and a module somebody

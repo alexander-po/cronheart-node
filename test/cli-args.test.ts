@@ -125,6 +125,26 @@ describe('every declared flag reaches the CLI rather than the runtime that launc
     expect(ran.status).toBe(0)
   })
 
+  it.each([
+    ['on its own', ['nosuchcommand']],
+    ['with --help after it', ['nosuchcommand', '--help']],
+    ['with --version after it', ['nosuchcommand', '--version']],
+  ] as const)('refuses a command it does not have, %s', async (_where, args) => {
+    const ran = await runCli([...args])
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain('"nosuchcommand" is not a cronheart command')
+    expect(ran.stdout).toBe('')
+  })
+
+  it('still answers --help for a command it does have', async () => {
+    const ran = await runCli(['ping', '--help'])
+
+    expect(ran.status).toBe(0)
+    expect(ran.stdout).toContain('cronheart ping')
+    expect(ran.stderr).toBe('')
+  })
+
   it('shows what the collision looks like, so the rule above is not folklore', async () => {
     const ran = await runCli(['nope', '--env-file=/tmp/nowhere'])
 
