@@ -74,12 +74,16 @@ export function createPingRecorder(initial?: Responder | StubResponse): PingReco
 
       const state = { consumed: false }
       drained.push(state)
+      const encoded = new TextEncoder().encode(stub.body ?? 'OK')
+      let disturbed = false
 
       const response: PingHttpResponse = {
         status: stub.status ?? 200,
         headers: { get: (name) => stub.headers?.[name.toLowerCase()] ?? null },
+        // Disturbed by the first read rather than by the last, the way a real response is:
+        // from there on the reader is the only thing that can release it.
         get bodyUsed() {
-          return state.consumed
+          return disturbed
         },
         body: {
           cancel: () => {
@@ -87,8 +91,38 @@ export function createPingRecorder(initial?: Responder | StubResponse): PingReco
 
             return Promise.resolve()
           },
+          getReader: () => {
+            let sent = false
+
+            return {
+              read: () => {
+                disturbed = true
+
+                if ('readRejectsWith' in stub) {
+                  return Promise.reject(stub.readRejectsWith)
+                }
+
+                if (sent) {
+                  state.consumed = true
+
+                  return Promise.resolve({ done: true })
+                }
+
+                sent = true
+
+                return Promise.resolve({ done: false, value: encoded })
+              },
+              cancel: () => {
+                state.consumed = true
+
+                return Promise.resolve()
+              },
+            }
+          },
         },
         text: async () => {
+          disturbed = true
+
           if ('readRejectsWith' in stub) {
             return Promise.reject(stub.readRejectsWith)
           }

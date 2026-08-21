@@ -251,6 +251,30 @@ describe('response bodies', () => {
     expect(recorder.undrainedBodies).toBe(0)
   })
 
+  // The recorder is what consumers test their own integration against, so a check-in
+  // through it has to take the path a check-in through a real fetch takes.
+  it('is read through the stream rather than whole, which is what a real response gives', async () => {
+    recorder.respondWith({ body: PING_DUPLICATE_BODY })
+    let readWhole = false
+    const watching: FetchLike = (url, init) =>
+      recorder.fetch(url, init).then((response) => {
+        const whole = response.text?.bind(response)
+
+        return Object.assign(response, {
+          text: () => {
+            readWhole = true
+
+            return whole?.() ?? Promise.resolve('')
+          },
+        })
+      })
+
+    const result = await client({ fetch: watching }).ping('job')
+
+    expect(result.outcome).toBe('duplicate')
+    expect(readWhole).toBe(false)
+  })
+
   it('counts a body nobody asked for, so the reading above is a result and not a constant', async () => {
     recorder.respondWith({ status: 200, body: 'OK' })
 
