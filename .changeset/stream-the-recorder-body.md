@@ -3,8 +3,17 @@
 ---
 
 **`createPingRecorder` now answers through a stream, the way a real response
-does.** The recorder handed back a body with no `getReader` and a whole-body
-`text()`. Since the check-in path started reading responses under a cap, it
+does — and this is a patch on purpose, though it can change what a test of yours
+does.** Under this package's own rule a patch never breaks the published
+surface, and `cronheart/testing` is part of it. It ships as one anyway, because
+the release it travels with fixes a vulnerability, and `^0.1.1` resolves below
+`0.2.0`: published as a minor it would reach nobody on a caret range, and this
+project backports to no earlier line. Holding the double back instead would
+publish a fix alongside a test double that no longer models the path the fix
+takes.
+
+The recorder handed back a body with no `getReader` and a whole-body `text()`.
+Since the check-in path started reading responses under a cap, it
 prefers a reader off `response.body` and falls back to `text()` only where
 there is no stream — so a check-in through the recorder took a path a check-in
 through a real `fetch` never takes, and a consumer testing their integration

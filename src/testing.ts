@@ -29,7 +29,8 @@ export type Responder = (request: RecordedPing, attempt: number) => StubResponse
 export interface PingRecorder {
   readonly fetch: FetchLike
   readonly pings: readonly RecordedPing[]
-  // Neither read nor cancelled. Only a stub whose read rejects can leave one here.
+  // Neither read nor cancelled — which now takes a caller who asks for a response and
+  // then leaves it, since a read the SDK starts is released even where that read rejects.
   readonly undrainedBodies: number
   respondWith(responder: Responder | StubResponse): void
   reset(): void

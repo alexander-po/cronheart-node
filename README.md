@@ -244,7 +244,29 @@ most `PING_RESPONSE_BODY_CAP_BYTES` is retained and the rest of the body is
 cancelled rather than buffered. A `fetch` you supply yourself that answers
 only through a whole-body `text()` is read the way it answers. The constant is
 exported, because a bound a consumer cannot read is a bound they have to take on
-trust.
+trust. The management client reads under `API_RESPONSE_BODY_CAP_BYTES`, exported
+from `cronheart/api` and far larger, because a listing is a page rather than a
+two-word answer.
+
+Which of the two a response gets is decided by what it hands back. A body that
+exposes a reader is read under the cap; one that offers only `text()` is read
+whole, the way it answers. Both shapes are typed, so a transport of your own can
+say which it is handing over:
+
+```ts
+import type { PingHttpResponse, PingResponseBody, PingResponseBodyReader } from 'cronheart'
+
+export function bodyOf(response: PingHttpResponse): PingResponseBody | null | undefined {
+  return response.body
+}
+
+export function readerOf(body: PingResponseBody): PingResponseBodyReader | undefined {
+  return body.getReader?.()
+}
+```
+
+`getReader` is optional on purpose: a hand-written double that only implements
+`text()` still works, and gives up the cap in exchange.
 
 ## Configuration
 
