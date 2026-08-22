@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.1.2
+
+### Patch Changes
+
+A security fix, and three corrections that came out of reviewing it. **Upgrade
+from any earlier `0.1.x`**: the check-in path in `0.1.0` and `0.1.1` reads a
+monitor's reply with no bound, so anything able to answer for a monitor can
+exhaust the host process well inside the request timeout. Affected versions are
+`>=0.1.0 <0.1.2`, and this project backports to no earlier line.
+
+- **A monitor's reply is now read under a cap.** The check-in path read the
+  response body whole. Node's `fetch` asks for compressed encodings and
+  decompresses transparently, so a few megabytes on the wire became gigabytes of
+  heap, bounded by nothing but the request timeout. Where the heap held out, V8's
+  own limit on the length of a string did not, and the `RangeError` it throws was
+  swallowed by the read's own `catch` — leaving an empty body, which is also how
+  a duplicate check-in came back reported as accepted. A scheduler OOM-killed by
+  its monitor has been broken by it as surely as by a thrown exception, which is
+  the one thing this package promises cannot happen. At most
+  `PING_RESPONSE_BODY_CAP_BYTES` is now retained and the rest of the body is
+  cancelled; the management client shares the transport under
+  `API_RESPONSE_BODY_CAP_BYTES`, far above the largest page the service returns,
+  and says so when a body it cut short is what failed to parse rather than
+  reporting the service as having answered badly. Reported by an independent
+  security review of a consumer that had worked around it with its own `fetch`.
+- **What this package asks a `fetch` for has changed, even though what you read
+  back has not.** It takes a reader off `response.body` where it called
+  `response.text()`, so a hand-written transport or a test double of your own is
+  exercised through its streaming half for the first time. One that implements
+  only `text()` still works and gives up the cap in exchange. `createPingRecorder`
+  on `cronheart/testing` answers through a stream for the same reason — a test of
+  yours that intercepted `text()` stops seeing it, which is the fix rather than a
+  caveat. That double is versioned surface and a patch does not normally move it;
+  it moves here because `^0.1.1` resolves below `0.2.0`, so a security fix
+  published as a minor would reach nobody on a caret range.
+- **A cancellation that lands while the reply is being read now reports
+  `aborted`.** It reported `accepted`: once the headers were in hand nothing
+  re-read the caller's signal, and an empty or partial body classifies as an
+  accepted check-in. If you branch on `result.ok`, read this one twice — a
+  check-in your own shutdown cancelled now comes back `ok: false`,
+  `answered: false`, `status: undefined` and with `error` set, so a sink written
+  as `if (!result.ok) alert()` starts firing on every graceful shutdown that
+  cancels one in flight. A deadline is unchanged: it still reports `timeout`, and
+  a `5xx` read while nobody cancelled still comes back as `server-error` with its
+  status, because reaching a deadline does not un-answer a server error while a
+  cancellation is something you asked for.
+- **New on the surface, all additive:** `PING_RESPONSE_BODY_CAP_BYTES` beside
+  `PING_BODY_CAP_BYTES`, which caps what a check-in sends;
+  `API_RESPONSE_BODY_CAP_BYTES` on `cronheart/api`; and the `PingResponseBody`
+  and `PingResponseBodyReader` types a hand-written `fetch` implements. The
+  `unbounded` transport reason now covers two conditions rather than one — a
+  listing this client stops walking, and a body it stopped reading — which are
+  the same statement about the client rather than about the service.
+- **The ping entry's stated ceiling is now 8 KiB rather than 7 KiB.** Nothing
+  grew to meet it and the entry measures well under either number; what moved is
+  the bound this package promises not to cross, which had three bytes left after
+  the fixes above. The check-in path is still bundled apart from the management
+  client and the command-line tool, so what a consumer of `cronheart` downloads
+  is still only the check-in path.
+
 ## 0.1.1
 
 ### Patch Changes

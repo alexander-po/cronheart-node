@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { extname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -60,7 +60,10 @@ function filesTheScanIsOwed(): number {
     (path) =>
       path !== '' &&
       !BINARY_EXTENSIONS.has(extname(path)) &&
-      !UNREAD.some((tree) => path.startsWith(tree)),
+      !UNREAD.some((tree) => path.startsWith(tree)) &&
+      // Tracked and deleted is still tracked, and a version run deletes the changesets it
+      // consumed: the scan walks what is on disk, so that is what it is owed.
+      existsSync(join(root, path)),
   ).length
 }
 
