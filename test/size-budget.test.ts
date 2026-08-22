@@ -63,7 +63,7 @@ describe('the size budget is measured on what a consumer downloads', () => {
   it('holds the entry to a ceiling on the minified figure', () => {
     const { minified, budget, verdict, status } = measure()
 
-    expect(budget).toBe(7168)
+    expect(budget).toBe(8192)
     expect(minified).toBeLessThanOrEqual(budget)
     expect(verdict).toBe('ok')
     expect(status).toBe(0)

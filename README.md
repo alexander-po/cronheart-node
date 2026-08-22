@@ -1004,10 +1004,13 @@ from `node:`, which is what keeps non-Node runtimes on the table; the CLI is
 the only entry point that reaches for Node built-ins, and a test enforces the
 split. What your users download is the ping entry gzipped once their bundler has
 minified it, and that is what the budget is measured on:
-CI fails on a regression past 7,168 bytes, which is 7 KiB. That ceiling is what
+CI fails on a regression past 8,192 bytes, which is 8 KiB. That ceiling is what
 this package promises; what a given build measures is printed by the size check
 on every run, minified and unminified both, so a regression in either is visible
-without a figure quoted here going quietly stale. The CLI is bundled
+without a figure quoted here going quietly stale. It was 7 KiB until the
+response cap and the corrections that followed it left three bytes under that,
+and it moved deliberately rather than have the next fix to the check-in path
+negotiate with a byte count. The CLI is bundled
 apart from the library entries so that it cannot pull the ping path into a
 shared chunk and charge every consumer for import glue it has no use for. The
 management client is bundled apart for the same reason: a chunk shared with the
