@@ -1,6 +1,6 @@
 {
   "name": "cronheart",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Cron job monitoring and dead man's switch for Node.js and TypeScript — heartbeat check-ins that alert you when a scheduled job stops running. Works with node-cron, croner, cron, node-schedule, BullMQ, NestJS schedule, plain crontab and systemd timers, plus a CLI wrapper for any command. Official SDK for cronheart.com.",
   "keywords": [
     "cron",
