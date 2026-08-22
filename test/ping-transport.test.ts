@@ -11,6 +11,7 @@ import { createPingClient } from '../src/ping/client.js'
 import { PING_DUPLICATE_BODY } from '../src/ping/outcome.js'
 import type { FetchLike, PingClientOptions, PingHttpResponse } from '../src/ping/types.js'
 import { createPingRecorder } from '../src/testing.js'
+import { detachedCountdown } from '../src/timer.js'
 
 const MONITOR_ID = '00000000-0000-4000-8000-0000000000a1'
 const BASE = 'https://ping.example'
@@ -478,6 +479,31 @@ function ignoresTheAbort(): { readonly fetch: FetchLike; released(): boolean } {
   }
 }
 
+// Stated here rather than derived from the cap: an assertion taken from the constant under
+// test holds however far the accounting drifts from what that constant measures.
+const WIDE_VIEW_CEILING_BYTES = 32768
+
+function answersInWideViews(elements: number): {
+  readonly fetch: FetchLike
+  pulledBytes(): number
+} {
+  const chunk = new Float64Array(elements)
+  let pulled = 0
+  const answers = answersWith(() => {
+    pulled += chunk.byteLength
+
+    return pulled > WIDE_VIEW_CEILING_BYTES * 8 ? undefined : (chunk as unknown as Uint8Array)
+  })
+
+  return { fetch: answers.fetch, pulledBytes: () => pulled }
+}
+
+function answersInPiecesOf(bytes: number): { readonly fetch: FetchLike } {
+  const chunk = new Uint8Array(bytes).fill(0x78)
+
+  return answersWith(() => chunk)
+}
+
 function answersInPieces(pieces: readonly string[]): { readonly fetch: FetchLike } {
   const encoder = new TextEncoder()
   let sent = 0
@@ -497,6 +523,43 @@ describe('a reply that arrives as a stream', () => {
     const result = await client({ fetch: chunked.fetch, retries: 0 }).ping('job')
 
     expect(result.outcome).toBe('duplicate')
+  })
+
+  it('falls back to the whole-body read when the stream is one somebody else holds', async () => {
+    const locked: FetchLike = () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        bodyUsed: false,
+        body: {
+          cancel: () => Promise.resolve(),
+          getReader: () => {
+            throw new TypeError('Invalid state: ReadableStream is locked')
+          },
+        },
+        text: () => Promise.resolve(PING_DUPLICATE_BODY),
+      })
+
+    const result = await client({ fetch: locked, retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('duplicate')
+  })
+
+  it('counts the cap in bytes, which for a wider view is not the number of elements', async () => {
+    const wide = answersInWideViews(128)
+
+    const result = await client({ fetch: wide.fetch, retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('accepted')
+    expect(wide.pulledBytes()).toBeLessThan(WIDE_VIEW_CEILING_BYTES)
+  })
+
+  it('gives the deadline a turn while a body arrives in pieces too small to be progress', async () => {
+    const trickle = answersInPiecesOf(1)
+
+    const result = await client({ fetch: trickle.fetch, retries: 0, timeoutMs: 60 }).ping('job')
+
+    expect(result.outcome).toBe('timeout')
   })
 
   it('is not ended by a piece that carries nothing, which is not the end of a body', async () => {
@@ -761,6 +824,29 @@ describe('a caller-initiated abort', () => {
 
     expect(result.outcome).toBe('aborted')
     expect(result.status).toBeUndefined()
+  })
+
+  it('is reported as an abort when it lands while a retry is being waited out', async () => {
+    const controller = new AbortController()
+    const answersSlowly: FetchLike = () =>
+      detachedCountdown(40).reached.then<PingHttpResponse>(() => ({
+        status: 503,
+        headers: { get: () => null },
+        bodyUsed: false,
+        body: { cancel: () => Promise.resolve() },
+        text: () => Promise.resolve('nope'),
+      }))
+    const settled = client({
+      fetch: answersSlowly,
+      retries: 1,
+      timeoutMs: 60,
+      signal: controller.signal,
+    }).ping('job')
+    setTimeout(() => controller.abort(), 45)
+
+    const result = await settled
+
+    expect(result.outcome).toBe('aborted')
   })
 
   it('is reported the same way when the signal was already aborted', async () => {
