@@ -401,3 +401,32 @@ describe('when a request may be sent again', () => {
     expect(recorder.undrainedBodies).toBe(0)
   })
 })
+
+describe('the recorded management response', () => {
+  it('is read through the stream rather than whole, which is what a real response gives', async () => {
+    const recorder = createApiRecorder({ json: { data: [], total: 0, limit: 50, offset: 0 } })
+    let readWhole = false
+    const { api } = apiWith(
+      {},
+      {
+        fetch: (url, init) =>
+          recorder.fetch(url, init).then((response) => {
+            const whole = response.text?.bind(response)
+
+            return Object.assign(response, {
+              text: () => {
+                readWhole = true
+
+                return whole?.() ?? Promise.resolve('')
+              },
+            })
+          }),
+      },
+    )
+
+    const page = await api.monitors.list()
+
+    expect(page.total).toBe(0)
+    expect(readWhole).toBe(false)
+  })
+})

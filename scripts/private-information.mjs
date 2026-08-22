@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -109,6 +109,7 @@ function credentialPrefix() {
 
 function textFilesUnder(root) {
   const found = []
+  const skipped = []
 
   const walk = (directory) => {
     for (const entry of readdirSync(directory)) {
@@ -123,6 +124,12 @@ function textFilesUnder(root) {
       }
 
       if (statSync(path).isDirectory()) {
+        // A directory carrying its own .git is a working tree in its own right, not this one.
+        if (existsSync(join(path, '.git'))) {
+          skipped.push(relative(root, path))
+          continue
+        }
+
         walk(path)
         continue
       }
@@ -137,7 +144,7 @@ function textFilesUnder(root) {
 
   walk(root)
 
-  return found
+  return { found, skipped }
 }
 
 function disclosuresIn(label, text, { repository, prefix }) {
@@ -201,18 +208,23 @@ function disclosuresIn(label, text, { repository, prefix }) {
 
 export function scanTree(root) {
   const context = { repository: ownRepository(), prefix: credentialPrefix() }
+  const { found, skipped } = textFilesUnder(root)
 
-  return textFilesUnder(root).flatMap((path) => {
-    let text
+  return {
+    read: found.length,
+    skipped,
+    disclosures: found.flatMap((path) => {
+      let text
 
-    try {
-      text = readFileSync(path, 'utf8')
-    } catch {
-      return []
-    }
+      try {
+        text = readFileSync(path, 'utf8')
+      } catch {
+        return []
+      }
 
-    return disclosuresIn(relative(root, path), text, context)
-  })
+      return disclosuresIn(relative(root, path), text, context)
+    }),
+  }
 }
 
 export function scanTarball(tarball, workspace) {
@@ -224,9 +236,16 @@ export function scanTarball(tarball, workspace) {
   return scanTree(unpacked)
 }
 
-export function reportDisclosures(subject, disclosures, out = process.stdout, err = process.stderr) {
+// The count and the skips are the report, not decoration: a scan that read nothing says the
+// same thing about a tree as a scan that read all of it, and a skip nobody sees is a hole.
+export function reportDisclosures(subject, scan, out = process.stdout, err = process.stderr) {
+  const { disclosures, read, skipped } = scan
+  const coverage = `${read} file(s) read${skipped.map((path) => `, skipped the checkout at ${path}`).join('')}`
+
   if (disclosures.length === 0) {
-    out.write(`private information — ${subject} carries none of the shapes this scan knows\n`)
+    out.write(
+      `private information — ${subject} carries none of the shapes this scan knows (${coverage})\n`,
+    )
 
     return true
   }
@@ -235,7 +254,9 @@ export function reportDisclosures(subject, disclosures, out = process.stdout, er
     err.write(`  - ${disclosure.id}: ${disclosure.where} — ${disclosure.detail}\n`)
   }
 
-  err.write(`private information FAILED — ${disclosures.length} disclosure(s) in ${subject}\n`)
+  err.write(
+    `private information FAILED — ${disclosures.length} disclosure(s) in ${subject} (${coverage})\n`,
+  )
 
   return false
 }

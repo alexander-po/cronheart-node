@@ -193,11 +193,17 @@ import { describePingResult } from 'cronheart'
 createPingClient({ onResult: (result) => log.info(describePingResult(result)) })
 ```
 
-A cancellation you asked for is reported as its own outcome: aborting a
-`signal` you passed in gives `aborted`, never `timeout`, so a shutdown does not
-read as a deadline nobody set. And when the budget runs out after the server
-has already answered with a 5xx, that answer is what comes back — `server-error`
-with its status — rather than a timeout that hides which of the two happened.
+A cancellation you asked for is reported as its own outcome: aborting a `signal`
+you passed in gives `aborted`, never `timeout`, so a shutdown does not read as a
+deadline nobody set. It is not reported as an answer either — one that lands
+while the reply is being read discards what had arrived, because a half-read
+body classifies as an accepted check-in and a duplicate would come back as one.
+
+When the budget runs out after the server has already answered with a 5xx, that
+answer is what comes back — `server-error` with its status — rather than a
+timeout that hides which of the two happened. The two rules point opposite ways
+on purpose: a deadline is something that happened to the check-in, and a
+cancellation is something you asked for.
 
 A check-in that did not happen is loud rather than silent, whichever way it failed to
 happen. A monitor id that resolves to nothing, the `CRONHEART_DISABLED` kill switch, a

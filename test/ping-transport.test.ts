@@ -251,6 +251,59 @@ describe('response bodies', () => {
     expect(recorder.undrainedBodies).toBe(0)
   })
 
+  // The recorder is what consumers test their own integration against, so a check-in
+  // through it has to take the path a check-in through a real fetch takes.
+  it('is read through the stream rather than whole, which is what a real response gives', async () => {
+    recorder.respondWith({ body: PING_DUPLICATE_BODY })
+    let readWhole = false
+    const watching: FetchLike = (url, init) =>
+      recorder.fetch(url, init).then((response) => {
+        const whole = response.text?.bind(response)
+
+        return Object.assign(response, {
+          text: () => {
+            readWhole = true
+
+            return whole?.() ?? Promise.resolve('')
+          },
+        })
+      })
+
+    const result = await client({ fetch: watching }).ping('job')
+
+    expect(result.outcome).toBe('duplicate')
+    expect(readWhole).toBe(false)
+  })
+
+  // A chunk of nothing is a shape the transport answers by yielding to the event loop, and
+  // a consumer's suite on fake timers never comes back from that turn.
+  it('reports an empty body as done rather than handing over a chunk of nothing', async () => {
+    recorder.respondWith({ body: '' })
+
+    const response = await recorder.fetch(`${BASE}/ping/${MONITOR_ID}`, {
+      method: 'POST',
+      headers: {},
+      signal: new AbortController().signal,
+    })
+    const first = await response.body?.getReader?.().read()
+
+    expect(first?.done).toBe(true)
+  })
+
+  // Published surface a consumer can reach without the SDK in between: the refusal has to
+  // arrive whichever way they read the body, and only one of the two is what the SDK takes.
+  it('refuses a whole-body read the way it refuses a streamed one', async () => {
+    recorder.respondWith({ readRejectsWith: new Error('the body cannot be read') })
+
+    const response = await recorder.fetch(`${BASE}/ping/${MONITOR_ID}`, {
+      method: 'POST',
+      headers: {},
+      signal: new AbortController().signal,
+    })
+
+    await expect(response.text?.()).rejects.toThrow('the body cannot be read')
+  })
+
   it('counts a body nobody asked for, so the reading above is a result and not a constant', async () => {
     recorder.respondWith({ status: 200, body: 'OK' })
 
@@ -630,6 +683,84 @@ describe('a caller-initiated abort', () => {
 
     expect(result.outcome).toBe('aborted')
     expect(result.ok).toBe(false)
+  })
+
+  // The one shape where the answer is in hand and the body is not: the caller's own
+  // cancellation lands while the reply is being read.
+  it('is reported as an abort when it lands mid-read, not as the answer nobody finished', async () => {
+    const controller = new AbortController()
+    let pulled = 0
+    const endsOnTheAbort: FetchLike = (_url, init) =>
+      Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        get bodyUsed() {
+          return pulled > 0
+        },
+        body: {
+          cancel: () => Promise.resolve(),
+          getReader: () => ({
+            read: () => {
+              pulled += 1
+
+              return new Promise<{ done: boolean; value?: Uint8Array }>((resolve) => {
+                init.signal.addEventListener('abort', () => resolve({ done: true }), { once: true })
+              })
+            },
+            cancel: () => Promise.resolve(),
+          }),
+        },
+      })
+    const settled = client({
+      fetch: endsOnTheAbort,
+      retries: 0,
+      timeoutMs: 5000,
+      signal: controller.signal,
+    }).ping('job')
+    setTimeout(() => controller.abort(), 10)
+
+    const result = await settled
+
+    expect(result.outcome).toBe('aborted')
+    expect(result.ok).toBe(false)
+  })
+
+  // The deadline landing on an unread body keeps a server error, on the grounds that
+  // reaching it does not un-answer one. A cancellation is the case where that does not hold.
+  it('is reported as an abort even where the server error was never finished being read', async () => {
+    const controller = new AbortController()
+    let pulled = 0
+    const neverSettles: FetchLike = () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 503,
+        headers: { get: () => null },
+        get bodyUsed() {
+          return pulled > 0
+        },
+        body: {
+          cancel: () => Promise.resolve(),
+          getReader: () => ({
+            read: () => {
+              pulled += 1
+
+              return new Promise<{ done: boolean; value?: Uint8Array }>(() => {})
+            },
+            cancel: () => Promise.resolve(),
+          }),
+        },
+      })
+    const settled = client({
+      fetch: neverSettles,
+      retries: 0,
+      timeoutMs: 120,
+      signal: controller.signal,
+    }).ping('job')
+    setTimeout(() => controller.abort(), 10)
+
+    const result = await settled
+
+    expect(result.outcome).toBe('aborted')
+    expect(result.status).toBeUndefined()
   })
 
   it('is reported the same way when the signal was already aborted', async () => {

@@ -329,6 +329,13 @@ async function attemptOnce(
         reached,
       ])
 
+      // A cancellation the caller asked for is not an answer, whether the read came back or
+      // the deadline landed on it first: what would be reported is a body they stopped, and
+      // a fragment of a duplicate reads as an accepted check-in.
+      if (stoppedBy === 'caller') {
+        throw gaveUp()
+      }
+
       if (read !== EXPIRED) {
         return { ...answer, body: read }
       }
