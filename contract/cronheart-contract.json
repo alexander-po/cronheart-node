@@ -444,7 +444,7 @@
         { "status": "other", "class": "UnexpectedResponse" }
       ],
       "transport_class": "ApiTransport",
-      "transport_conditions": ["connection failure", "timeout", "unparseable response", "pagination did not terminate"]
+      "transport_conditions": ["connection failure", "timeout", "cancelled by the caller", "unusable response", "unparseable response", "response larger than the client reads", "pagination did not terminate"]
     },
     "rate_limits": {
       "key": "per account, shared by every token the account holds regardless of token scope",

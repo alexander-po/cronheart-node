@@ -12,12 +12,15 @@ const repoRoot = fileURLToPath(new URL('../', import.meta.url))
 const SKIPPED_DIRECTORIES = new Set([
   '.git',
   'node_modules',
-  'dist',
-  'build',
   'coverage',
   '.pnpm-store',
   'doc-samples',
 ])
+
+// Build output, skipped by where it sits rather than by what it is called: the published
+// tarball's whole payload sits in a directory named dist, and that payload is the one thing
+// this scan is pointed at a tarball to read.
+const SKIPPED_ROOTS = new Set(['dist', 'build'])
 
 // The trees that hold the shapes this scan exists to find. Nothing else may be added here:
 // a path on this list is a path the scan does not read.
@@ -26,7 +29,7 @@ const SKIPPED_PATHS = new Set([
   'test/fixtures/release-metadata',
 ])
 
-const BINARY_EXTENSIONS = new Set([
+export const BINARY_EXTENSIONS = new Set([
   '.png',
   '.jpg',
   '.jpeg',
@@ -119,14 +122,16 @@ function textFilesUnder(root) {
 
       const path = join(directory, entry)
 
-      if (SKIPPED_PATHS.has(relative(root, path))) {
+      const where = relative(root, path)
+
+      if (SKIPPED_PATHS.has(where) || SKIPPED_ROOTS.has(where)) {
         continue
       }
 
       if (statSync(path).isDirectory()) {
         // A directory carrying its own .git is a working tree in its own right, not this one.
         if (existsSync(join(path, '.git'))) {
-          skipped.push(relative(root, path))
+          skipped.push(where)
           continue
         }
 

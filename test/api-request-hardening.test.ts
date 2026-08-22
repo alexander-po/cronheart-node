@@ -65,6 +65,21 @@ describe('an answer larger than this client reads', () => {
     expect((refusal as ApiTransportError).message).toContain('stops reading')
     expect(oversized.pulledBytes()).toBeLessThan(MANAGEMENT_READ_CEILING_BYTES)
   })
+
+  // The other side of the same boundary: what the client read whole is the service's answer
+  // to account for, and saying otherwise sends a support request at the wrong party.
+  it('reports a body it read whole as unparseable rather than as one it cut short', async () => {
+    const undersized = streamingFetch(
+      new Uint8Array(API_RESPONSE_BODY_CAP_BYTES - 1024).fill(0x78),
+      65536,
+    )
+    const { api } = apiWith({}, { fetch: undersized.fetch })
+
+    const refusal = await api.monitors.list().catch((error: unknown) => error)
+
+    expect(refusal).toBeInstanceOf(ApiTransportError)
+    expect((refusal as ApiTransportError).reason).toBe('unparseable')
+  })
 })
 
 describe('the retry cap', () => {

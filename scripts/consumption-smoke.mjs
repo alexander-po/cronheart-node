@@ -11,6 +11,8 @@ const { contract_version: contractVersion } = JSON.parse(
   readFileSync(join(repoRoot, 'contract', 'cronheart-contract.json'), 'utf8'),
 )
 
+const BINARY = /\.(?:png|jpe?g|gif|webp|ico|pdf|zip|gz|tgz|woff2?|ttf|eot|mp4|wasm)$/i
+
 const SUBPATHS = [
   ['api', 'createCronheartApi'],
   ['sync', 'defineMonitors'],
@@ -108,8 +110,18 @@ try {
 
   // The allow-list above says which files ship; this says what is inside them. A bundle
   // carries source strings, and a path or an address that reached one is published too.
-  if (!reportDisclosures('the tarball', scanTarball(tarball, workspace))) {
+  const scanned = scanTarball(tarball, workspace)
+
+  if (!reportDisclosures('the tarball', scanned)) {
     throw new Error('the tarball carries private information')
+  }
+
+  // Against the allow-list rather than a number: a scan that reads none of the bundles says
+  // the same thing about a tarball as one that reads all of them, and for one release it did.
+  if (scanned.read < entries.filter((entry) => !BINARY.test(entry)).length) {
+    throw new Error(
+      `the tarball scan read ${scanned.read} of ${entries.length} published file(s) — something it should have read was skipped`,
+    )
   }
 
   process.stdout.write(

@@ -39,6 +39,16 @@ CI runs on the pull request; `main` is what gets tagged. Run `make release-gate`
 locally before you tag — it is the one gate CI never ran on the branch, and an
 unconsumed changeset is what it usually catches.
 
+**2a. If the release fixes a vulnerability, draft the advisory before you tag.**
+A changelog entry is not an advisory: `npm audit` reads GitHub Security
+Advisories, so a consumer sitting on the affected versions learns nothing from a
+release they have no reason to read about. Draft it at
+[the repository's advisories](https://github.com/alexander-po/cronheart-node/security/advisories),
+state the affected range as a range rather than a version, and publish it once
+the tag has. `0.x` makes the range matter more than usual: `^0.1.1` resolves
+below `0.2.0`, so a fix published as a minor reaches nobody on a caret range,
+and this project backports to no earlier line.
+
 **3. Tag `main`.**
 
 ```bash

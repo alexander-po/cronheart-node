@@ -18,6 +18,8 @@ const CANCELLED = 'the caller aborted the check-in'
 
 const EXPIRED = Symbol('deadline')
 
+const TINY_CHUNK_BYTES = 64
+
 export class TransportFailure extends Error {
   override readonly name = 'TransportFailure'
 
@@ -132,20 +134,26 @@ function headOf(response: PingHttpResponse): Omit<ReadResponse, 'body'> {
 }
 
 function readerFor(response: PingHttpResponse): PingResponseBodyReader | undefined {
-  const stream = response.body
+  try {
+    const stream = response.body
 
-  if (
-    response.bodyUsed === true ||
-    stream === null ||
-    stream === undefined ||
-    typeof stream.getReader !== 'function'
-  ) {
+    if (
+      response.bodyUsed === true ||
+      stream === null ||
+      stream === undefined ||
+      typeof stream.getReader !== 'function'
+    ) {
+      return undefined
+    }
+
+    const reader = stream.getReader()
+
+    return typeof reader?.read === 'function' ? reader : undefined
+  } catch {
+    // A stream another reader already holds is not this one's to take, and the whole-body
+    // read the response also offers is: refusing here would report a reply nobody read.
     return undefined
   }
-
-  const reader = stream.getReader()
-
-  return typeof reader?.read === 'function' ? reader : undefined
 }
 
 // The runtime decompresses whatever arrives before this sees it, so a reply read whole
@@ -166,18 +174,22 @@ async function readCapped(
       return text
     }
 
-    if (chunk.value.length === 0) {
-      // A chunk carrying nothing is not the end of a body, and it is not progress either:
-      // without a turn for the event loop the deadline's own timer would never run, and
-      // a stream that only ever yields nothing would hold this loop for good.
-      await countdown(0).reached
-
-      continue
-    }
-
-    const kept = chunk.value.length <= remaining ? chunk.value : chunk.value.subarray(0, remaining)
-    remaining -= kept.length
+    // Bytes rather than elements: every view is admitted, and the cap is a size in bytes,
+    // which for anything wider than a byte array is not the number of them it holds.
+    const arrived = chunk.value
+    const kept =
+      arrived.byteLength <= remaining
+        ? arrived
+        : new Uint8Array(arrived.buffer, arrived.byteOffset, remaining)
+    remaining -= kept.byteLength
     text += decoder.decode(kept, { stream: true })
+
+    // A chunk this small is not a body making progress, and a loop that only ever awaits
+    // settled promises runs in microtasks, where the deadline's own timer never gets a turn:
+    // without this the read outlasts the budget it was given, and reports success.
+    if (kept.byteLength < TINY_CHUNK_BYTES) {
+      await countdown(0).reached
+    }
   }
 
   return text
@@ -238,6 +250,14 @@ function relayAbort(signal: unknown, relay: () => void): AbortSignalLike | undef
     // A hand-built signal is an input like any other: ignoring one that throws costs
     // the caller their cancellation, while trusting it would cost the check-in.
     return undefined
+  }
+}
+
+function wasStopped(signal: AbortSignalLike | undefined): boolean {
+  try {
+    return signal?.aborted === true
+  } catch {
+    return false
   }
 }
 
@@ -384,13 +404,19 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
     const budget = deadline - Date.now()
 
     if (budget <= 0) {
+      // A cancellation landing between attempts is seen by nobody else: no attempt is in
+      // flight to relay it, and the answer being held is one the caller stopped waiting for.
+      const cancelled = wasStopped(request.signal)
+
       // A server that answered and then ran the budget out is a different report from a
       // server that was never reached, and the retried answer is the more informative one.
-      if (answered !== undefined) {
+      if (answered !== undefined && !cancelled) {
         return { ...answered, attempts: attempt - 1 }
       }
 
-      throw new TransportFailure('timeout', OUT_OF_BUDGET, last, attempt - 1)
+      throw cancelled
+        ? new TransportFailure('aborted', CANCELLED, last, attempt - 1)
+        : new TransportFailure('timeout', OUT_OF_BUDGET, last, attempt - 1)
     }
 
     try {

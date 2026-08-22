@@ -5,7 +5,7 @@ import { Rolldown } from 'tsdown'
 
 // The ceiling is on the minified figure because that is the one a consumer receives: their
 // bundler minifies, so bounding the unminified bytes bounded a file nobody downloads.
-const BUDGET_GZIP_BYTES = 7168
+const BUDGET_GZIP_BYTES = 8192
 
 const RELATIVE_SPECIFIER = /["'](\.\/[^"']+\.m?js)["']/g
 

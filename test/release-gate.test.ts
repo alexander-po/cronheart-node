@@ -1,9 +1,13 @@
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { extname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+
+// The scan's own list, not a copy of it: a second copy is how the two stop agreeing.
+// @ts-expect-error — a build script, checked by the guard rather than by tsc
+import { BINARY_EXTENSIONS } from '../scripts/private-information.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 
@@ -33,6 +37,31 @@ const UNCONSUMED = /^\.changeset\/\S+ — is unconsumed \(/
 // it reached is asserted rather than taken from the absence of findings.
 function filesReadIn(output: string): number {
   return Number(/(\d+) file\(s\) read/.exec(output)?.[1] ?? -1)
+}
+
+// The trees the scan is pointed away from, which are therefore not owed a reading.
+const UNREAD = [
+  'test/fixtures/private-information/',
+  'test/fixtures/release-metadata/',
+  'test/fixture-consumer/doc-samples/',
+]
+
+// Git lists exactly what the scan walks — tracked and untracked, minus what is ignored — so
+// the two counts are the same number or the scan skipped something. A floor picked by hand
+// cannot do this: a checkout parked over any one directory costs fewer files than the slack
+// such a floor has to leave, which makes it decorative against the one thing it is for.
+function filesTheScanIsOwed(): number {
+  const listed = spawnSync('git', ['ls-files', '-co', '--exclude-standard'], {
+    cwd: root,
+    encoding: 'utf8',
+  }).stdout.split('\n')
+
+  return listed.filter(
+    (path) =>
+      path !== '' &&
+      !BINARY_EXTENSIONS.has(extname(path)) &&
+      !UNREAD.some((tree) => path.startsWith(tree)),
+  ).length
 }
 
 function disclosureIdsIn(output: string): string[] {
@@ -109,9 +138,7 @@ describe('the generic half of the leak control', () => {
 
     expect(disclosureIdsIn(run.output)).toEqual([])
     expect(run.status).toBe(0)
-    // A floor, not a total: what it guards is a skip quietly swallowing the tree, and the
-    // one measured way that happens — a stray checkout over a source directory — lands here.
-    expect(filesReadIn(run.output)).toBeGreaterThan(200)
+    expect(filesReadIn(run.output)).toBe(filesTheScanIsOwed())
   })
 
   it('reads no checkout of its own that sits inside the tree, and would read it otherwise', () => {

@@ -9,7 +9,14 @@ had arrived by then was classified, and an empty or partial body classifies as
 an accepted check-in — so a shutdown could report a check-in the caller had
 cancelled, and a duplicate could come back as an accepted one.
 
-If you branch on `result.outcome`, this is the one behavioural change: a call
+If you branch on `result.ok` rather than on `result.outcome`, read this one
+first: a check-in your own shutdown cancelled now comes back `ok: false`,
+`answered: false`, `status: undefined` and with `error` set, where it came back
+as a success before. A sink written as `if (!result.ok) alert()` starts firing
+on every graceful shutdown that cancels a check-in in flight — which is the
+report being correct, but it is a report you were not getting.
+
+If you branch on `result.outcome`, this is the change: a call
 you aborted mid-reply now lands in the same `aborted` branch as one you aborted
 before it left — including one where the server had already answered with a
 `5xx`, which without a cancellation is still reported as `server-error` with its

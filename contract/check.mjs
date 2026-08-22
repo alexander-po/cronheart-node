@@ -190,6 +190,7 @@ const UNANCHORED = {
     'STDERR_DRAIN_BUDGET_MS',
     'STDIN_CAP_BYTES',
     'TERMINAL_CHECK_IN_BUDGET_MS',
+    'TINY_CHUNK_BYTES',
   ],
   'shapes this client reads with, each narrower than or absent from what the contract states': [
     'ASCII_DIGITS',
