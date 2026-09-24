@@ -3,15 +3,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { reportDisclosures, scanTarball } from './private-information.mjs'
+import { reportDisclosures, scanTarball, unreadOf } from './private-information.mjs'
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url))
 const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
 const { contract_version: contractVersion } = JSON.parse(
   readFileSync(join(repoRoot, 'contract', 'cronheart-contract.json'), 'utf8'),
 )
-
-const BINARY = /\.(?:png|jpe?g|gif|webp|ico|pdf|zip|gz|tgz|woff2?|ttf|eot|mp4|wasm)$/i
 
 const SUBPATHS = [
   ['api', 'createCronheartApi'],
@@ -116,11 +114,13 @@ try {
     throw new Error('the tarball carries private information')
   }
 
-  // Against the allow-list rather than a number: a scan that reads none of the bundles says
-  // the same thing about a tarball as one that reads all of them, and for one release it did.
-  if (scanned.read < entries.filter((entry) => !BINARY.test(entry)).length) {
+  // Against what was published rather than a number: a scan that reads none of the bundles
+  // says the same thing about a tarball as one that reads all of them.
+  const unread = unreadOf(entries, scanned)
+
+  if (unread.length > 0) {
     throw new Error(
-      `the tarball scan read ${scanned.read} of ${entries.length} published file(s) — something it should have read was skipped`,
+      `the tarball scan did not read ${unread.length} published file(s) it should have: ${unread.join(', ')}`,
     )
   }
 

@@ -97,8 +97,11 @@ export const CHECK_IN_ENTRY_POINTS: readonly EntryPoint[] = [
     exports: ['.#checkIn', '.#ping'],
     pings: 1,
     unsafe: false,
-    invoke: async ({ client, fault, host }) => {
-      await client.ping(fault.monitor, fault.pingOptions)
+    // Read by the leak rules too, since a transport's own wording would land in the error.
+    invoke: async ({ client, fault, host, record }) => {
+      const result = await client.ping(fault.monitor, fault.pingOptions)
+      record(result)
+      record(result.error)
 
       return host()
     },

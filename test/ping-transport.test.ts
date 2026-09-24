@@ -1,17 +1,33 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { type IncomingMessage, type Server, type ServerResponse, createServer, request } from 'node:http'
+import type { AddressInfo, Socket } from 'node:net'
+import { PassThrough, Readable } from 'node:stream'
+import { inspect } from 'node:util'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { API_RESPONSE_BODY_CAP_BYTES } from '../src/api/constants.js'
 import {
+  DEFAULT_RETRIES,
   MAX_RETRIES,
   PING_BODY_CAP_BYTES,
   PING_BODY_TRUNCATION_MARKER,
   PING_RESPONSE_BODY_CAP_BYTES,
+  RETRY_FLOOR_DELAY_MS,
   RUNTIME_HEADER_MAX_VALUE,
   RUNTIME_HEADER_NAME,
 } from '../src/constants.js'
 import { createPingClient } from '../src/ping/client.js'
 import { PING_DUPLICATE_BODY } from '../src/ping/outcome.js'
-import type { FetchLike, PingClientOptions, PingHttpResponse } from '../src/ping/types.js'
-import { createPingRecorder } from '../src/testing.js'
+import type {
+  FetchLike,
+  PingClientOptions,
+  PingHttpResponse,
+  PingResponseBody,
+  PingResponseBodyReader,
+  PingResult,
+} from '../src/ping/types.js'
+import { type StubResponse, createPingRecorder } from '../src/testing.js'
 import { detachedCountdown } from '../src/timer.js'
+import { attemptsFor } from '../src/transport/attempts.js'
+import { TransportFailure, type TransportRequest, send } from '../src/transport/send.js'
 
 const MONITOR_ID = '00000000-0000-4000-8000-0000000000a1'
 const BASE = 'https://ping.example'
@@ -35,6 +51,36 @@ function bytesOf(value: string): number {
 beforeEach(() => {
   recorder = createPingRecorder()
 })
+
+// Taken before any test fakes the clock, so it is the one timer that still fires under fake
+// timers: a check-in waiting on a faked one then reads as stuck rather than as a hung suite.
+const realSetTimeout = globalThis.setTimeout
+const realClearTimeout = globalThis.clearTimeout
+
+async function outcomeOnFakeTimers(
+  ping: () => Promise<{ readonly outcome: string }>,
+  advanceMs = 0,
+): Promise<string> {
+  let guard: ReturnType<typeof setTimeout> | undefined
+  const stuck = new Promise<string>((resolve) => {
+    guard = realSetTimeout(() => resolve('stuck on a faked timer'), 2000)
+  })
+
+  vi.useFakeTimers()
+
+  try {
+    const settled = ping().then((result) => result.outcome)
+
+    if (advanceMs > 0) {
+      await vi.advanceTimersByTimeAsync(advanceMs)
+    }
+
+    return await Promise.race([settled, stuck])
+  } finally {
+    vi.useRealTimers()
+    realClearTimeout(guard)
+  }
+}
 
 describe('the ping request', () => {
   it('addresses the monitor with no action segment for a bare check-in', async () => {
@@ -276,8 +322,6 @@ describe('response bodies', () => {
     expect(readWhole).toBe(false)
   })
 
-  // A chunk of nothing is a shape the transport answers by yielding to the event loop, and
-  // a consumer's suite on fake timers never comes back from that turn.
   it('reports an empty body as done rather than handing over a chunk of nothing', async () => {
     recorder.respondWith({ body: '' })
 
@@ -289,6 +333,62 @@ describe('response bodies', () => {
     const first = await response.body?.getReader?.().read()
 
     expect(first?.done).toBe(true)
+  })
+
+  it('answers a suite on fake timers, for every reply it is not asked to retry', async () => {
+    const replies: readonly (readonly [StubResponse, number])[] = [
+      [{ body: 'OK' }, DEFAULT_RETRIES],
+      [{ body: PING_DUPLICATE_BODY }, DEFAULT_RETRIES],
+      [{ body: 'x'.repeat(PING_RESPONSE_BODY_CAP_BYTES * 2) }, DEFAULT_RETRIES],
+      [{ status: 404, body: 'Monitor not found' }, DEFAULT_RETRIES],
+      [{ status: 503, body: 'nope' }, 0],
+      [{ rejectWith: new TypeError('fetch failed') }, 0],
+    ]
+    const outcomes: string[] = []
+
+    for (const [reply, retries] of replies) {
+      recorder.respondWith(reply)
+      outcomes.push(await outcomeOnFakeTimers(() => client({ retries }).ping('job')))
+    }
+
+    expect(outcomes).toEqual([
+      'accepted',
+      'duplicate',
+      'accepted',
+      'not-found',
+      'server-error',
+      'network-error',
+    ])
+  })
+
+  it('answers a retried reply on fake timers once the clock is moved past its retry delays', async () => {
+    recorder.respondWith({ status: 503, body: 'nope' })
+
+    const outcome = await outcomeOnFakeTimers(
+      () => client().ping('job'),
+      RETRY_FLOOR_DELAY_MS * 10,
+    )
+
+    expect(outcome).toBe('server-error')
+    expect(recorder.pings).toHaveLength(DEFAULT_RETRIES + 1)
+  })
+
+  it('answers a suite on fake timers through the built package, which is what gets installed', async () => {
+    const { createPingRecorder: builtRecorder } = (await import(
+      new URL('../dist/testing.mjs', import.meta.url).href
+    )) as { createPingRecorder: typeof createPingRecorder }
+    const { createPingClient: builtClient } = (await import(
+      new URL('../dist/index.mjs', import.meta.url).href
+    )) as { createPingClient: typeof createPingClient }
+    const built = builtRecorder({ body: PING_DUPLICATE_BODY })
+
+    const outcome = await outcomeOnFakeTimers(() =>
+      builtClient({ baseUrl: BASE, fetch: built.fetch, env: {}, monitors: { job: MONITOR_ID } }).ping(
+        'job',
+      ),
+    )
+
+    expect(outcome).toBe('duplicate')
   })
 
   // Published surface a consumer can reach without the SDK in between: the refusal has to
@@ -525,22 +625,134 @@ describe('a reply that arrives as a stream', () => {
     expect(result.outcome).toBe('duplicate')
   })
 
-  it('falls back to the whole-body read when the stream is one somebody else holds', async () => {
-    const locked: FetchLike = () =>
+  it('refuses a stream somebody else holds rather than reading it whole', async () => {
+    let readWhole = false
+    const held: FetchLike = () => {
+      const response = new Response(PING_DUPLICATE_BODY)
+      response.body?.getReader()
+      const whole = response.text.bind(response)
+
+      return Promise.resolve(
+        Object.assign(response, {
+          text: () => {
+            readWhole = true
+
+            return whole()
+          },
+        }),
+      )
+    }
+
+    const result = await client({ fetch: held, retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('accepted')
+    expect(readWhole).toBe(false)
+  })
+
+  it('refuses a reader it cannot read with rather than reading the body whole instead', async () => {
+    let readWhole = false
+    const unusable: FetchLike = () =>
       Promise.resolve<PingHttpResponse>({
         status: 200,
         headers: { get: () => null },
         bodyUsed: false,
         body: {
           cancel: () => Promise.resolve(),
-          getReader: () => {
-            throw new TypeError('Invalid state: ReadableStream is locked')
-          },
+          getReader: () => ({}) as unknown as PingResponseBodyReader,
         },
-        text: () => Promise.resolve(PING_DUPLICATE_BODY),
+        text: () => {
+          readWhole = true
+
+          return Promise.resolve(PING_DUPLICATE_BODY)
+        },
       })
 
-    const result = await client({ fetch: locked, retries: 0 }).ping('job')
+    const result = await client({ fetch: unusable, retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('accepted')
+    expect(readWhole).toBe(false)
+  })
+
+  it('reads a Node stream under the cap, which is the body node-fetch hands back', async () => {
+    const piece = new TextEncoder().encode('x'.repeat(RESPONSE_CHUNK_BYTES))
+    let pulled = 0
+    let readWhole = false
+    const stream = Readable.from(
+      (function* () {
+        while (pulled < ENDLESS_BODY_FUSE_BYTES) {
+          pulled += piece.byteLength
+          yield piece
+        }
+      })(),
+    )
+    const nodeFetch: FetchLike = () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        body: stream as unknown as PingResponseBody,
+        text: async () => {
+          readWhole = true
+          let text = ''
+
+          for await (const chunk of stream) {
+            text += new TextDecoder().decode(chunk as Uint8Array)
+          }
+
+          return text
+        },
+      })
+
+    const result = await client({ fetch: nodeFetch, retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('accepted')
+    expect(readWhole).toBe(false)
+    expect(pulled).toBeLessThan(BOUNDED_READ_CEILING_BYTES)
+    expect(stream.destroyed).toBe(true)
+  })
+
+  it('lets go of a Node stream that stalls, rather than leaving it open', async () => {
+    const stream = new Readable({ read() {} })
+    stream.push(new TextEncoder().encode('O'))
+    const stalls: FetchLike = () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        body: stream as unknown as PingResponseBody,
+      })
+
+    const result = await client({ fetch: stalls, retries: 0, timeoutMs: 60 }).ping('job')
+
+    expect(result.outcome).toBe('timeout')
+    expect(stream.destroyed).toBe(true)
+  })
+
+  it('lets go of a Node stream that arrives after the check-in stopped waiting for it', async () => {
+    const late = new Readable({ read() {} })
+    let deliver: ((response: PingHttpResponse) => void) | undefined
+    const deaf: FetchLike = () =>
+      new Promise<PingHttpResponse>((resolve) => {
+        deliver = resolve
+      })
+
+    const result = await client({ fetch: deaf, retries: 0, timeoutMs: 30 }).ping('job')
+    deliver?.({ status: 200, headers: { get: () => null }, body: late as unknown as PingResponseBody })
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(result.outcome).toBe('timeout')
+    expect(late.destroyed).toBe(true)
+  })
+
+  it('tells a duplicate apart through a Node stream too', async () => {
+    const stream = Readable.from([new TextEncoder().encode(PING_DUPLICATE_BODY)])
+    const nodeFetch: FetchLike = () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        body: stream as unknown as PingResponseBody,
+        text: () => Promise.resolve(''),
+      })
+
+    const result = await client({ fetch: nodeFetch, retries: 0 }).ping('job')
 
     expect(result.outcome).toBe('duplicate')
   })
@@ -554,12 +766,32 @@ describe('a reply that arrives as a stream', () => {
     expect(wide.pulledBytes()).toBeLessThan(WIDE_VIEW_CEILING_BYTES)
   })
 
-  it('gives the deadline a turn while a body arrives in pieces too small to be progress', async () => {
-    const trickle = answersInPiecesOf(1)
+  it('reads a body that arrives a byte at a time as far as the cap, without a timer turn per byte', async () => {
+    const byte = new Uint8Array([0x78])
+    let pulled = 0
+    const trickle = answersWith(() => {
+      pulled += 1
 
-    const result = await client({ fetch: trickle.fetch, retries: 0, timeoutMs: 60 }).ping('job')
+      return byte
+    })
 
-    expect(result.outcome).toBe('timeout')
+    const result = await client({ fetch: trickle.fetch, retries: 0, timeoutMs: 2000 }).ping('job')
+
+    expect(result.outcome).toBe('accepted')
+    expect(pulled).toBe(PING_RESPONSE_BODY_CAP_BYTES)
+    expect(trickle.cancelled()).toBe(true)
+  })
+
+  // Stated here rather than read from the transport: the cap lands on the piece after which
+  // the loop would otherwise hand the deadline a turn.
+  it('ends at the cap without waiting on a timer to say so', async () => {
+    const reachesTheCap = answersInPiecesOf(PING_RESPONSE_BODY_CAP_BYTES / 1024)
+
+    const outcome = await outcomeOnFakeTimers(() =>
+      client({ fetch: reachesTheCap.fetch, retries: 0 }).ping('job'),
+    )
+
+    expect(outcome).toBe('accepted')
   })
 
   it('is not ended by a piece that carries nothing, which is not the end of a body', async () => {
@@ -631,6 +863,245 @@ describe('a reply that arrives as a stream', () => {
     expect(trickle.reads()).toBeLessThanOrEqual(atTheDeadline + 1)
     expect(trickle.cancelled()).toBe(true)
   })
+})
+
+interface EndlessServer {
+  readonly base: string
+  openSockets(): Promise<number>
+  close(): Promise<void>
+}
+
+// Answers every request with a body that never ends, and counts the connections still open
+// from its own side, which is where a request the client never let go of shows up.
+async function endlessServer(): Promise<EndlessServer> {
+  const sockets = new Set<Socket>()
+  const server: Server = createServer((_request: IncomingMessage, response: ServerResponse) => {
+    const piece = new Uint8Array(64 * 1024).fill(0x78)
+    let open = true
+    response.on('close', () => {
+      open = false
+    })
+    const pump = (): void => {
+      while (open && response.write(piece)) {}
+
+      if (open) {
+        response.once('drain', pump)
+      }
+    }
+    response.writeHead(200, { 'content-type': 'text/plain' })
+    pump()
+  })
+  server.on('connection', (socket: Socket) => {
+    sockets.add(socket)
+    socket.on('close', () => sockets.delete(socket))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+
+  return {
+    base: `http://127.0.0.1:${port}`,
+    openSockets: async () => {
+      for (let waited = 0; sockets.size > 0 && waited < 2000; waited += 20) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+
+      return sockets.size
+    },
+    close: () => {
+      for (const socket of sockets) {
+        socket.destroy()
+      }
+
+      return new Promise<void>((resolve) => server.close(() => resolve()))
+    },
+  }
+}
+
+// The shape node-fetch v2 hands back: the response piped through a PassThrough that carries
+// an error listener of its own, and the request torn down only when the signal aborts.
+const nodeFetchV2: FetchLike = (url, init) =>
+  new Promise<PingHttpResponse>((resolve, reject) => {
+    const outgoing = request(url, { method: init.method, headers: init.headers, agent: false })
+    let body: PassThrough | undefined
+    init.signal?.addEventListener(
+      'abort',
+      () => {
+        const aborted = new Error('The user aborted a request.')
+        reject(aborted)
+        outgoing.destroy()
+        body?.emit('error', aborted)
+      },
+      { once: true },
+    )
+    outgoing.on('error', reject)
+    outgoing.on('response', (incoming) => {
+      body = incoming.pipe(new PassThrough())
+      body.on('error', () => undefined)
+      resolve({
+        status: incoming.statusCode ?? 0,
+        headers: { get: (name) => String(incoming.headers[name.toLowerCase()] ?? '') || null },
+        body: body as unknown as PingResponseBody,
+      })
+    })
+    outgoing.end(init.body)
+  })
+
+describe('the connection behind a reply', () => {
+  it('is let go once a capped check-in is done, so an endless answer cannot pin sockets', async () => {
+    const server = await endlessServer()
+
+    try {
+      const sdk = createPingClient({
+        baseUrl: server.base,
+        fetch: nodeFetchV2,
+        env: {},
+        monitors: { job: MONITOR_ID },
+        retries: 0,
+        timeoutMs: 3000,
+      })
+      const outcomes: string[] = []
+
+      for (let index = 0; index < 3; index += 1) {
+        outcomes.push((await sdk.ping('job')).outcome)
+      }
+
+      expect(outcomes).toEqual(['accepted', 'accepted', 'accepted'])
+      expect(await server.openSockets()).toBe(0)
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+function namesTheRequest(): Error {
+  return new Error(`request to ${BASE}/ping/${MONITOR_ID} failed`)
+}
+
+function rejectsOnAbort(): FetchLike {
+  return (_url, init) =>
+    new Promise<PingHttpResponse>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(namesTheRequest()), { once: true })
+    })
+}
+
+function mentionsTheId(result: PingResult): boolean {
+  return inspect(result.error, { depth: 10 }).includes(MONITOR_ID)
+}
+
+describe('a failed check-in', () => {
+  it('keeps what a refused request said about itself out of the result', async () => {
+    recorder.respondWith({ rejectWith: namesTheRequest() })
+
+    const result = await client({ retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('network-error')
+    expect(mentionsTheId(result)).toBe(false)
+  })
+
+  it('keeps it out when the deadline stopped the request', async () => {
+    const result = await client({ fetch: rejectsOnAbort(), retries: 0, timeoutMs: 20 }).ping('job')
+
+    expect(result.outcome).toBe('timeout')
+    expect(mentionsTheId(result)).toBe(false)
+  })
+
+  it('keeps it out when the caller stopped the request', async () => {
+    const controller = new AbortController()
+    const settled = client({
+      fetch: rejectsOnAbort(),
+      retries: 0,
+      timeoutMs: 5000,
+      signal: controller.signal,
+    }).ping('job')
+    setTimeout(() => controller.abort(), 10)
+
+    const result = await settled
+
+    expect(result.outcome).toBe('aborted')
+    expect(mentionsTheId(result)).toBe(false)
+  })
+
+  it('keeps it out when the answer itself could not be read', async () => {
+    const unreadable: FetchLike = () =>
+      Promise.resolve({
+        get status(): number {
+          throw namesTheRequest()
+        },
+      } as PingHttpResponse)
+
+    const result = await client({ fetch: unreadable, retries: 0 }).ping('job')
+
+    expect(result.outcome).toBe('unexpected')
+    expect(mentionsTheId(result)).toBe(false)
+  })
+})
+
+function transportRequest(fetch: FetchLike, extra: Partial<TransportRequest> = {}): TransportRequest {
+  return {
+    url: `${BASE}/ping/${MONITOR_ID}`,
+    method: 'POST',
+    headers: {},
+    body: undefined,
+    timeoutMs: 5000,
+    bodyCapBytes: PING_RESPONSE_BODY_CAP_BYTES,
+    attempts: attemptsFor(0),
+    signal: undefined,
+    fetch,
+    ...extra,
+  }
+}
+
+describe('the read loop', () => {
+  it('gives the deadline a turn however large the pieces are', async () => {
+    const piece = new Uint8Array(64).fill(0x78)
+    let reads = 0
+    const endless: FetchLike = () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        get bodyUsed() {
+          return reads > 0
+        },
+        body: {
+          cancel: () => Promise.resolve(),
+          getReader: () => ({
+            read: () => {
+              reads += 1
+
+              return Promise.resolve({ done: false, value: piece })
+            },
+            cancel: () => Promise.resolve(),
+          }),
+        },
+      })
+
+    const settled = await send(
+      transportRequest(endless, { timeoutMs: 5, bodyCapBytes: API_RESPONSE_BODY_CAP_BYTES }),
+    ).then(
+      () => 'answered',
+      (failure: unknown) => (failure instanceof TransportFailure ? failure.reason : 'thrown'),
+    )
+
+    expect(settled).toBe('timeout')
+    expect(reads).toBeGreaterThanOrEqual(1024)
+    expect(reads).toBeLessThan(API_RESPONSE_BODY_CAP_BYTES / piece.byteLength)
+  })
+
+  it.each([3000, 5 * 1024 * 1024])(
+    'keeps no more of %i characters read whole than a streamed read would, cut on a character',
+    async (characters) => {
+      const wholeOnly: FetchLike = () =>
+        Promise.resolve<PingHttpResponse>({
+          status: 200,
+          headers: { get: () => null },
+          text: () => Promise.resolve('€'.repeat(characters)),
+        })
+
+      const answered = await send(transportRequest(wholeOnly))
+
+      expect(answered.body).toBe('€'.repeat(Math.floor(PING_RESPONSE_BODY_CAP_BYTES / 3)))
+    },
+  )
 })
 
 describe('the runtime header', () => {
@@ -890,6 +1361,75 @@ describe('the caller signal', () => {
 
     expect(peak).toBeGreaterThan(0)
     expect(live).toBe(0)
+  })
+
+  // The one path that reads the signal outside an attempt: a server error held over a budget
+  // that ran out while its body was being read.
+  function answersAnErrorItNeverFinishes(): FetchLike {
+    return () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 503,
+        headers: { get: () => null },
+        bodyUsed: false,
+        body: {
+          cancel: () => Promise.resolve(),
+          getReader: () => ({
+            read: () => new Promise<{ done: boolean; value?: Uint8Array }>(() => {}),
+            cancel: () => Promise.resolve(),
+          }),
+        },
+      })
+  }
+
+  it.each([
+    ['a value that only looks aborted', { aborted: true }],
+    [
+      'a signal whose state throws when read',
+      {
+        get aborted(): boolean {
+          throw new Error('not today')
+        },
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      },
+    ],
+  ])('holds a server error past %s, which never cancelled anything', async (_label, signal) => {
+    const result = await client({
+      fetch: answersAnErrorItNeverFinishes(),
+      retries: 1,
+      timeoutMs: 40,
+      signal: signal as unknown as AbortSignal,
+    }).ping('job')
+
+    expect(result.outcome).toBe('server-error')
+    expect(result.status).toBe(503)
+  })
+
+  it.each([
+    [
+      'whose listener registration throws when it is looked up',
+      {
+        aborted: false,
+        get addEventListener(): never {
+          throw new Error('not today')
+        },
+        removeEventListener: () => undefined,
+      },
+    ],
+    [
+      'that has been revoked',
+      (() => {
+        const { proxy, revoke } = Proxy.revocable({}, {})
+        revoke()
+
+        return proxy
+      })(),
+    ],
+  ])('sends the check-in past a signal %s, rather than reporting one never sent', async (_label, signal) => {
+    const result = await client({ signal: signal as unknown as AbortSignal }).ping('job')
+
+    expect(result.outcome).toBe('accepted')
+    expect(recorder.pings).toHaveLength(1)
   })
 
   it('ignores something that is not a signal rather than letting it throw', async () => {

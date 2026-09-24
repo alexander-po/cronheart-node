@@ -185,12 +185,12 @@ const UNANCHORED = {
     'MAX_RETRIES',
     'MAX_TIMER_MS',
     'PING_RESPONSE_BODY_CAP_BYTES',
+    'READS_BETWEEN_TURNS',
     'REDACTION_REACH_BYTES',
     'RETRY_FLOOR_DELAY_MS',
     'STDERR_DRAIN_BUDGET_MS',
     'STDIN_CAP_BYTES',
     'TERMINAL_CHECK_IN_BUDGET_MS',
-    'TINY_CHUNK_BYTES',
   ],
   'shapes this client reads with, each narrower than or absent from what the contract states': [
     'ASCII_DIGITS',

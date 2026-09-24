@@ -18,7 +18,7 @@ const CANCELLED = 'the caller aborted the check-in'
 
 const EXPIRED = Symbol('deadline')
 
-const TINY_CHUNK_BYTES = 64
+const READS_BETWEEN_TURNS = 1024
 
 export class TransportFailure extends Error {
   override readonly name = 'TransportFailure'
@@ -102,16 +102,21 @@ async function releaseBody(response: PingHttpResponse): Promise<void> {
   try {
     const stream = response.body
 
-    if (
-      response.bodyUsed === true ||
-      stream === null ||
-      stream === undefined ||
-      typeof stream.cancel !== 'function'
-    ) {
+    if (response.bodyUsed === true || stream === null || stream === undefined) {
       return
     }
 
-    await releaseWithin(() => stream.cancel())
+    if (typeof stream.cancel === 'function') {
+      await releaseWithin(() => stream.cancel())
+
+      return
+    }
+
+    const destroy = (stream as { destroy?: () => void }).destroy
+
+    if (typeof destroy === 'function') {
+      destroy.call(stream)
+    }
   } catch {}
 }
 
@@ -133,27 +138,63 @@ function headOf(response: PingHttpResponse): Omit<ReadResponse, 'body'> {
   }
 }
 
-function readerFor(response: PingHttpResponse): PingResponseBodyReader | undefined {
-  try {
-    const stream = response.body
+// A Node stream, which is what node-fetch hands back, offers no reader but can be walked a
+// piece at a time, and so read under the cap like one.
+function piecesOf(stream: object): PingResponseBodyReader | undefined {
+  const walk = (stream as { [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array> })[
+    Symbol.asyncIterator
+  ]
 
-    if (
-      response.bodyUsed === true ||
-      stream === null ||
-      stream === undefined ||
-      typeof stream.getReader !== 'function'
-    ) {
-      return undefined
-    }
-
-    const reader = stream.getReader()
-
-    return typeof reader?.read === 'function' ? reader : undefined
-  } catch {
-    // A stream another reader already holds is not this one's to take, and the whole-body
-    // read the response also offers is: refusing here would report a reply nobody read.
+  if (typeof walk !== 'function') {
     return undefined
   }
+
+  const pieces = walk.call(stream)
+  const destroy = (stream as { destroy?: () => void }).destroy
+
+  return {
+    read: () => pieces.next(),
+    cancel: async () => {
+      if (typeof destroy === 'function') {
+        destroy.call(stream)
+      }
+
+      await pieces.return?.()
+    },
+  }
+}
+
+// A stream that will not hand over a usable reader is refused, not read whole: a real
+// response in that state refuses text() too, so only an uncapped read could answer instead.
+function readerFor(response: PingHttpResponse): PingResponseBodyReader | undefined {
+  const stream = response.body
+
+  if (response.bodyUsed === true || stream === null || stream === undefined) {
+    return undefined
+  }
+
+  if (typeof stream.getReader !== 'function') {
+    return piecesOf(stream)
+  }
+
+  const reader = stream.getReader()
+
+  if (typeof reader?.read !== 'function') {
+    throw new TypeError('the response body offered a reader it cannot be read with')
+  }
+
+  return reader
+}
+
+// No UTF-16 unit takes more than three bytes, so a body that short is under the cap as it is.
+function keptOf(body: string, capBytes: number): string {
+  if (body.length * 3 <= capBytes) {
+    return body
+  }
+
+  const { read } = new TextEncoder().encodeInto(body, new Uint8Array(capBytes))
+
+  return body.slice(0, read)
 }
 
 // The runtime decompresses whatever arrives before this sees it, so a reply read whole
@@ -166,6 +207,7 @@ async function readCapped(
   const decoder = new TextDecoder()
   let remaining = capBytes
   let text = ''
+  let reads = 0
 
   while (remaining > 0 && !abandoned.aborted) {
     const chunk = await reader.read()
@@ -183,11 +225,11 @@ async function readCapped(
         : new Uint8Array(arrived.buffer, arrived.byteOffset, remaining)
     remaining -= kept.byteLength
     text += decoder.decode(kept, { stream: true })
+    reads += 1
 
-    // A chunk this small is not a body making progress, and a loop that only ever awaits
-    // settled promises runs in microtasks, where the deadline's own timer never gets a turn:
-    // without this the read outlasts the budget it was given, and reports success.
-    if (kept.byteLength < TINY_CHUNK_BYTES) {
+    // Settled reads run in microtasks, where the deadline's timer never gets a turn: every so
+    // many pieces hand it one. A turn per piece would stall a suite on fake timers.
+    if (remaining > 0 && reads % READS_BETWEEN_TURNS === 0) {
       await countdown(0).reached
     }
   }
@@ -221,7 +263,7 @@ async function readBody(
 
     const body = typeof response.text === 'function' ? await response.text() : ''
 
-    return typeof body === 'string' ? body : ''
+    return typeof body === 'string' ? keptOf(body, capBytes) : ''
   } catch {
     return ''
   } finally {
@@ -230,22 +272,20 @@ async function readBody(
 }
 
 function relayAbort(signal: unknown, relay: () => void): AbortSignalLike | undefined {
-  const caller = isAbortSignalLike(signal) ? signal : undefined
-
-  if (caller === undefined) {
-    return undefined
-  }
-
   try {
-    if (caller.aborted) {
+    if (!isAbortSignalLike(signal)) {
+      return undefined
+    }
+
+    if (signal.aborted) {
       relay()
 
       return undefined
     }
 
-    caller.addEventListener('abort', relay, { once: true })
+    signal.addEventListener('abort', relay, { once: true })
 
-    return caller
+    return signal
   } catch {
     // A hand-built signal is an input like any other: ignoring one that throws costs
     // the caller their cancellation, while trusting it would cost the check-in.
@@ -253,9 +293,9 @@ function relayAbort(signal: unknown, relay: () => void): AbortSignalLike | undef
   }
 }
 
-function wasStopped(signal: AbortSignalLike | undefined): boolean {
+function wasStopped(signal: unknown): boolean {
   try {
-    return signal?.aborted === true
+    return isAbortSignalLike(signal) && signal.aborted === true
   } catch {
     return false
   }
@@ -284,10 +324,10 @@ async function attemptOnce(
   }
   // A shutdown the caller asked for is not a deadline they never configured, and reporting
   // it as one hides a clean cancellation inside a failure count.
-  const gaveUp = (cause?: unknown): TransportFailure =>
+  const gaveUp = (): TransportFailure =>
     stoppedBy === 'caller'
-      ? new TransportFailure('aborted', CANCELLED, cause, 1)
-      : new TransportFailure('timeout', OUT_OF_BUDGET, cause, 1)
+      ? new TransportFailure('aborted', CANCELLED, undefined, 1)
+      : new TransportFailure('timeout', OUT_OF_BUDGET, undefined, 1)
   const deadline = countdown(budgetMs)
   let listening: AbortSignalLike | undefined
 
@@ -335,9 +375,11 @@ async function attemptOnce(
         throw cause
       }
 
+      // What the host's transport rejected with stays behind: one that names the request it
+      // failed on names the monitor id with it, and the id is the whole credential.
       throw expired || controller.signal.aborted
-        ? gaveUp(cause)
-        : new TransportFailure('network-error', UNREACHABLE, cause, 1)
+        ? gaveUp()
+        : new TransportFailure('network-error', UNREACHABLE, undefined, 1)
     }
 
     try {
@@ -370,13 +412,16 @@ async function attemptOnce(
     } catch (cause) {
       throw cause instanceof TransportFailure
         ? cause
-        : new TransportFailure('unexpected', 'the transport response could not be read', cause, 1)
+        : new TransportFailure('unexpected', 'the transport response could not be read', undefined, 1)
     } finally {
       void releaseBody(response)
     }
   } finally {
     deadline.cancel()
     stopRelaying(listening, relay)
+    // A transport that holds the request until its body ends, as node-fetch does, lets a body
+    // cut short at the cap go only when the signal says so.
+    controller.abort()
   }
 }
 
@@ -433,7 +478,7 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
       const failure =
         error instanceof TransportFailure
           ? new TransportFailure(error.reason, error.message, error.cause, attempt)
-          : new TransportFailure('network-error', UNREACHABLE, error, attempt)
+          : new TransportFailure('network-error', UNREACHABLE, undefined, attempt)
 
       if (failure.reason !== 'network-error' || attempt >= request.attempts) {
         throw failure

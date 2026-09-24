@@ -21,6 +21,7 @@ import {
 } from './support/api-recorder.js'
 import { API_RESPONSE_BODY_CAP_BYTES } from '../src/api/constants.js'
 import { ApiTransportError } from '../src/api/errors.js'
+import type { FetchLike, PingHttpResponse } from '../src/ping/types.js'
 
 const CREATE = {
   name: 'nightly-backup',
@@ -64,6 +65,28 @@ describe('an answer larger than this client reads', () => {
     expect((refusal as ApiTransportError).reason).toBe('unbounded')
     expect((refusal as ApiTransportError).message).toContain('stops reading')
     expect(oversized.pulledBytes()).toBeLessThan(MANAGEMENT_READ_CEILING_BYTES)
+  })
+
+  it('holds a body its transport can only hand over whole to the same cap', async () => {
+    const page = JSON.stringify({
+      data: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+      padding: 'x'.repeat(5 * 1024 * 1024),
+    })
+    const wholeOnly: FetchLike = () =>
+      Promise.resolve<PingHttpResponse>({
+        status: 200,
+        headers: { get: () => null },
+        text: () => Promise.resolve(page),
+      })
+    const { api } = apiWith({}, { fetch: wholeOnly })
+
+    const refusal = await api.monitors.list().catch((error: unknown) => error)
+
+    expect(refusal).toBeInstanceOf(ApiTransportError)
+    expect((refusal as ApiTransportError).reason).toBe('unbounded')
   })
 
   // The other side of the same boundary: what the client read whole is the service's answer

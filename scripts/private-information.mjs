@@ -29,7 +29,7 @@ const SKIPPED_PATHS = new Set([
   'test/fixtures/release-metadata',
 ])
 
-export const BINARY_EXTENSIONS = new Set([
+const BINARY_EXTENSIONS = new Set([
   '.png',
   '.jpg',
   '.jpeg',
@@ -110,21 +110,37 @@ function credentialPrefix() {
   }
 }
 
+function outOfReach(where) {
+  const segments = where.split('/')
+
+  return (
+    SKIPPED_DIRECTORIES.has(segments[segments.length - 1]) ||
+    SKIPPED_ROOTS.has(where) ||
+    SKIPPED_PATHS.has(where)
+  )
+}
+
+// The rules the walk applies one directory at a time, applied to a whole path at once, so a
+// listing made some other way can be held to the same reading.
+export function isScanned(path) {
+  const segments = path.split('/')
+
+  return (
+    !BINARY_EXTENSIONS.has(extname(path)) &&
+    segments.every((_, depth) => !outOfReach(segments.slice(0, depth + 1).join('/')))
+  )
+}
+
 function textFilesUnder(root) {
   const found = []
   const skipped = []
 
   const walk = (directory) => {
     for (const entry of readdirSync(directory)) {
-      if (SKIPPED_DIRECTORIES.has(entry)) {
-        continue
-      }
-
       const path = join(directory, entry)
-
       const where = relative(root, path)
 
-      if (SKIPPED_PATHS.has(where) || SKIPPED_ROOTS.has(where)) {
+      if (outOfReach(where)) {
         continue
       }
 
@@ -175,7 +191,7 @@ function disclosuresIn(label, text, { repository, prefix }) {
 
     for (const [identifier] of line.matchAll(UUID)) {
       if (!PLACEHOLDER_UUID.test(identifier)) {
-        report('live-identifier', at, identifier)
+        report('live-identifier', at, `an id ending ${identifier.slice(-4)}`)
       }
     }
 
@@ -193,11 +209,18 @@ function disclosuresIn(label, text, { repository, prefix }) {
       }
     }
 
-    for (const shape of [...PHP_SHAPES, ...CREDENTIAL_SHAPES]) {
+    for (const shape of PHP_SHAPES) {
+      if (shape.pattern.test(line)) {
+        report(shape.id, at, line.trim().slice(0, 80))
+      }
+    }
+
+    // A report is read in a gate log, so it names the shape and never repeats the value.
+    for (const shape of CREDENTIAL_SHAPES) {
       const matched = shape.pattern.exec(line)
 
       if (matched !== null && (shape.guard === undefined || shape.guard(matched[1] ?? ''))) {
-        report(shape.id, at, line.trim().slice(0, 80))
+        report(shape.id, at, 'a value of this shape')
       }
     }
 
@@ -214,22 +237,34 @@ function disclosuresIn(label, text, { repository, prefix }) {
 export function scanTree(root) {
   const context = { repository: ownRepository(), prefix: credentialPrefix() }
   const { found, skipped } = textFilesUnder(root)
+  const files = []
+  const unreadable = []
+  const disclosures = []
 
-  return {
-    read: found.length,
-    skipped,
-    disclosures: found.flatMap((path) => {
-      let text
+  for (const path of found) {
+    const where = relative(root, path)
+    let text
 
-      try {
-        text = readFileSync(path, 'utf8')
-      } catch {
-        return []
-      }
+    try {
+      text = readFileSync(path, 'utf8')
+    } catch {
+      unreadable.push(where)
+      continue
+    }
 
-      return disclosuresIn(relative(root, path), text, context)
-    }),
+    files.push(where)
+    disclosures.push(...disclosuresIn(where, text, context))
   }
+
+  return { read: files.length, files, unreadable, skipped, disclosures }
+}
+
+// Every published file is owed a reading: the tarball admits only text, so a file the scan's
+// own rules pass over is a rule that has grown across the published surface.
+export function unreadOf(listed, scan) {
+  const read = new Set(scan.files)
+
+  return listed.filter((path) => !read.has(path))
 }
 
 export function scanTarball(tarball, workspace) {
@@ -244,10 +279,10 @@ export function scanTarball(tarball, workspace) {
 // The count and the skips are the report, not decoration: a scan that read nothing says the
 // same thing about a tree as a scan that read all of it, and a skip nobody sees is a hole.
 export function reportDisclosures(subject, scan, out = process.stdout, err = process.stderr) {
-  const { disclosures, read, skipped } = scan
-  const coverage = `${read} file(s) read${skipped.map((path) => `, skipped the checkout at ${path}`).join('')}`
+  const { disclosures, read, skipped, unreadable } = scan
+  const coverage = `${read} file(s) read${skipped.map((path) => `, skipped the checkout at ${path}`).join('')}${unreadable.map((path) => `, could not read ${path}`).join('')}`
 
-  if (disclosures.length === 0) {
+  if (disclosures.length === 0 && unreadable.length === 0) {
     out.write(
       `private information — ${subject} carries none of the shapes this scan knows (${coverage})\n`,
     )
@@ -260,7 +295,7 @@ export function reportDisclosures(subject, scan, out = process.stdout, err = pro
   }
 
   err.write(
-    `private information FAILED — ${disclosures.length} disclosure(s) in ${subject} (${coverage})\n`,
+    `private information FAILED — ${disclosures.length} disclosure(s) and ${unreadable.length} file(s) it could not read in ${subject} (${coverage})\n`,
   )
 
   return false
