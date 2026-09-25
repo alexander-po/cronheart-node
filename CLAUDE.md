@@ -51,6 +51,19 @@ host succeeds. Hand the bundle in rather than disabling verification:
 CA_FILE=/path/to/ca-bundle.pem make check
 ```
 
+A linked git worktree carries a `.git` file rather than a directory, naming an
+absolute host path inside the main checkout's `.git` that the bind mount of the
+project does not reach, so git inside the container fails with "not a git
+repository" and the leak scan's test with it. The `Makefile` detects a linked
+worktree and mounts the main checkout's git directory read-only at that same
+path, so every `make` target works from one. A `docker compose run` typed by
+hand gets no such mount and has to pass it itself. A `.git` pointer holding a
+relative path resolves against `/app` instead, so a worktree created with
+relative paths is not covered, and this checkout being itself a submodule of
+another repository is not covered. A main checkout under a path containing a
+colon cannot be named in a docker volume, so make refuses to run from its
+worktrees rather than mount the wrong directory.
+
 `node_modules`, the fixture consumer's `node_modules` and the pnpm store are
 named volumes, so no platform-specific install ever lands in the working tree.
 The pnpm store deliberately lives under `/app` — pointing it at another

@@ -6,7 +6,20 @@ COMPOSE ?= docker compose
 CA_FILE ?=
 CA_MOUNT := $(if $(CA_FILE),-v $(CA_FILE):/etc/ssl/extra-ca.pem:ro -e NODE_EXTRA_CA_CERTS=/etc/ssl/extra-ca.pem,)
 
-RUN := $(COMPOSE) run --rm $(CA_MOUNT) node
+# A linked worktree's .git is a file naming an absolute host path inside the main checkout's
+# .git, beyond the bind mount of this directory, so that directory is mounted at the same path.
+# The path reaches the shell through the environment: no quoting survives every character in it.
+CHECKOUT_GIT_DIR := $(shell git rev-parse --path-format=absolute --git-dir 2>/dev/null)
+SHARED_GIT_DIR := $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+ifneq ($(subst $(SHARED_GIT_DIR),,$(CHECKOUT_GIT_DIR)),)
+ifneq ($(findstring :,$(SHARED_GIT_DIR)),)
+$(error $(SHARED_GIT_DIR) holds a colon, which a docker volume cannot name; run make from the main checkout instead of this worktree)
+endif
+export SHARED_GIT_DIR
+GIT_MOUNT := -v "$$SHARED_GIT_DIR:$$SHARED_GIT_DIR:ro"
+endif
+
+RUN := $(COMPOSE) run --rm $(CA_MOUNT) $(GIT_MOUNT) node
 
 .PHONY: help image install build test lint guard contract drift vectors matrix min-peers check smoke docs release-gate shell changeset version clean
 
