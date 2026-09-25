@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.4.0",
+  "contract_version": "2.5.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -401,7 +401,7 @@
       "stateless": true,
       "csrf": false,
       "token_prefix": "cmk_",
-      "issued_at": "the account's API tokens page, or the operator CLI"
+      "issued_at": "the account's API tokens page, or once on the signup poll route"
     },
     "entitlement": {
       "required_plans": ["free", "starter", "growth", "scale"],
@@ -419,14 +419,15 @@
       "known_extensions": {
         "errors": "422 only. Object mapping a snake_case field name to a human message.",
         "upgrade_url": "402 only.",
-        "retry_after": "429 only. Mirrors the Retry-After header as an integer."
+        "retry_after": "429 only. Mirrors the Retry-After header as an integer.",
+        "error": "The two signup routes only: invalid_request, signup_disabled, rate_limited, slow_down or expired_token. It restates what the status and the route already decide."
       },
       "hazards": [
         {
           "id": "no-stable-error-code",
           "severity": "high",
-          "statement": "There is no machine-readable code on a problem response. type is always about:blank. The three distinct 409 conditions (a key still in flight, a key reused with a different body, a disabled channel kind) are separable only by their English detail strings, and the 401 detail is a translation key rather than prose.",
-          "sdk_rule": "Classify on status only. Never branch on detail, and never echo a raw detail into a user-facing message."
+          "statement": "Outside the two signup routes there is no machine-readable code on a problem response. type is always about:blank. The three distinct 409 conditions (a key still in flight, a key reused with a different body, a disabled channel kind) are separable only by their English detail strings, and the 401 detail is a translation key rather than prose.",
+          "sdk_rule": "Classify on status and route only. Never branch on detail, and never echo a raw detail into a user-facing message."
         },
         {
           "id": "never-echo-the-raw-body",
@@ -442,11 +443,12 @@
         { "status": 400, "class": "UnexpectedResponse" },
         { "status": 401, "class": "Authentication" },
         { "status": 402, "class": "PlanRestriction", "carries": ["upgrade_url"] },
-        { "status": 403, "class": "Forbidden", "conditions": ["monitor limit reached", "account email unverified"] },
+        { "status": 403, "class": "Forbidden", "conditions": ["monitor limit reached", "account email unverified", "signup from the API switched off, on the two signup routes"] },
         { "status": 404, "class": "NotFound", "note": "Also returned for a resource outside the token's project scope; existence is masked." },
         { "status": 409, "class": "Conflict", "conditions": ["idempotency key in flight", "idempotency key reused with a different body", "channel kind disabled"] },
+        { "status": 410, "class": "UnexpectedResponse", "note": "On the two signup routes only, 410 means the signup request is unknown, expired, cancelled on the confirmation page or already claimed, and is raised as a SignupExpired subclass so the caller can tell 'start a new signup' from 'our API misbehaved'. No other route answers it." },
         { "status": 422, "class": "Validation", "carries": ["errors"] },
-        { "status": 429, "class": "RateLimit", "carries": ["retry_after", "Retry-After header"] },
+        { "status": 429, "class": "RateLimit", "carries": ["retry_after", "Retry-After header"], "note": "On the two signup routes the limit that refused is the address's, the network's or the poll interval, never an account's API rate limit." },
         { "status": 502, "class": "UnexpectedResponse", "note": "On the channel-test route only, 502 means the downstream destination failed and is raised as a ChannelDelivery subclass so the caller can distinguish 'we could not reach your Slack' from 'our API misbehaved'." },
         { "status": "other", "class": "UnexpectedResponse" }
       ],
@@ -692,6 +694,10 @@
       "channel.webhook_url": { "type": "string", "max_length": 500, "schemes": ["https"], "required_for_kinds": ["slack", "discord", "webhook"] },
       "channel.secret": { "type": "string", "min_length": 16, "max_length": 200, "required_for_kinds": ["webhook"] },
       "snooze.duration": { "type": "string", "vocabulary": "snooze.duration", "required": true },
+      "signup.email": { "type": "string", "max_length": 180, "format": "email", "not_blank": true },
+      "signup.accept_terms": { "type": "boolean", "must_equal": true },
+      "signup.start": { "required": ["email", "accept_terms"] },
+      "signup.poll": { "required": ["device_code"] },
       "rotate_uuid.confirm": { "type": "string", "must_equal": "the monitor's current uuid" }
     },
     "read_shapes": {
@@ -740,7 +746,65 @@
         "monitor_budget_keys": ["used", "limit", "remaining"],
         "api_rate_limit_keys": ["limit", "remaining"],
         "note": "Monitor budget is per account, summed across every project. Projects are an organisational boundary, not a billing one."
-      }
+      },
+      "signup.started": { "keys": ["device_code", "user_code", "expires_in", "interval", "hint"] },
+      "signup.pending": { "keys": ["status"] },
+      "signup.issued": { "keys": ["token", "token_prefix", "project"] }
+    },
+    "signup": {
+      "auth": "none",
+      "description": "Two routes that take no token: a client with no account asks for one for an address and, once the owner of that address confirms, receives the account's first token. The field names are those of RFC 8628's device authorization grant, but the request bodies are JSON rather than form-encoded and the pending and dead states answer 202 and 410, so a stock device-flow client does not work.",
+      "request_media_type": "application/json",
+      "routes": [
+        {
+          "id": "start",
+          "method": "POST",
+          "path": "/api/v1/signup",
+          "statuses": [202, 400, 403, 415, 422, 429],
+          "note": "The same 202 for every address, one that already has an account included. A repeat mails the address again and spends its daily allowance, so it is never retried."
+        },
+        {
+          "id": "poll",
+          "method": "POST",
+          "path": "/api/v1/signup/token",
+          "statuses": [200, 202, 400, 403, 410, 415, 422, 429],
+          "note": "202 until the code is confirmed, then 200 once with the token, then 410. A lost answer is a lost token, and a repeat gains nothing, so it is never retried."
+        }
+      ],
+      "flow": [
+        "The client sends the address and accept_terms true to the start route and receives device_code, user_code, expires_in, interval and hint.",
+        "One mail with one link goes to the address. The mail never carries the user_code.",
+        "The client shows the user_code; the person opens the link and types it on the page. That click is the acceptance of the terms the service records.",
+        "The client polls with device_code, waiting at least interval seconds and at least Retry-After after a 429, until the poll answers 200 or 410 or expires_in has passed."
+      ],
+      "pending_status": "authorization_pending",
+      "user_code_pattern": "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$",
+      "hazards": [
+        {
+          "id": "device-code-is-the-claim",
+          "severity": "high",
+          "statement": "Whoever holds device_code receives the token once the owner of the address confirms.",
+          "sdk_rule": "Hold it in memory, send it in the poll body only, and never put it in a message, a log record, a URL or a terminal."
+        },
+        {
+          "id": "token-shown-once",
+          "severity": "high",
+          "statement": "The 200 answer is the only place the token ever appears, and every later poll answers 410.",
+          "sdk_rule": "Never retry a poll. Check that the token can be stored before the flow starts, and hand it over rather than drop it when storing it fails after all."
+        },
+        {
+          "id": "user-code-reaches-a-terminal",
+          "severity": "medium",
+          "statement": "user_code is printed for a person to read, and a base URL pointed elsewhere controls the string.",
+          "sdk_rule": "Refuse a user_code that user_code_pattern does not match rather than print it."
+        },
+        {
+          "id": "same-answer-for-every-address",
+          "severity": "low",
+          "statement": "An address that already has an account gets the same 202 and its poll never confirms; an active account is mailed that nothing changed.",
+          "sdk_rule": "Tell the person that the key for an existing account comes from its API tokens page, and infer nothing from the answer."
+        }
+      ]
     },
     "openapi_document": {
       "path": "/api/v1/openapi.json",
@@ -759,7 +823,9 @@
         "the three pagination shapes: their request parameters and their response keys",
         "the read-shape key lists for monitor, monitor.channels[], monitor.open_incident, channel, ping, alert and account",
         "which monitor, monitor.open_incident, ping and alert fields are nullable",
-        "the snooze duration allowlist and that a duration is required"
+        "the snooze duration allowlist and that a duration is required",
+        "the signup routes' required request fields, the address maximum length, the user_code pattern and each route's statuses",
+        "the read-shape key lists for the three signup answers"
       ],
       "does_not_cover": [
         "anything about /ping: no route, no action mapping, no dedup rule, no body cap, no runtime header",
@@ -771,7 +837,8 @@
         "channel.secret maximum length, and which kinds each channel field is required for",
         "the ordering guarantees",
         "the idempotency semantics beyond a prose description",
-        "which statuses omit rate-limit headers"
+        "which statuses omit rate-limit headers",
+        "the signup poll interval, the code lifetime and the per-address and per-network signup limits"
       ]
     }
   },
@@ -781,7 +848,7 @@
     { "id": "no-project-on-monitor", "statement": "The monitor payload carries no project identifier and no endpoint reports the token's resolved project." },
     { "id": "no-verified-on-monitor-channels", "statement": "The monitor's channel projection carries no verified flag." },
     { "id": "no-name-lookup", "statement": "There is no exact-name filter on the monitors listing, and monitor names are not unique within a project. Resolving a name to a monitor means listing and scanning, and a duplicate name is ambiguous." },
-    { "id": "no-stable-problem-code", "statement": "Problem responses carry no machine-readable code extension." },
+    { "id": "no-stable-problem-code", "statement": "Outside the two signup routes, problem responses carry no machine-readable code extension." },
     { "id": "no-ping-outcome-header", "statement": "The ping response carries no header distinguishing accepted from duplicate." },
     { "id": "no-contract-negotiation", "statement": "The server publishes neither a contract version header nor a contract document, so a client cannot detect which contract version it is talking to." },
     { "id": "no-ping-auth", "statement": "The ping route reads no Authorization header. An SDK must not send one." },
@@ -879,7 +946,9 @@
     { "id": "api.base_path", "pointer": "/api/base_path", "value": "/api/v1" },
     { "id": "api.auth.token_prefix", "pointer": "/api/auth/token_prefix", "value": "cmk_" },
     { "id": "api.pagination.max_pages", "pointer": "/api/pagination/max_pages_guard", "value": 10000 },
-    { "id": "api.idempotency.finalised_retention_hours", "pointer": "/api/idempotency/finalised_retention_hours", "value": 24 }
+    { "id": "api.idempotency.finalised_retention_hours", "pointer": "/api/idempotency/finalised_retention_hours", "value": 24 },
+    { "id": "constraints.signup.email.max", "pointer": "/api/constraints/signup.email/max_length", "value": 180 },
+    { "id": "api.signup.user_code_pattern", "pointer": "/api/signup/user_code_pattern", "value": "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$" }
   ],
 
   "anchors_note": "Each entry names a value an SDK is expected to hold as a constant. A per-SDK test reads this file and asserts equality, which is the only coverage several of these facts have: the published OpenAPI document describes none of the ping surface and only part of the validation surface. See contract/README.md for what that leaves uncovered."

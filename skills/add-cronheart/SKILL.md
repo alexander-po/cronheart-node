@@ -189,8 +189,10 @@ Done when the project's type check passes and the process boots.
 
 ## 6. Create the monitors and put each id in the environment
 
-Two routes. Take route A without an API key and route B with one; both end with
-`CRONHEART_<NAME>_UUID` set where the job runs and a check-in proving it.
+Two routes, and both end with `CRONHEART_<NAME>_UUID` set where the job runs and a
+check-in proving it. Take route B by default: its first step makes the account and
+its API key when there is none yet. Route A is the dashboard, for a person who
+already has an account there and would rather click.
 
 ### Route A — the dashboard
 
@@ -212,20 +214,55 @@ Two routes. Take route A without an API key and route B with one; both end with
 
 ### Route B — an API key
 
-`CRONHEART_API_KEY` holds a Personal Access Token issued at Account → API tokens
-(https://cronheart.com/account/api-tokens). It begins with `cmk_` and is shown
-once; export it in the shell that runs the commands below, never in the job's
-own environment — a check-in does not read it, and `cronheart run` withholds it
-from the command it wraps:
+1. Get the key from the terminal. Ask the person the monitoring is for which
+   address to sign up with, and whether they accept the Terms of Service
+   (https://cronheart.com/terms) and the Privacy Policy
+   (https://cronheart.com/privacy): signing up accepts both, and the acceptance
+   the service records is their own click on the mailed page, so never pass the
+   flag on their behalf without asking. Then write the key to a file outside the
+   repository, where it is never committed and never loaded into the job's
+   environment with the project's `.env`:
 
-```bash
-export CRONHEART_API_KEY=cmk_replace-me
-```
+   ```bash
+   mkdir -p ~/.config/cronheart
+   cronheart signup you@example.com --accept-terms --env-path=$HOME/.config/cronheart/api-key.env
+   ```
+
+   The command prints a code within a second or two, then waits — up to 30
+   minutes — while the address gets a mail with one link that the person opens
+   to type the code. It only returns once that is done, so run it where a long
+   wait survives and its output can be read while it runs: start it as a
+   background task and read the code from its output, or ask the person to run
+   it in their own terminal. Give the person the code; the mail never carries
+   it. The command then writes `CRONHEART_API_KEY` to that file, readable by its
+   owner alone, and exits 0. The key is printed on stdout only if that file is
+   refused or the write fails after the confirmation, because nothing else holds
+   it then: write that line into the file at once, and tell the person that the
+   key is now in this session's output, so that they can replace it with a new
+   one from the API tokens page. An active account at that
+   address is mailed that nothing changed, and the code never confirms: stop
+   the command and take a key from Account → API tokens
+   (https://cronheart.com/account/api-tokens) instead, where it is shown once,
+   when it is created. A key begins with `cmk_`. The new account has no
+   password until one is set with Forgot password on the sign-in page, and no
+   notification channel: `cronheart init` refuses to create a monitor that
+   would alert nobody, so the person adds and verifies one in the dashboard, or
+   `--channels=none` says that a monitor alerting nobody is what was meant.
+2. Export it in the shell that runs the commands below, never in the job's own
+   environment — a check-in does not read it, and `cronheart run` withholds it
+   from the command it wraps:
+
+   ```bash
+   export CRONHEART_API_KEY="$(sed -n 's/^CRONHEART_API_KEY=//p' ~/.config/cronheart/api-key.env)"
+   ```
+
+   A shell that does not keep variables between commands takes the assignment
+   in front of each command instead.
 
 The REST API is on every plan, Free included — https://cronheart.com/pricing
 states the per-plan rate limit rather than a plan gate, 30 requests per minute
-on Free and higher above it. Route A remains the way to create a monitor with
-no key at all.
+on Free and higher above it. Route A remains the way to create a monitor
+without a key, from an account the person can already sign in to.
 
 For one monitor:
 
@@ -369,11 +406,12 @@ branch on `error.kind`:
 | `hydration` | 2xx | the response is not the shape this client reads | report it |
 | `authentication` | 401 | the key was rejected; a key is shown once and cannot be read back | check the value `CRONHEART_API_KEY` holds |
 | `plan-restriction` | 402 | should not happen — every plan includes the REST API now; `error.upgradeUrl` if it somehow does | report it, or take route A |
-| `forbidden` | 403 | the monitor limit is reached, or the account's email address is unverified | free a monitor, or verify the address |
+| `forbidden` | 403 | the monitor limit is reached, or the account's email address is unverified; on signup, signup from the API is switched off | free a monitor, or verify the address; sign up on the web |
 | `not-found` | 404 | no such resource in this key's project; a key scoped to another project reads the same | check the id and the key's project |
 | `conflict` | 409 | an idempotency key is still reserved, or reused with a different body | read the resource back before deciding it was not created |
 | `validation` | 422 | `error.errors` names the fields the service refused | fix those fields |
-| `rate-limit` | 429 | the account's API limit is spent; `error.retryAfterSeconds` | wait; every key of the account shares one limit |
+| `rate-limit` | 429 | the account's API limit is spent; on signup, too many signups for the address or the network, or a poll too soon; `error.retryAfterSeconds` | wait; every key of the account shares one limit |
+| `signup-expired` | 410 | the signup expired, was cancelled on the mailed page, or its key was already handed out | run `cronheart signup` again; if the account was made, take a key from its API tokens page |
 | `channel-delivery` | 502 | a channel test reached the destination and the destination refused it | the destination, not the API |
 | `unexpected` | other | a status this client does not know | report it |
 
@@ -395,6 +433,7 @@ ways a request failed without one.
 | `cronheart doctor` | `0`, `1` | nothing wrong, or something is |
 | `cronheart init` | `0`, `1` | the check-in was recorded, or it was not |
 | `cronheart sync --check` | `0`, `2`, `1` | matches, differs, could not answer |
+| `cronheart signup` | `0`, `64`, `1` | the key was written; the terms were not accepted or the invocation could not be read; the service refused, the code expired or was cancelled, or the key could not be written |
 
 A monitor `cronheart run` cannot use — an empty `--uuid` where a variable went
 missing, a name behind `--uuid` — is reported on stderr and the command still

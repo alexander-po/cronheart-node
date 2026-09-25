@@ -61,6 +61,16 @@ const FACTS = [
   ['/api/read_shapes/monitor.open_incident/nullable', 'members', (doc) => nullableOf(doc, 'OpenIncident')],
   ['/api/read_shapes/ping/nullable', 'members', (doc) => nullableOf(doc, 'Ping')],
   ['/api/read_shapes/alert/nullable', 'members', (doc) => nullableOf(doc, 'Alert')],
+
+  ['/api/constraints/signup.email/max_length', 'value', (doc) => property(doc, 'SignupStart', 'email')?.maxLength],
+  ['/api/constraints/signup.start/required', 'members', (doc) => schema(doc, 'SignupStart')?.required],
+  ['/api/constraints/signup.poll/required', 'members', (doc) => schema(doc, 'SignupPoll')?.required],
+  ['/api/read_shapes/signup.started/keys', 'members', (doc) => keysOf(doc, 'SignupStarted')],
+  ['/api/read_shapes/signup.pending/keys', 'members', (doc) => keysOf(doc, 'SignupPending')],
+  ['/api/read_shapes/signup.issued/keys', 'members', (doc) => keysOf(doc, 'SignupToken')],
+  ['/api/signup/user_code_pattern', 'value', (doc) => property(doc, 'SignupStarted', 'user_code')?.pattern],
+  ['/api/signup/routes/0/statuses', 'members', (doc) => statusesOf(doc, '/api/v1/signup')],
+  ['/api/signup/routes/1/statuses', 'members', (doc) => statusesOf(doc, '/api/v1/signup/token')],
 ]
 
 function schema(document, name) {
@@ -112,6 +122,12 @@ function queryNames(document, path) {
     : parametersOf(document, path)
         .filter((parameter) => parameter?.in === 'query')
         .map((parameter) => parameter?.name)
+}
+
+function statusesOf(document, path) {
+  const responses = document?.paths?.[path]?.post?.responses
+
+  return responses === undefined ? undefined : Object.keys(responses).map(Number)
 }
 
 export function project(document) {

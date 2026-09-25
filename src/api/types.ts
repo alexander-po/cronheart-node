@@ -234,6 +234,47 @@ export interface CronheartApiOptions {
   readonly userAgent?: string | undefined
 }
 
+export interface SignupClientOptions {
+  readonly baseUrl?: string | undefined
+  readonly timeoutMs?: number | undefined
+  readonly fetch?: FetchLike | undefined
+  readonly env?: Readonly<Record<string, string | undefined>> | undefined
+  readonly signal?: AbortSignalLike | undefined
+  readonly userAgent?: string | undefined
+}
+
+export interface StartSignupRequest {
+  readonly email: string
+  // The acceptance the service records is the click of whoever confirms on the mailed page.
+  readonly acceptTerms: true
+}
+
+export interface SignupStarted {
+  // A secret: it is what claims the token, so it is polled with and shown to nobody.
+  readonly deviceCode: string
+  // Shown to the person, who types it on the page the mailed link opens.
+  readonly userCode: string
+  readonly expiresIn: number
+  readonly interval: number
+  readonly hint: string | null
+}
+
+export type SignupPollResult =
+  | { readonly status: 'pending' }
+  | {
+      readonly status: 'issued'
+      // Handed out once, on this answer only, and scoped to the account's default project.
+      readonly token: string
+      // Null when absent, not short printable text, or, for the prefix, not how the token begins.
+      readonly tokenPrefix: string | null
+      readonly project: string | null
+    }
+
+export interface SignupClient {
+  start(request: StartSignupRequest, options?: RequestOptions): Promise<SignupStarted>
+  poll(deviceCode: string, options?: RequestOptions): Promise<SignupPollResult>
+}
+
 export interface MonitorsApi {
   list(options?: ListOptions): Promise<MonitorPage>
   iterate(options?: ListOptions): AsyncIterableIterator<Monitor>

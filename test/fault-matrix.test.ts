@@ -50,6 +50,7 @@ const NEEDS_NO_CASE: Readonly<Record<string, string>> = {
   './api#ApiNotFoundError': 'an error class',
   './api#ApiPlanRestrictionError': 'an error class',
   './api#ApiRateLimitError': 'an error class',
+  './api#ApiSignupExpiredError': 'an error class',
   './api#ApiTransportError': 'an error class',
   './api#ApiUnexpectedResponseError': 'an error class',
   './api#ApiValidationError': 'an error class',

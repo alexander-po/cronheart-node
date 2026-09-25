@@ -5,6 +5,7 @@ import { ambientEnv, numberFrom, readEnv } from '../ping/env.js'
 import { userAgent } from '../version.js'
 import { assertApiBaseUrl, assertApiKey, assertUserAgent } from './config.js'
 import {
+  API_KEY_VARIABLE,
   API_PAGE_LIMIT_DEFAULT,
   CHANNEL_ADDRESS_KINDS,
   CHANNEL_CHAT_ID_KINDS,
@@ -70,8 +71,6 @@ import {
   pageOffset,
   refuseMissingChannelField,
 } from './validate.js'
-
-const API_KEY_VARIABLE = 'CRONHEART_API_KEY'
 
 const API_KEY_OPTION = 'the apiKey option'
 

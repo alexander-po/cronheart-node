@@ -1,0 +1,171 @@
+{
+  "contract_version": "2.5.0",
+  "group": "api.signup_answers",
+  "description": "How the two signup answers are read. The user code is printed on a person's terminal and the token is written into an env file, so both are held to a shape before either is handed on; and the poll's status decides between pending and issued, never a string in its body.",
+  "case_count": 25,
+  "cases": [
+    {
+      "id": "started-as-published",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "a-device-code", "user_code": "BCDF-GHJK", "expires_in": 1800, "interval": 5, "hint": "A hint for the caller." } },
+      "expect": [{ "predicate": "throwsNothing" }, { "predicate": "equals", "path": "/deviceCode", "value": "a-device-code" }, { "predicate": "equals", "path": "/userCode", "value": "BCDF-GHJK" }, { "predicate": "equals", "path": "/expiresIn", "value": 1800 }, { "predicate": "equals", "path": "/interval", "value": 5 }, { "predicate": "matches", "path": "/hint", "value": "^A hint" }]
+    },
+    {
+      "id": "started-without-a-hint",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "a-device-code", "user_code": "BCDF-GHJK", "expires_in": 1800, "interval": 5 } },
+      "expect": [{ "predicate": "throwsNothing" }, { "predicate": "equals", "path": "/hint", "value": null }]
+    },
+    {
+      "id": "started-with-a-hint-no-terminal-should-print",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "a-device-code", "user_code": "BCDF-GHJK", "expires_in": 1800, "interval": 5, "hint": "\u001b[2JA hint for the caller." } },
+      "expect": [{ "predicate": "throwsNothing" }, { "predicate": "equals", "path": "/userCode", "value": "BCDF-GHJK" }, { "predicate": "equals", "path": "/hint", "value": null }],
+      "why": "The mail has gone out by the time this answer is read, so a display field that is not printable text is dropped rather than failing the flow."
+    },
+    {
+      "id": "user-code-with-a-vowel",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "a-device-code", "user_code": "BACD-GHJK", "expires_in": 1800, "interval": 5, "hint": "A hint for the caller." } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }],
+      "why": "user-code-reaches-a-terminal"
+    },
+    {
+      "id": "user-code-in-lower-case",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "a-device-code", "user_code": "bcdf-ghjk", "expires_in": 1800, "interval": 5, "hint": "A hint for the caller." } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }],
+      "why": "user-code-reaches-a-terminal"
+    },
+    {
+      "id": "user-code-carrying-an-escape-sequence",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "a-device-code", "user_code": "\u001b[2JBCDF-GHJK", "expires_in": 1800, "interval": 5, "hint": "A hint for the caller." } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }],
+      "why": "user-code-reaches-a-terminal"
+    },
+    {
+      "id": "user-code-with-a-line-after-it",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "a-device-code", "user_code": "BCDF-GHJK\nBCDF-GHJK", "expires_in": 1800, "interval": 5, "hint": "A hint for the caller." } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }],
+      "why": "user-code-reaches-a-terminal"
+    },
+    {
+      "id": "user-code-with-a-trailing-line-break",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "a-device-code", "user_code": "BCDF-GHJK\n", "expires_in": 1800, "interval": 5, "hint": "A hint for the caller." } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }],
+      "why": "A pattern engine whose $ also matches before a final line break accepts this; the pattern means the whole string."
+    },
+    {
+      "id": "empty-device-code",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "", "user_code": "BCDF-GHJK", "expires_in": 1800, "interval": 5, "hint": "A hint for the caller." } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }]
+    },
+    {
+      "id": "interval-as-a-string",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "a-device-code", "user_code": "BCDF-GHJK", "expires_in": 1800, "interval": "5", "hint": "A hint for the caller." } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }]
+    },
+    {
+      "id": "negative-lifetime",
+      "subject": "api.readSignupStart",
+      "input": { "body": { "device_code": "a-device-code", "user_code": "BCDF-GHJK", "expires_in": -1, "interval": 5, "hint": "A hint for the caller." } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }]
+    },
+    {
+      "id": "started-answer-that-is-not-an-object",
+      "subject": "api.readSignupStart",
+      "input": { "body": [{ "device_code": "a-device-code", "user_code": "BCDF-GHJK", "expires_in": 1800, "interval": 5, "hint": "A hint for the caller." }] },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }]
+    },
+    {
+      "id": "pending",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 202, "body": { "status": "authorization_pending" } },
+      "expect": [{ "predicate": "throwsNothing" }, { "predicate": "equals", "path": "/status", "value": "pending" }]
+    },
+    {
+      "id": "pending-whatever-the-body-names",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 202, "body": { "status": "slow_down" } },
+      "expect": [{ "predicate": "equals", "path": "/status", "value": "pending" }],
+      "why": "The status decides. A 202 is every answer before the confirmation, so a string the body carries never ends the wait."
+    },
+    {
+      "id": "a-token-on-a-202-is-not-issued",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 202, "body": { "token": "cmk_00000000000000000000000000000000", "token_prefix": "cmk_0000", "project": "default" } },
+      "expect": [{ "predicate": "equals", "path": "/status", "value": "pending" }],
+      "why": "Only the 200 hands a token out; reading one off another status would claim a token the service never issued."
+    },
+    {
+      "id": "issued",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 200, "body": { "token": "cmk_00000000000000000000000000000000", "token_prefix": "cmk_0000", "project": "default" } },
+      "expect": [{ "predicate": "throwsNothing" }, { "predicate": "equals", "path": "/status", "value": "issued" }, { "predicate": "equals", "path": "/token", "value": "cmk_00000000000000000000000000000000" }, { "predicate": "equals", "path": "/tokenPrefix", "value": "cmk_0000" }, { "predicate": "equals", "path": "/project", "value": "default" }]
+    },
+    {
+      "id": "issued-without-the-display-fields",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 200, "body": { "token": "cmk_00000000000000000000000000000000" } },
+      "expect": [{ "predicate": "throwsNothing" }, { "predicate": "equals", "path": "/token", "value": "cmk_00000000000000000000000000000000" }, { "predicate": "equals", "path": "/tokenPrefix", "value": null }, { "predicate": "equals", "path": "/project", "value": null }],
+      "why": "token-shown-once"
+    },
+    {
+      "id": "issued-with-a-project-no-terminal-should-print",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 200, "body": { "token": "cmk_00000000000000000000000000000000", "token_prefix": "cmk_0000", "project": "default\u009b2J" } },
+      "expect": [{ "predicate": "equals", "path": "/status", "value": "issued" }, { "predicate": "equals", "path": "/project", "value": null }],
+      "why": "The key is kept, and a display field that is not short printable text is dropped rather than printed."
+    },
+    {
+      "id": "issued-with-a-prefix-that-does-not-begin-the-key",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 200, "body": { "token": "cmk_00000000000000000000000000000000", "token_prefix": "cmk_1111", "project": "default" } },
+      "expect": [{ "predicate": "equals", "path": "/status", "value": "issued" }, { "predicate": "equals", "path": "/tokenPrefix", "value": null }],
+      "why": "A prefix is shown beside the key's name, so one that is not a short beginning of the key is dropped: a long one would show the key itself."
+    },
+    {
+      "id": "a-200-without-a-token",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 200, "body": { "status": "authorization_pending" } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }]
+    },
+    {
+      "id": "a-token-that-is-not-a-key",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 200, "body": { "token": "cmk_short", "token_prefix": "cmk_0000", "project": "default" } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }]
+    },
+    {
+      "id": "a-token-with-a-line-after-it",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 200, "body": { "token": "cmk_00000000000000000000000000000000\nCRONHEART_URL=http://elsewhere.invalid", "token_prefix": "cmk_0000", "project": "default" } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }],
+      "why": "token-shown-once"
+    },
+    {
+      "id": "a-token-with-a-trailing-line-break",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 200, "body": { "token": "cmk_00000000000000000000000000000000\n", "token_prefix": "cmk_0000", "project": "default" } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }],
+      "why": "The token is written into an env file as one line, so a line break of its own would end that line early."
+    },
+    {
+      "id": "another-success-status",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 201, "body": { "token": "cmk_00000000000000000000000000000000", "token_prefix": "cmk_0000", "project": "default" } },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }]
+    },
+    {
+      "id": "a-pending-answer-that-is-not-an-object",
+      "subject": "api.readSignupPoll",
+      "input": { "status": 202, "body": "authorization_pending" },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Hydration" }]
+    }
+  ]
+}

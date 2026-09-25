@@ -1,16 +1,7 @@
-import {
-  chmodSync,
-  existsSync,
-  lstatSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync } from 'node:fs'
 import { dirname } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
-import { escapeLiteral } from '../ping/body.js'
 import { outcomeLine } from '../ping/describe.js'
 import { envVarFor, isMonitorId } from '../ping/resolve.js'
 import { isSyncConfigurationError } from '../sync/errors.js'
@@ -25,6 +16,7 @@ import {
   readMonitorId,
   readMonitorName,
 } from './client.js'
+import { DEFAULT_ENV_FILE, inspect, upsertEnvLine, writeSecretly } from './env-file.js'
 import { EXIT_OK, EXIT_PROBLEM, EXIT_USAGE } from './exit.js'
 import type { Io } from './io.js'
 import { openManagementClient } from './managed.js'
@@ -47,11 +39,7 @@ const CHANNELS_PAGE = 'https://cronheart.com/channels'
 
 const NO_CHANNELS = 'none'
 
-const DEFAULT_ENV_FILE = '.env'
-
 const EXAMPLE_BINARY = '/usr/local/bin/cronheart'
-
-const OWNER_ONLY = 0o600
 
 const SECRET_FIELD = 'uuid'
 
@@ -63,14 +51,6 @@ interface Answers {
 interface Echoing {
   _writeToOutput?: (text: string) => void
   readonly output?: { write(text: string): unknown } | null | undefined
-}
-
-type Existing =
-  | { readonly ok: true; readonly text: string | undefined; readonly mode: number | undefined }
-  | { readonly ok: false; readonly problem: string }
-
-function codeOf(error: unknown): string {
-  return (error as { code?: string }).code ?? 'unknown error'
 }
 
 // On a terminal readline echoes what it reads, which would put the pasted id — the whole
@@ -146,79 +126,6 @@ async function askFor(missing: readonly string[]): Promise<Record<string, string
   }
 
   return answers
-}
-
-export function upsertEnvLine(existing: string | undefined, key: string, value: string): string {
-  const line = `${key}=${value}`
-
-  if (existing === undefined || existing === '') {
-    return `${line}\n`
-  }
-
-  const lines = existing.split('\n')
-  const at = lines.findIndex((one) =>
-    new RegExp(`^\\s*(?:export\\s+)?${escapeLiteral(key)}=`).test(one),
-  )
-
-  if (at >= 0) {
-    lines[at] = line
-
-    return lines.join('\n')
-  }
-
-  return `${existing}${existing.endsWith('\n') ? '' : '\n'}${line}\n`
-}
-
-// Absent is the one failure that means "write a new one". A file that is unreadable would
-// otherwise be replaced by a single line, and a link would divert the credential.
-function inspect(path: string): Existing {
-  let entry
-
-  try {
-    entry = lstatSync(path)
-  } catch (error) {
-    if (codeOf(error) === 'ENOENT') {
-      return { ok: true, text: undefined, mode: undefined }
-    }
-
-    return { ok: false, problem: `${path} cannot be examined (${codeOf(error)})` }
-  }
-
-  if (entry.isSymbolicLink()) {
-    return {
-      ok: false,
-      problem: `${path} is a symbolic link, and a file that will hold a credential is not written through one`,
-    }
-  }
-
-  try {
-    return { ok: true, text: readFileSync(path, 'utf8'), mode: entry.mode & 0o777 }
-  } catch (error) {
-    return {
-      ok: false,
-      problem: `${path} exists but cannot be read (${codeOf(error)}), so it was left untouched rather than replaced`,
-    }
-  }
-}
-
-// Written beside the target and renamed over it: an interrupted write cannot leave half a
-// secrets file behind, and a file this command creates is readable by its owner alone.
-function writeSecretly(path: string, text: string, mode: number | undefined): string | undefined {
-  const temporary = `${path}.${process.pid}.cronheart-tmp`
-
-  try {
-    writeFileSync(temporary, text, { mode: OWNER_ONLY, flag: 'wx' })
-    chmodSync(temporary, mode ?? OWNER_ONLY)
-    renameSync(temporary, path)
-
-    return undefined
-  } catch (error) {
-    try {
-      unlinkSync(temporary)
-    } catch {}
-
-    return `${path} could not be written (${codeOf(error)})`
-  }
 }
 
 // An env file is read by an application at startup; cron reads none, and a crontab entry that

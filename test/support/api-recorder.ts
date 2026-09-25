@@ -356,7 +356,7 @@ export interface Sweep {
   readonly succeeded: readonly string[]
 }
 
-function describeQuietly(value: unknown, depth = 0): string[] {
+export function describeQuietly(value: unknown, depth = 0): string[] {
   const parts: string[] = []
 
   for (const read of [
@@ -385,7 +385,7 @@ function describeQuietly(value: unknown, depth = 0): string[] {
   return parts
 }
 
-function captureOutput(): { lines: string[]; restore: () => void } {
+export function captureOutput(): { lines: string[]; restore: () => void } {
   const lines: string[] = []
   const sink = console as unknown as Record<string, unknown>
   const previous = new Map<string, unknown>()

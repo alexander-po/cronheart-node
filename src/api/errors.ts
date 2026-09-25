@@ -13,6 +13,7 @@ export type ApiErrorKind =
   | 'validation'
   | 'rate-limit'
   | 'channel-delivery'
+  | 'signup-expired'
   | 'unexpected'
 
 // The coarser of the two discriminants: "the server refused this" is one class, reachable
@@ -265,6 +266,16 @@ export class ApiChannelDeliveryError extends ApiResponseError {
   }
 }
 
+export class ApiSignupExpiredError extends ApiResponseError {
+  override readonly name: string = 'ApiSignupExpiredError'
+
+  declare readonly kind: 'signup-expired'
+
+  constructor(message: string, details: ApiErrorDetails) {
+    super('signup-expired', message, details)
+  }
+}
+
 export class ApiUnexpectedResponseError extends ApiResponseError {
   override readonly name: string = 'ApiUnexpectedResponseError'
 
@@ -288,6 +299,7 @@ export type AnyCronheartApiError =
   | ApiNotFoundError
   | ApiPlanRestrictionError
   | ApiRateLimitError
+  | ApiSignupExpiredError
   | ApiTransportError
   | ApiUnexpectedResponseError
   | ApiValidationError

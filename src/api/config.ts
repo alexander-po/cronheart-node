@@ -12,14 +12,18 @@ function refuse(why: string): never {
   throw new ApiConfigurationError(`cronheart: ${why}`)
 }
 
+export function isApiKeyShaped(value: string): boolean {
+  return value.startsWith(API_TOKEN_PREFIX) && TOKEN_BODY.test(value.slice(API_TOKEN_PREFIX.length))
+}
+
 export function assertApiKey(value: unknown, source: string): asserts value is string {
   if (typeof value !== 'string' || value === '') {
     refuse(
-      `no API key. Pass apiKey to createCronheartApi, or set ${source} — a key is created on the account's API tokens page.`,
+      `no API key. Pass apiKey to createCronheartApi, or set ${source} — a key is created on the account's API tokens page, or by cronheart signup for an address with no account yet.`,
     )
   }
 
-  if (!value.startsWith(API_TOKEN_PREFIX) || !TOKEN_BODY.test(value.slice(API_TOKEN_PREFIX.length))) {
+  if (!isApiKeyShaped(value)) {
     refuse(
       `the value ${source} carries is not a Cronheart API key. A key begins ${API_TOKEN_PREFIX} and carries nothing but letters, digits, hyphens and underscores after it — a key read from a file usually still has its trailing newline attached.`,
     )

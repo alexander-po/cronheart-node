@@ -53,6 +53,16 @@ vulnerability rather than a bug.
   anything but loopback — an exact `localhost`, an IPv6 loopback literal or a
   real `127.x.x.x` address, matched anchored, so a host anyone can register
   cannot pass as loopback.
+- **A signup's device code and the key it claims stay out of every message.**
+  The device code travels in the poll's body and nowhere else, and neither it
+  nor the issued key appears in an error, a `toJSON` or any message `cronheart
+  signup` prints. The command writes the key into the env file it was given,
+  and prints it only under `--print-env`, or once when the file is refused or
+  the write fails after the confirmation, since nothing else then holds it. It
+  checks the file before the flow starts and again before the write, and
+  refuses one that is a link, one that already holds a key, and, outside
+  Windows, one that others can read or write. A user code outside the published
+  pattern is refused rather than printed.
 - **A job's output is redacted before it is cut.** The CLI's excerpt is
   redacted first and truncated afterwards, at every boundary, so truncation can
   only ever split a `[redacted]` marker rather than strip the anchor off a

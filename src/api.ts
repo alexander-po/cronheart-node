@@ -25,11 +25,13 @@ export {
   PLAN_KEYS,
   SCHEDULE_EXPR_MAX_LENGTH,
   SCHEDULE_KINDS,
+  SIGNUP_EMAIL_MAX_LENGTH,
   SIMPLE_SCHEDULES,
   SNOOZE_DURATIONS,
   TIMEZONE_MAX_LENGTH,
 } from './api/constants.js'
 export { createCronheartApi } from './api/client.js'
+export { createSignupClient } from './api/signup.js'
 export {
   ApiAuthenticationError,
   ApiChannelDeliveryError,
@@ -42,6 +44,7 @@ export {
   ApiPlanRestrictionError,
   ApiRateLimitError,
   ApiResponseError,
+  ApiSignupExpiredError,
   ApiTransportError,
   ApiUnexpectedResponseError,
   ApiValidationError,
@@ -100,7 +103,12 @@ export type {
   RequestOptions,
   RotatedChannelSecret,
   ScheduleKind,
+  SignupClient,
+  SignupClientOptions,
+  SignupPollResult,
+  SignupStarted,
   SimpleSchedule,
   SnoozeDuration,
+  StartSignupRequest,
   UpdateMonitorRequest,
 } from './api/types.js'
