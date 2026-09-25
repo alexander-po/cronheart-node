@@ -177,11 +177,11 @@ describe('a page that documents every flag its command accepts', () => {
     }
   })
 
-  it('says sync needs an API key on a paid plan on the page a sync reader is on', async () => {
+  it('says sync needs an API key, on every plan, on the page a sync reader is on', async () => {
     const said = String((await runCli(['sync', '--help'])).stdout.split('\nEnvironment')[0])
 
     expect(said).toContain('CRONHEART_API_KEY')
-    expect(said).toContain('Starter')
+    expect(said).toContain('CRONHEART_API_KEY, which every plan includes')
   })
 })
 
@@ -195,9 +195,9 @@ describe('what the README says before a reader reaches the sync section', () => 
     expect(CLI_SECTION).not.toBe('')
   })
 
-  it('states the key and the plan sync needs inside the sync section itself', () => {
+  it('states the key sync needs inside the sync section itself', () => {
     expect(SYNC_SECTION).toContain('CRONHEART_API_KEY')
-    expect(SYNC_SECTION).toContain('Starter')
+    expect(SYNC_SECTION).toContain('every plan includes it')
   })
 
   it('documents all three statuses --check ends on', () => {

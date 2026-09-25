@@ -11,7 +11,7 @@ const WHOLE = wholeGraph(dist, 'cli.mjs')
 // so the assertion breaks if either is pulled onto the eager path by a stray static import.
 const INIT_ONLY = 'node:readline'
 
-const TIER_ONLY = 'needs the Starter plan'
+const PLAN_NOTICE_ONLY = 'should not happen under the current plans'
 
 describe('what a per-minute cron pays to start', () => {
   it('reads one file to start and reaches the rest only when a command asks for them', () => {
@@ -24,12 +24,12 @@ describe('what a per-minute cron pays to start', () => {
     expect(EAGER.source).toContain('node:child_process')
     expect(EAGER.source).toContain('/ping/')
     expect(EAGER.source).not.toContain(INIT_ONLY)
-    expect(EAGER.source).not.toContain(TIER_ONLY)
+    expect(EAGER.source).not.toContain(PLAN_NOTICE_ONLY)
   })
 
   it('still ships both, reached through a dynamic import rather than dropped', () => {
     expect(WHOLE.source).toContain(INIT_ONLY)
-    expect(WHOLE.source).toContain(TIER_ONLY)
+    expect(WHOLE.source).toContain(PLAN_NOTICE_ONLY)
     expect(EAGER.dynamics.length).toBeGreaterThan(0)
   })
 

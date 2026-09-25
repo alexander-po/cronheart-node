@@ -313,7 +313,7 @@ describe('what stops a run and what does not', () => {
 
     expect(result.stopped).toBe(true)
     expect(result.failures).toHaveLength(1)
-    expect(result.failures[0]?.message).toContain('Starter')
+    expect(result.failures[0]?.message).toContain('should not happen')
   })
 
   it('carries on past a refusal that is about one monitor only', async () => {

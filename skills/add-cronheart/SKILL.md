@@ -368,7 +368,7 @@ branch on `error.kind`:
 | `transport` | — | `error.reason` is `timeout`, `aborted`, `network-error`, `unparseable`, `unbounded` or `unexpected` | the network, or a response that is not JSON |
 | `hydration` | 2xx | the response is not the shape this client reads | report it |
 | `authentication` | 401 | the key was rejected; a key is shown once and cannot be read back | check the value `CRONHEART_API_KEY` holds |
-| `plan-restriction` | 402 | the plan does not include the REST API; `error.upgradeUrl` | upgrade, or take route A |
+| `plan-restriction` | 402 | should not happen — every plan includes the REST API now; `error.upgradeUrl` if it somehow does | report it, or take route A |
 | `forbidden` | 403 | the monitor limit is reached, or the account's email address is unverified | free a monitor, or verify the address |
 | `not-found` | 404 | no such resource in this key's project; a key scoped to another project reads the same | check the id and the key's project |
 | `conflict` | 409 | an idempotency key is still reserved, or reused with a different body | read the resource back before deciding it was not created |

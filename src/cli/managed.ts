@@ -1,6 +1,5 @@
 import { createCronheartApi } from '../api/client.js'
 import type { CronheartApi, CronheartApiOptions } from '../api/types.js'
-import { PAID_ONLY_NOTICE } from './tier.js'
 
 export type Managed =
   | { readonly ok: true; readonly api: CronheartApi }
@@ -14,7 +13,7 @@ export function openManagementClient(options: CronheartApiOptions = {}): Managed
 
     return {
       ok: false,
-      problem: `${message.replace(/^cronheart:\s*/, '')} ${PAID_ONLY_NOTICE}`,
+      problem: message.replace(/^cronheart:\s*/, ''),
     }
   }
 }

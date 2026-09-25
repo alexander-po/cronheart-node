@@ -63,7 +63,7 @@ for codebases that would rather not read the environment. Its own methods are
 `ping`, `start`, `success` and `fail` alongside `withMonitor`, `startRun`,
 `checkInWith`, `flush` and a `monitors` registry.
 
-Rather than creating the monitors by hand, a project on a paid plan can write
+Rather than creating the monitors by hand, a project with an API key can write
 them in a file and have them reconciled — see [Declarative sync](#declarative-sync).
 
 `withMonitor` is `startRun` with the job handed in, so both brackets behave
@@ -508,7 +508,7 @@ cronheart --version                               # the version, and the wire co
 ```
 
 `sync` reconciles a whole project's monitors against a file it never writes to;
-it needs an API key on a paid plan, and it has a section of its own —
+it needs an API key, and it has a section of its own —
 [Declarative sync](#declarative-sync).
 
 `run` wraps a command. It opens with a `start` check-in, then reports success —
@@ -626,9 +626,9 @@ is verified — because a report with nothing wrong in it would otherwise read a
 reassurance about alerting that nothing here established.
 
 `init` writes `CRONHEART_<NAME>_UUID` for a monitor and verifies it with a
-check-in. Creating the monitor from the command line needs the REST API, which
-is Starter-and-above, so on the free path `init` links to the dashboard and
-takes a pasted id instead. Its destination flag is `--env-path` rather than
+check-in. Creating the monitor from the command line needs an API key;
+without one, `init` links to the dashboard and takes a pasted id instead.
+Its destination flag is `--env-path` rather than
 `--env-file`, because Node reads `--env-file` as one of its own options
 wherever it appears on the line.
 
@@ -681,9 +681,16 @@ streams, and everything it does with the service is already reachable through `c
 ## Management API
 
 `cronheart/api` wraps the REST API: monitors, notification channels and the
-account's plan and budget. It needs an API key, which needs the **Starter plan
-or above** — check-ins work on every plan, Free included, and nothing in this
-section is required to be monitored.
+account's plan and budget. It needs an API key — every plan includes the REST
+API, Free included, and nothing in this section is required to be monitored.
+The account's plan sets the rate limit:
+
+| Plan | Requests / min |
+| --- | --- |
+| Free | 30 |
+| Starter | 120 |
+| Growth | 300 |
+| Scale | 600 |
 
 ```ts
 import { createCronheartApi, isCronheartApiError } from 'cronheart/api'
@@ -729,7 +736,6 @@ try {
 
   if (error.kind === 'validation') console.error(Object.keys(error.errors))
   else if (error.kind === 'rate-limit') console.error(error.retryAfterSeconds)
-  else if (error.kind === 'plan-restriction') console.error(error.upgradeUrl)
   else if (error.kind === 'transport') console.error(error.reason)
   else throw error
 }
@@ -834,10 +840,9 @@ string* that the service actually wants — a detail nobody should have to find
 out from a 422.
 
 Like the rest of the [Management API](#management-api), this needs
-`CRONHEART_API_KEY` and a key needs the **Starter plan or above**. Check-ins
-work on every plan, Free included, and nothing here is required to be
-monitored — a Free account writes its monitors in the dashboard and skips this
-section entirely.
+`CRONHEART_API_KEY` — every plan includes it, Free included — and nothing here
+is required to be monitored. Without a key, a project writes its monitors in
+the dashboard and skips this section entirely.
 
 ```ts
 // cronheart.config.ts
@@ -866,7 +871,7 @@ cronheart sync --apply --print-env >> .env
 `--check` answers with the exit status, and there are three answers, not two:
 **exit 0** once the account matches the file, **exit 2** while anything
 differs, and **exit 1** when the run could not answer the question at all — a
-refused key, an account the API is not entitled to, a server that never
+refused key, an unexpected HTTP 402, a server that never
 replied, a configuration this command would not read, a row the plan refused, a
 name two monitors on the service both carry. A build step that treats anything
 non-zero as drift reads "the key expired" as "there are changes to

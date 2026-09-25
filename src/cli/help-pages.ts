@@ -166,8 +166,8 @@ Usage
 
   Reads a file describing the monitors a project should have, compares it against the ones
   the API token's project actually has, and prints what differs. Nothing is changed without
-  --apply. It needs CRONHEART_API_KEY, which needs the Starter plan or above — check-ins
-  work on every plan, Free included, and none of this is required to be monitored. Monitors are matched by name, which is the whole of the identity available: the
+  --apply. It needs CRONHEART_API_KEY, which every plan includes, Free included — check-ins
+  work on every plan too, and none of this is required to be monitored. Monitors are matched by name, which is the whole of the identity available: the
   service enforces no uniqueness on a name and offers no exact-name filter, so a name written
   twice in the file is refused before anything is read, and a name carried by two monitors on
   the service is reported and skipped rather than guessed at.
@@ -183,7 +183,7 @@ Options
   --apply           make the changes. Without it the run is a report.
   --check           report only, and answer with the exit status: 0 once the account
                     matches the file, 2 while anything differs, and 1 when the run could not
-                    answer at all — a refused key, a plan the API is not on, a server that
+                    answer at all — a refused key, an unexpected HTTP 402, a server that
                     never replied, a file this command would not read, a row the plan refused,
                     a name two monitors on the service both carry. A build that reads
                     anything non-zero as drift reads "the key expired" as "there are changes

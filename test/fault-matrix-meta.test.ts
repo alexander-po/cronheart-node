@@ -144,7 +144,7 @@ describe('the credential rule', () => {
   it('stays quiet when nothing key-shaped was written, so it is not true of everything', () => {
     const observation = observationOf({
       output: 'GET /api/v1/monitors answered 402',
-      recorded: [new Error('The REST API needs the Starter plan or above (HTTP 402).')],
+      recorded: [new Error('GET /api/v1/monitors was refused (HTTP 402). The REST API is on every plan.')],
     })
 
     expect(violations(observation, quietHost, SECRETS)).toEqual([])

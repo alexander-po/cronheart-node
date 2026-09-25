@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.2.1",
+  "contract_version": "2.3.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -397,12 +397,12 @@
       "issued_at": "the account's API tokens page, or the operator CLI"
     },
     "entitlement": {
-      "required_plans": ["starter", "growth", "scale"],
-      "denied_plans": ["free"],
+      "required_plans": ["free", "starter", "growth", "scale"],
+      "denied_plans": [],
       "status_on_denied": 402,
       "re_checked_per_request": true,
-      "note": "Authentication and entitlement are separate. A valid token on a downgraded account authenticates and then 402s, so tokens go inert rather than erroring oddly.",
-      "sdk_rule": "Surface a hard-coded human message for 402 that names the plan and states that ping monitoring works on every plan. Never surface the server's detail string for 401 or 402 to an end user."
+      "note": "No plan is currently denied the REST API — the Free plan was the last one excluded and now has it too, at its own rate limit. Authentication and entitlement stay separate mechanisms: a valid token on a downgraded account authenticates and then would 402 if any plan were ever denied again, rather than erroring oddly.",
+      "sdk_rule": "402 should not occur under the current plans. Classify it as a plan-restriction error rather than an unexpected response anyway, with a hard-coded human message pointing at the pricing page rather than the server's own detail string."
     },
     "problem_format": {
       "media_type": "application/problem+json",
@@ -450,7 +450,7 @@
       "key": "per account, shared by every token the account holds regardless of token scope",
       "policy": "sliding_window",
       "interval_seconds": 60,
-      "by_plan": { "starter": 120, "growth": 300, "scale": 600 },
+      "by_plan": { "free": 30, "starter": 120, "growth": 300, "scale": 600 },
       "headers": {
         "X-RateLimit-Limit": "integer",
         "X-RateLimit-Remaining": "integer, floored at 0",

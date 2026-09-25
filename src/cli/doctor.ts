@@ -17,7 +17,6 @@ import {
 } from './client.js'
 import { EXIT_OK, EXIT_PROBLEM, EXIT_USAGE } from './exit.js'
 import type { Io } from './io.js'
-import { PAID_ONLY_NOTICE } from './tier.js'
 
 const CONFIGURED_MONITOR = /^(CRONHEART|CRON_MONITOR)_(.+)_UUID$/
 
@@ -154,7 +153,7 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
   io.out(label('base url', `${originOf(base.url)} — from ${base.source}`))
 
   if (hasApiKey(env)) {
-    io.out(label('api key', `configured; its plan cannot be verified here. ${PAID_ONLY_NOTICE}`))
+    io.out(label('api key', 'configured; not verified here'))
   }
 
   if (disabled) {

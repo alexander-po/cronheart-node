@@ -400,7 +400,7 @@ publishing it produced eleven corrections, all of them in this release:
 
 ### Wire contract
 
-The repository carries a machine-readable wire contract, at version **2.2.1** for
+The repository carries a machine-readable wire contract, at version **2.3.0** for
 this release, read out of the running service rather than inferred from its
 documentation. Constant-equality checks and language-neutral conformance vectors
 run against it on every build, a drift watch compares it against a committed

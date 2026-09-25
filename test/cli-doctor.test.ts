@@ -146,23 +146,25 @@ describe('cronheart doctor reports the clock', () => {
   })
 })
 
-describe('cronheart doctor says which tier you are on', () => {
-  it('says nothing about plans when nothing is wrong and no key is configured', async () => {
+describe('cronheart doctor never mentions a plan', () => {
+  it('says nothing about plans or pricing when no key is configured', async () => {
     const ran = await runCli(['doctor'], { env: envFor({ CRONHEART_JOB_UUID: MONITOR_ID }) })
 
     expect(ran.status).toBe(0)
-    expect(ran.stdout).not.toContain('Starter')
+    expect(ran.stdout).not.toMatch(/plan/i)
     expect(ran.stdout).not.toContain('pricing')
   })
 
-  it('names the plan requirement in its own words when a key is configured', async () => {
+  it('reports the key as configured, and still says nothing about plans or pricing', async () => {
     const ran = await runCli(['doctor'], {
       env: envFor({ CRONHEART_JOB_UUID: MONITOR_ID, CRONHEART_API_KEY: 'cmk_notarealkey' }),
     })
 
     expect(ran.status).toBe(0)
-    expect(ran.stdout).toContain('Starter')
-    expect(ran.stdout).toContain('every plan')
+    expect(ran.stdout).toContain('api key')
+    expect(ran.stdout).toContain('configured')
+    expect(ran.stdout).not.toMatch(/plan/i)
+    expect(ran.stdout).not.toContain('pricing')
     expect(`${ran.stdout}${ran.stderr}`).not.toContain('cmk_notarealkey')
   })
 })
