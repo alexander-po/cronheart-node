@@ -183,6 +183,9 @@ export const FAULTS: readonly Fault[] = [
   recorded('transport-rejects', { rejectWith: new Error('socket hang up') }),
   recorded('transport-rejects-a-non-error', { rejectWith: 'a bare string' }),
   recorded('transport-rejects-null', { rejectWith: null }),
+  recorded('transport-rejects-naming-the-request', {
+    rejectWith: new Error(`request to ${BASE_URL}/ping/${MONITOR_ID} failed, reason: socket hang up`),
+  }),
   fault('transport-throws-synchronously', () => ({
     fetch: () => {
       throw new TypeError('fetch exploded before it returned a promise')

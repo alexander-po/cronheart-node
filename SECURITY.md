@@ -69,9 +69,12 @@ vulnerability rather than a bug.
   of the body is cancelled — a check-in OOM-killed by the endpoint
   watching it has been broken by its monitor as surely as by a thrown exception.
   The bound is on the stream, which is what every runtime this package supports
-  hands back; a `fetch` you supply that answers only through a whole-body `text()`
-  is read the way it answers. The management client reads under a far larger cap
-  of its own, because a page of monitors is not a two-word answer.
+  hands back, and on a Node stream such as node-fetch returns; a stream that will
+  not hand over a reader is not read at all, and the request behind a body cut
+  short is let go once the check-in is done. A `fetch` you supply that answers
+  only through a whole-body `text()` is read the way it answers and cut to the
+  cap afterwards. The management client reads under a far larger cap of its own,
+  because a page of monitors is not a two-word answer.
 - **A redirect is never followed.** Following one would convert a `POST` into a
   `GET`, drop the body, and send a check-in to a host the configuration never
   named.

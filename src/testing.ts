@@ -105,8 +105,7 @@ export function createPingRecorder(initial?: Responder | StubResponse): PingReco
                 }
 
                 // A real response reports an empty body as done rather than handing over a
-                // chunk of nothing, and a chunk of nothing is a shape the transport handles
-                // by yielding to the event loop — which a suite on fake timers never leaves.
+                // chunk of nothing.
                 if (sent || encoded.length === 0) {
                   state.consumed = true
 

@@ -1,13 +1,32 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { extname, join, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-// The scan's own list, not a copy of it: a second copy is how the two stop agreeing.
+// The scan's own rules, not a copy of them: a second copy is how the two stop agreeing.
 // @ts-expect-error — a build script, checked by the guard rather than by tsc
-import { BINARY_EXTENSIONS } from '../scripts/private-information.mjs'
+import { isScanned, scanTarball, scanTree, unreadOf } from '../scripts/private-information.mjs'
+
+interface Scan {
+  readonly files: readonly string[]
+  readonly read: number
+  readonly unreadable: readonly string[]
+}
+
+const scanOf = scanTree as (tree: string) => Scan
+const scanPacked = scanTarball as (tarball: string, workspace: string) => Scan
+const scans = isScanned as (path: string) => boolean
+const unreadIn = unreadOf as (listed: readonly string[], scan: Pick<Scan, 'files'>) => string[]
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 
@@ -39,32 +58,78 @@ function filesReadIn(output: string): number {
   return Number(/(\d+) file\(s\) read/.exec(output)?.[1] ?? -1)
 }
 
-// The trees the scan is pointed away from, which are therefore not owed a reading.
-const UNREAD = [
-  'test/fixtures/private-information/',
-  'test/fixtures/release-metadata/',
-  'test/fixture-consumer/doc-samples/',
-]
+// Every file git can see includes the installed dependencies, which outgrow the default buffer.
+const GIT_OUTPUT_BYTES = 64 * 1024 * 1024
 
-// Git lists exactly what the scan walks — tracked and untracked, minus what is ignored — so
-// the two counts are the same number or the scan skipped something. A floor picked by hand
-// cannot do this: a checkout parked over any one directory costs fewer files than the slack
-// such a floor has to leave, which makes it decorative against the one thing it is for.
-function filesTheScanIsOwed(): number {
-  const listed = spawnSync('git', ['ls-files', '-co', '--exclude-standard'], {
-    cwd: root,
-    encoding: 'utf8',
-  }).stdout.split('\n')
+function git(tree: string, ...args: readonly string[]): string {
+  const ran = spawnSync('git', args, { cwd: tree, encoding: 'utf8', maxBuffer: GIT_OUTPUT_BYTES })
 
-  return listed.filter(
-    (path) =>
-      path !== '' &&
-      !BINARY_EXTENSIONS.has(extname(path)) &&
-      !UNREAD.some((tree) => path.startsWith(tree)) &&
-      // Tracked and deleted is still tracked, and a version run deletes the changesets it
-      // consumed: the scan walks what is on disk, so that is what it is owed.
-      existsSync(join(root, path)),
-  ).length
+  if (ran.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed in ${tree}: ${ran.error?.message ?? ran.stderr}`)
+  }
+
+  return ran.stdout
+}
+
+// Every file git can see, tracked or not and ignored or not, held to the scan's own rules.
+// Git is what keeps the list independent of the walk it checks: a checkout parked over a
+// directory of this tree hides that directory from the walk and not from git's index, where
+// a floor picked by hand would leave slack enough to hide it. A path git ends with a slash
+// is a checkout of its own, which the scan does not read either.
+function filesTheScanIsOwed(tree: string): string[] {
+  return git(tree, 'ls-files', '-z', '--cached', '--others')
+    .split('\0')
+    .filter(
+      (path) =>
+        path !== '' &&
+        !path.endsWith('/') &&
+        scans(path) &&
+        // Tracked and deleted is still tracked, and a version run deletes the changesets it
+        // consumed: the scan walks what is on disk, so that is what it is owed.
+        existsSync(join(tree, path)),
+    )
+    .sort()
+}
+
+// Written out rather than taken from the scan: the rules above are the scan's own, so this is
+// what notices one of them growing over a file the repository tracks.
+const TRACKED_TREES_THE_SCAN_SKIPS = ['test/fixtures/private-information/', 'test/fixtures/release-metadata/']
+
+function trackedFilesTheScanSkips(tree: string): string[] {
+  return git(tree, 'ls-files', '-z', '--cached')
+    .split('\0')
+    .filter((path) => path !== '' && existsSync(join(tree, path)) && !scans(path))
+    .sort()
+}
+
+function trackedFilesUnder(tree: string, trees: readonly string[]): string[] {
+  return git(tree, 'ls-files', '-z', '--cached')
+    .split('\0')
+    .filter((path) => trees.some((under) => path.startsWith(under)) && existsSync(join(tree, path)))
+    .sort()
+}
+
+function filesScannedIn(tree: string): string[] {
+  return [...scanOf(tree).files].sort()
+}
+
+function writeUnder(tree: string, path: string, text = 'nothing to see here\n'): void {
+  mkdirSync(dirname(join(tree, path)), { recursive: true })
+  writeFileSync(join(tree, path), text)
+}
+
+// Read out of the fixture rather than written here, since a line carrying one of them is a
+// disclosure wherever it sits. A report is read in a gate log, so it must not repeat them.
+function plantedIn(tree: string): string[] {
+  const text = ['credentials.md', 'notes.md']
+    .map((name) => readFileSync(join(root, tree, name), 'utf8'))
+    .join('\n')
+
+  return [
+    /\bghp_\w+/.exec(text)?.[0],
+    /"(\w{24,})"/.exec(text)?.[1],
+    /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/.exec(text)?.[0],
+  ].filter((value): value is string => value !== undefined)
 }
 
 function disclosureIdsIn(output: string): string[] {
@@ -135,14 +200,80 @@ describe('the generic half of the leak control', () => {
       'routable-address',
       'vendor-token',
     ])
+    expect(plantedIn('test/fixtures/private-information/dirty')).toHaveLength(3)
+
+    for (const value of plantedIn('test/fixtures/private-information/dirty')) {
+      expect(run.output).not.toContain(value)
+    }
   })
 
   it('holds the repository itself to the same reading, over a tree it is shown to have read', () => {
     const run = check('private-information', '.')
+    const owed = filesTheScanIsOwed(root)
 
     expect(disclosureIdsIn(run.output)).toEqual([])
     expect(run.status).toBe(0)
-    expect(filesReadIn(run.output)).toBe(filesTheScanIsOwed())
+    expect(filesScannedIn(root)).toEqual(owed)
+    expect(filesReadIn(run.output)).toBe(owed.length)
+    expect(trackedFilesTheScanSkips(root)).toEqual(
+      trackedFilesUnder(root, TRACKED_TREES_THE_SCAN_SKIPS),
+    )
+  })
+
+  it('is owed every file it walks, including the ones git is told to ignore', () => {
+    const tree = mkdtempSync(join(tmpdir(), 'leak-scan-owed-'))
+
+    try {
+      writeUnder(tree, '.gitignore', '.env\n.idea/\ndist/\nnode_modules/\n')
+      writeUnder(tree, 'notes.md')
+      writeUnder(tree, '.env', 'EXAMPLE=1\n')
+      writeUnder(tree, '.idea/workspace.xml')
+      writeUnder(tree, 'package/dist/bundle.js')
+      writeUnder(tree, 'dist/bundle.js')
+      writeUnder(tree, 'node_modules/dependency/index.js')
+      writeUnder(tree, 'logo.png')
+      writeUnder(tree, 'lib/coverage/report.md')
+      git(tree, 'init', '--quiet')
+      git(tree, 'add', '.gitignore', 'notes.md', 'lib/coverage/report.md')
+
+      expect(filesTheScanIsOwed(tree)).toEqual([
+        '.env',
+        '.gitignore',
+        '.idea/workspace.xml',
+        'notes.md',
+        'package/dist/bundle.js',
+      ])
+      expect(filesScannedIn(tree)).toEqual(filesTheScanIsOwed(tree))
+      expect(trackedFilesTheScanSkips(tree)).toEqual(['lib/coverage/report.md'])
+    } finally {
+      rmSync(tree, { recursive: true, force: true })
+    }
+  })
+
+  it('counts what it read rather than what it listed, and fails on a file it could not read', () => {
+    const tree = mkdtempSync(join(tmpdir(), 'leak-scan-unreadable-'))
+    const locked = join(tree, 'locked.md')
+
+    try {
+      writeUnder(tree, 'open.md')
+      writeUnder(tree, 'locked.md')
+      chmodSync(locked, 0o000)
+      // A superuser reads through a mode of nothing, which would leave the rest proving nothing.
+      expect(() => readFileSync(locked)).toThrow()
+
+      const scan = scanOf(tree)
+      const run = check('private-information', relative(root, tree))
+
+      expect(scan.files).toEqual(['open.md'])
+      expect(scan.read).toBe(1)
+      expect(scan.unreadable).toEqual(['locked.md'])
+      expect(run.status).toBe(1)
+      expect(run.output).toContain('1 file(s) it could not read')
+      expect(run.output).toContain('could not read locked.md')
+    } finally {
+      chmodSync(locked, 0o600)
+      rmSync(tree, { recursive: true, force: true })
+    }
   })
 
   it('reads no checkout of its own that sits inside the tree, and would read it otherwise', () => {
@@ -167,6 +298,60 @@ describe('the generic half of the leak control', () => {
       expect(asACheckout.status).toBe(0)
     } finally {
       rmSync(held, { recursive: true, force: true })
+    }
+  })
+})
+
+// Every shape the published allow-list admits, so a scan rule that grows over one of them
+// shows up here before a release carries it unread.
+const PUBLISHED_SHAPES = [
+  'package/CHANGELOG.md',
+  'package/LICENSE',
+  'package/README.md',
+  'package/api/package.json',
+  'package/dist/index.cjs',
+  'package/dist/index.d.cts',
+  'package/dist/index.d.mts',
+  'package/dist/index.mjs',
+  'package/package.json',
+]
+
+describe('the tarball read guard', () => {
+  it('names each published file the scan did not read', () => {
+    const unread = unreadIn(
+      ['package/README.md', 'package/dist/index.cjs', 'package/dist/index.mjs'],
+      { files: ['package/dist/index.mjs'] },
+    )
+
+    expect(unread).toEqual(['package/README.md', 'package/dist/index.cjs'])
+  })
+
+  it('owes a published file a reading whatever the scan\'s own rules say about it', () => {
+    const unread = unreadIn(['package/dist/index.wasm', 'package/coverage/index.mjs'], {
+      files: [],
+    })
+
+    expect(unread).toEqual(['package/dist/index.wasm', 'package/coverage/index.mjs'])
+  })
+
+  it('owes nothing for a packed tarball carrying every published shape', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'tarball-guard-'))
+
+    try {
+      for (const path of PUBLISHED_SHAPES) {
+        writeUnder(workspace, path)
+      }
+
+      const tarball = join(workspace, 'package.tgz')
+      expect(spawnSync('tar', ['-czf', tarball, '-C', workspace, 'package']).status).toBe(0)
+      rmSync(join(workspace, 'package'), { recursive: true, force: true })
+
+      const scan = scanPacked(tarball, workspace)
+
+      expect([...scan.files].sort()).toEqual(PUBLISHED_SHAPES)
+      expect(unreadIn(PUBLISHED_SHAPES, scan)).toEqual([])
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
     }
   })
 })

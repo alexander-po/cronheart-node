@@ -242,16 +242,21 @@ distinguish an accepted check-in from a duplicate one, and the runtime
 decompresses whatever the far side sends before this package sees it — so at
 most `PING_RESPONSE_BODY_CAP_BYTES` is retained and the rest of the body is
 cancelled rather than buffered. A `fetch` you supply yourself that answers
-only through a whole-body `text()` is read the way it answers. The constant is
-exported, because a bound a consumer cannot read is a bound they have to take on
-trust. The management client reads under `API_RESPONSE_BODY_CAP_BYTES`, exported
-from `cronheart/api` and far larger, because a listing is a page rather than a
-two-word answer.
+only through a whole-body `text()` is read the way it answers, and cut to the
+same cap once it has. The constant is exported, because a bound a consumer
+cannot read is a bound they have to take on trust. The management client reads
+under `API_RESPONSE_BODY_CAP_BYTES`, exported from `cronheart/api` and far
+larger, because a listing is a page rather than a two-word answer.
 
-Which of the two a response gets is decided by what it hands back. A body that
-exposes a reader is read under the cap; one that offers only `text()` is read
-whole, the way it answers. Both shapes are typed, so a transport of your own can
-say which it is handing over:
+How a response is read is decided by what it hands back. A body that exposes a
+reader is read under the cap, and so is a Node stream, which is what node-fetch
+hands back, and the request behind it is let go once the check-in is done; a
+body whose reader will not be handed over is not read at all. One that offers
+only `text()` is read whole, the way it answers. A body that could not be read
+classifies the way an empty one does, which for a `2xx` is an accepted check-in.
+The reader and the whole-body shapes are typed, so a transport of your own can
+say which it is handing over; a Node stream passes as `PingResponseBody` with a
+cast:
 
 ```ts
 import type { PingHttpResponse, PingResponseBody, PingResponseBodyReader } from 'cronheart'
@@ -266,7 +271,7 @@ export function readerOf(body: PingResponseBody): PingResponseBodyReader | undef
 ```
 
 `getReader` is optional on purpose: a hand-written double that only implements
-`text()` still works, and gives up the cap in exchange.
+`text()` still works, and gives up the bounded read in exchange.
 
 ## Configuration
 
