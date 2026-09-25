@@ -810,6 +810,28 @@ monitor payload also carries no project identity, though reads and creates are
 scoped to the key's project — so a caller cannot tell which project it just
 reconciled.
 
+### An open incident outlives a pause
+
+A monitor's `openIncident` is `null` until a late or fail alert opens an
+incident, and then it is `{ kind, since }`: `kind` is that alert's kind,
+`'late'` or `'fail'`, and `since` is when it was raised, or `null` when the
+service cannot find it. Only a successful run closes an incident — a `success`
+check-in or a plain heartbeat. Pausing, resuming, snoozing and a `start` leave
+it open, and no late or fail alert is sent while it is, so `status` alone does
+not say whether the next failure will reach anybody: a monitor that reads `new`
+after a resume can still be inside an incident.
+
+```ts
+for await (const one of api.monitors.iterate()) {
+  if (one.openIncident) {
+    console.log(one.name, one.openIncident.kind, one.openIncident.since ?? 'unknown')
+  }
+}
+```
+
+The field is optional on `Monitor` only so that a stub written against `0.1.3`
+still compiles. Every monitor this client reads carries it.
+
 ### Retries
 
 Reads and updates are retried on a connection failure or a 5xx, within one
@@ -1066,6 +1088,11 @@ real use correct API mistakes before anyone is owed a stability guarantee.
 consumer onto the package rather than by reading the code; `0.1.1` added four
 more, each of them something the package reported wrongly rather than something
 it could not do. [CHANGELOG.md](CHANGELOG.md) names all fifteen.
+
+**The wire contract.** This package is built against wire contract 2.4.0, the
+machine-readable statement of the service's wire surface its checks run
+against. `cronheart --version` prints it, and it rides in the User-Agent, so a
+support request names it.
 
 **Node.** The floor is Node 22, and the policy is the oldest Node LTS still in
 maintenance: when a release reaches end of life it is dropped, which is a minor

@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.3.0",
+  "contract_version": "2.4.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -54,6 +54,13 @@
       "direction": "read",
       "openness": "open",
       "members": ["late", "fail", "recovered"]
+    },
+    "incident.kind": {
+      "layer": "server",
+      "direction": "read",
+      "openness": "open",
+      "members": ["late", "fail"],
+      "note": "The kind of the alert that opened a monitor's open incident. A recovered alert closes an incident and never opens one."
     },
     "plan.key": {
       "layer": "server",
@@ -689,8 +696,8 @@
     },
     "read_shapes": {
       "monitor": {
-        "keys": ["uuid", "name", "schedule_kind", "schedule_expr", "tz", "grace_seconds", "channels", "status", "next_expected_at", "snoozed_until", "last_ping_at", "created_at", "ping_url", "badge_url"],
-        "nullable": ["next_expected_at", "snoozed_until", "last_ping_at"],
+        "keys": ["uuid", "name", "schedule_kind", "schedule_expr", "tz", "grace_seconds", "channels", "status", "open_incident", "next_expected_at", "snoozed_until", "last_ping_at", "created_at", "ping_url", "badge_url"],
+        "nullable": ["open_incident", "next_expected_at", "snoozed_until", "last_ping_at"],
         "timestamps": "RFC 3339 with an explicit offset",
         "absent_by_design": ["project", "failure_count", "last_duration_ms", "last_success_at", "last_started_at"],
         "delivery_suppression": {
@@ -698,6 +705,12 @@
           "statement": "Two fields on this shape decide whether an alert is ever sent, and neither is a schedule or a routing field: a monitor whose status is paused is not considered by the lateness scan at all, and a snoozed_until in the future suppresses delivery until it passes.",
           "sdk_rule": "A report that names a monitor's channels must say when neither can reach anybody, rather than listing channels the service will not use. Neither field is managed by a reconciler, so this is a report correction and never a diff or a refusal."
         }
+      },
+      "monitor.open_incident": {
+        "keys": ["kind", "since"],
+        "nullable": ["since"],
+        "semantics": "The incident the monitor has open, or null when none is. A late or fail alert opens it, and kind is that alert's kind; since is when that alert was raised, and null when the service cannot find it. Nothing but a successful run ends it, which means a success ping or a heartbeat. Pause, resume, snooze and a start ping leave it open, and no late or fail alert is sent while it stays open.",
+        "timestamps": "RFC 3339 with an explicit offset"
       },
       "monitor.channels[]": {
         "keys": ["id", "kind", "label"],
@@ -740,12 +753,12 @@
         "monitor.grace_seconds range and default",
         "channel.label length bounds",
         "channel.secret minimum length",
-        "read vocabularies for status, ping kind, alert kind, channel kind, schedule kind and snooze duration",
+        "read vocabularies for status, ping kind, alert kind, incident kind, channel kind, schedule kind and snooze duration",
         "the read-string / write-integer-or-string identifier asymmetry, and the monitor identifier's format",
         "the limit clamp with its default, and the offset minimum",
         "the three pagination shapes: their request parameters and their response keys",
-        "the read-shape key lists for monitor, monitor.channels[], channel, ping, alert and account",
-        "which monitor, ping and alert fields are nullable",
+        "the read-shape key lists for monitor, monitor.channels[], monitor.open_incident, channel, ping, alert and account",
+        "which monitor, monitor.open_incident, ping and alert fields are nullable",
         "the snooze duration allowlist and that a duration is required"
       ],
       "does_not_cover": [

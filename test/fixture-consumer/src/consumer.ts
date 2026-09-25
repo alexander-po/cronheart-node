@@ -144,8 +144,10 @@ import type {
   CreateChannelRequest,
   CreateMonitorRequest,
   CronheartApi,
+  IncidentKind,
   Monitor,
   MonitorPage,
+  OpenIncident,
   RateLimitSnapshot,
   SnoozeDuration,
 } from 'cronheart/api'
@@ -212,6 +214,37 @@ export async function retune(management: CronheartApi, uuid: string): Promise<st
   })
 
   return `${updated.name} ${updated.scheduleKind}`
+}
+
+// A stub written the way 0.1.3 allowed, with no open incident, which a new read key must not
+// turn into a compile error in someone else's test suite.
+export const stubbed: Monitor = {
+  uuid: '00000000-0000-4000-8000-000000000001',
+  name: 'nightly-backup',
+  scheduleKind: 'cron',
+  scheduleExpr: '0 3 * * *',
+  tz: 'UTC',
+  graceSeconds: 60,
+  channels: [],
+  status: 'up',
+  nextExpectedAt: null,
+  snoozedUntil: null,
+  lastPingAt: null,
+  createdAt: '2026-08-01T09:15:00+00:00',
+  pingUrl: 'https://cronheart.com/ping/00000000-0000-4000-8000-000000000001',
+  badgeUrl: 'https://cronheart.com/badge/00000000-0000-4000-8000-000000000001.svg',
+}
+
+export function incidentOf(monitor: Monitor): string {
+  const incident: OpenIncident | null | undefined = monitor.openIncident
+
+  if (incident === null || incident === undefined) {
+    return 'none'
+  }
+
+  const kind: IncidentKind | (string & {}) = incident.kind
+
+  return `${kind} since ${incident.since ?? 'an unknown time'}`
 }
 
 export function mirrored(channel: Channel): CreateChannelRequest {

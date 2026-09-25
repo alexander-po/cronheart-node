@@ -9,6 +9,7 @@ import type {
   Monitor,
   MonitorChannelRef,
   MonitorPage,
+  OpenIncident,
   PingPage,
   PingRecord,
   RotatedChannelSecret,
@@ -125,6 +126,19 @@ function monitorChannelFrom(value: unknown): MonitorChannelRef {
   }
 }
 
+function openIncidentFrom(value: unknown): OpenIncident | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  const source = objectFrom(value, 'monitor open incident')
+
+  return {
+    kind: text(source, 'kind', 'monitor open incident'),
+    since: optionalText(source, 'since', 'monitor open incident'),
+  }
+}
+
 export function monitorFrom(value: unknown): Monitor {
   const source = objectFrom(value, 'monitor')
 
@@ -137,6 +151,7 @@ export function monitorFrom(value: unknown): Monitor {
     graceSeconds: integer(source, 'grace_seconds', 'monitor'),
     channels: list(source, 'channels', 'monitor').map(monitorChannelFrom),
     status: text(source, 'status', 'monitor'),
+    openIncident: openIncidentFrom(source['open_incident']),
     nextExpectedAt: optionalText(source, 'next_expected_at', 'monitor'),
     snoozedUntil: optionalText(source, 'snoozed_until', 'monitor'),
     lastPingAt: optionalText(source, 'last_ping_at', 'monitor'),

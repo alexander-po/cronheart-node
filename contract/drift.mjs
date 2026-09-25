@@ -30,6 +30,7 @@ const FACTS = [
   ['/vocabularies/alert.kind/members', 'members', (doc) => property(doc, 'Alert', 'kind')?.enum],
   ['/vocabularies/ping.kind/members', 'members', (doc) => property(doc, 'Ping', 'kind')?.enum],
   ['/vocabularies/snooze.duration/members', 'members', (doc) => property(doc, 'Snooze', 'duration')?.enum],
+  ['/vocabularies/incident.kind/members', 'members', (doc) => property(doc, 'OpenIncident', 'kind')?.enum],
 
   ['/api/pagination/limit_clamp/min', 'value', (doc) => queryParameter(doc, '/api/v1/monitors', 'limit')?.schema?.minimum],
   ['/api/pagination/limit_clamp/max', 'value', (doc) => queryParameter(doc, '/api/v1/monitors', 'limit')?.schema?.maximum],
@@ -51,11 +52,13 @@ const FACTS = [
 
   ['/api/read_shapes/monitor/keys', 'members', (doc) => keysOf(doc, 'Monitor')],
   ['/api/read_shapes/monitor.channels[]/keys', 'members', (doc) => keysOf(doc, 'MonitorChannel')],
+  ['/api/read_shapes/monitor.open_incident/keys', 'members', (doc) => keysOf(doc, 'OpenIncident')],
   ['/api/read_shapes/channel/keys', 'members', (doc) => keysOf(doc, 'Channel')],
   ['/api/read_shapes/ping/keys', 'members', (doc) => keysOf(doc, 'Ping')],
   ['/api/read_shapes/alert/keys', 'members', (doc) => keysOf(doc, 'Alert')],
   ['/api/read_shapes/account/keys', 'members', (doc) => keysOf(doc, 'Account')],
   ['/api/read_shapes/monitor/nullable', 'members', (doc) => nullableOf(doc, 'Monitor')],
+  ['/api/read_shapes/monitor.open_incident/nullable', 'members', (doc) => nullableOf(doc, 'OpenIncident')],
   ['/api/read_shapes/ping/nullable', 'members', (doc) => nullableOf(doc, 'Ping')],
   ['/api/read_shapes/alert/nullable', 'members', (doc) => nullableOf(doc, 'Alert')],
 ]
@@ -74,13 +77,20 @@ function keysOf(document, name) {
   return properties === undefined ? undefined : Object.keys(properties)
 }
 
+function admitsNull(held) {
+  return (
+    (Array.isArray(held?.type) ? held.type.includes('null') : held?.type === 'null') ||
+    [held?.oneOf, held?.anyOf].some((branches) => Array.isArray(branches) && branches.some(admitsNull))
+  )
+}
+
 function nullableOf(document, name) {
   const properties = schema(document, name)?.properties
 
   return properties === undefined
     ? undefined
     : Object.entries(properties)
-        .filter(([, held]) => Array.isArray(held?.type) && held.type.includes('null'))
+        .filter(([, held]) => admitsNull(held))
         .map(([key]) => key)
 }
 

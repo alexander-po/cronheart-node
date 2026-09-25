@@ -222,6 +222,7 @@ export const MONITOR_JSON = {
   grace_seconds: 60,
   channels: [{ id: CHANNEL_ID, kind: 'email', label: 'ops inbox' }],
   status: 'up',
+  open_incident: null,
   next_expected_at: '2026-08-21T03:00:00+00:00',
   snoozed_until: null,
   last_ping_at: '2026-08-20T03:00:04+00:00',

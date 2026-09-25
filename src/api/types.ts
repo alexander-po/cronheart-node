@@ -30,10 +30,17 @@ export type PingKind = 'heartbeat' | 'start' | 'success' | 'fail'
 
 export type AlertKind = 'late' | 'fail' | 'recovered'
 
+export type IncidentKind = 'late' | 'fail'
+
 export interface MonitorChannelRef {
   readonly id: string
   readonly kind: Open<ChannelKind>
   readonly label: string
+}
+
+export interface OpenIncident {
+  readonly kind: Open<IncidentKind>
+  readonly since: string | null
 }
 
 export interface Monitor {
@@ -48,6 +55,9 @@ export interface Monitor {
   // to answer whether a monitor alerts anybody.
   readonly channels: readonly MonitorChannelRef[]
   readonly status: Open<MonitorStatus>
+  // Every monitor this client reads carries it, null when no incident is open. It is optional
+  // only so that a Monitor written by hand, as a stub, still compiles without one.
+  readonly openIncident?: OpenIncident | null | undefined
   readonly nextExpectedAt: string | null
   readonly snoozedUntil: string | null
   readonly lastPingAt: string | null

@@ -81,6 +81,7 @@ function monitorJson(monitor: StoredMonitor, channels: readonly StoredChannel[])
       label: channel.label,
     })),
     status: monitor.status,
+    open_incident: null,
     next_expected_at: null,
     snoozed_until: monitor.snoozed_until,
     last_ping_at: null,

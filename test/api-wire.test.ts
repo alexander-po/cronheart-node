@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { CREATE_RETRY_BASE_DELAY_MS } from '../src/api/constants.js'
 import {
@@ -8,6 +9,7 @@ import {
   ApiTransportError,
   ApiUnexpectedResponseError,
 } from '../src/api/errors.js'
+import type { Monitor, OpenIncident } from '../src/api/types.js'
 import {
   ACCOUNT_JSON,
   API_KEY,
@@ -21,6 +23,27 @@ import {
   createApiRecorder,
 } from './support/api-recorder.js'
 import { ofKind } from './support/errors.js'
+
+interface ReadShape {
+  readonly keys: readonly string[]
+  readonly nullable: readonly string[]
+}
+
+const CONTRACT = JSON.parse(
+  readFileSync(new URL('../contract/cronheart-contract.json', import.meta.url), 'utf8'),
+) as {
+  api: {
+    read_shapes: {
+      monitor: ReadShape
+      'monitor.channels[]': Pick<ReadShape, 'keys'>
+      'monitor.open_incident': ReadShape
+    }
+  }
+}
+
+function camel(wire: string): string {
+  return wire.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
+}
 
 function bodyOf(request: RecordedRequest | undefined): Record<string, unknown> {
   return JSON.parse(String(request?.body)) as Record<string, unknown>
@@ -187,6 +210,67 @@ describe('reading a response', () => {
     expect(read.createdAt).toBe(MONITOR_JSON.created_at)
     expect(read.nextExpectedAt).toBe(MONITOR_JSON.next_expected_at)
     expect(read.snoozedUntil).toBeNull()
+  })
+
+  it('reads no open incident as null, and an open one as its kind and when it opened', async () => {
+    const since = '2026-08-21T03:05:30+00:00'
+    const { api } = apiWith((request) =>
+      request.method === 'GET'
+        ? { json: MONITOR_JSON }
+        : { json: { ...MONITOR_JSON, status: 'up', open_incident: { kind: 'fail', since } } },
+    )
+
+    expect((await api.monitors.get(MONITOR_UUID)).openIncident).toBeNull()
+    expect((await api.monitors.resume(MONITOR_UUID)).openIncident).toEqual({ kind: 'fail', since })
+  })
+
+  it('keeps an incident whose opening alert is lost, and a kind it has never seen', async () => {
+    const { api } = apiWith({
+      json: { ...MONITOR_JSON, open_incident: { kind: 'outage', since: null } },
+    })
+
+    expect((await api.monitors.get(MONITOR_UUID)).openIncident).toEqual({
+      kind: 'outage',
+      since: null,
+    })
+  })
+
+  it('refuses an open incident it cannot read rather than reading it as none', async () => {
+    for (const incident of ['late', { since: null }, { kind: 'late', since: 1_787_227_200 }]) {
+      const { api } = apiWith({ json: { ...MONITOR_JSON, open_incident: incident } })
+
+      await expect(api.monitors.get(MONITOR_UUID)).rejects.toBeInstanceOf(ApiHydrationError)
+    }
+  })
+
+  it('reads every key the contract states for a monitor, and reads each nullable one as null', async () => {
+    const shapes = CONTRACT.api.read_shapes
+    const incident = { kind: 'late', since: '2026-08-21T03:05:30+00:00' }
+    const { api } = apiWith({ json: { ...MONITOR_JSON, open_incident: incident } })
+    const read = await api.monitors.get(MONITOR_UUID)
+
+    expect(Object.keys(read).sort()).toEqual(shapes.monitor.keys.map(camel).sort())
+    expect(Object.keys(read.channels[0] ?? {}).sort()).toEqual(
+      shapes['monitor.channels[]'].keys.map(camel).sort(),
+    )
+    expect(Object.keys(read.openIncident ?? {}).sort()).toEqual(
+      shapes['monitor.open_incident'].keys.map(camel).sort(),
+    )
+
+    for (const key of shapes.monitor.nullable) {
+      const { api: nulled } = apiWith({ json: { ...MONITOR_JSON, [key]: null } })
+
+      expect((await nulled.monitors.get(MONITOR_UUID))[camel(key) as keyof Monitor]).toBeNull()
+    }
+
+    for (const key of shapes['monitor.open_incident'].nullable) {
+      const { api: nulled } = apiWith({
+        json: { ...MONITOR_JSON, open_incident: { ...incident, [key]: null } },
+      })
+      const held = (await nulled.monitors.get(MONITOR_UUID)).openIncident
+
+      expect(held?.[camel(key) as keyof OpenIncident]).toBeNull()
+    }
   })
 
   it('reports a body it cannot read as a failure of its own, not as an empty result', async () => {
