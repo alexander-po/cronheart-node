@@ -85,7 +85,7 @@ describe('the documented surface is held against the built one', () => {
   )
 
   it(
-    'catches a sample that no longer compiles, a flag no command takes, a command that is gone, a variable nothing reads and a recipe that does not exist',
+    'catches a sample that no longer compiles, a flag no command takes, a command that is gone, a variable nothing reads, a recipe that does not exist and a command the agent recipe names',
     () => {
       const run = check('doc-claims', 'test/fixtures/doc-claims/dirty')
       const problems = problemsIn(run.output).join('\n')
@@ -94,6 +94,7 @@ describe('the documented surface is held against the built one', () => {
       expect(problems).toContain("'actoin' does not exist")
       expect(problems).toContain('--quietly is documented and no cronheart command takes it')
       expect(problems).toContain('cronheart has no reconcile command')
+      expect(problems).toContain('skills/add-cronheart/SKILL.md:6 — cronheart has no enrol command')
       expect(problems).toContain('CRONHEART_MONITOR_TOKEN is documented and nothing under src reads it')
       expect(problems).toContain('the Makefile has no audit-everything target')
     },

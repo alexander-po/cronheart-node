@@ -15,6 +15,8 @@ const DOCUMENTS = [
   'SECURITY.md',
   'RELEASING.md',
   'CLAUDE.md',
+  'AGENTS.md',
+  'skills/add-cronheart/SKILL.md',
   'src/cli/help.ts',
   'src/cli/help-pages.ts',
 ]
