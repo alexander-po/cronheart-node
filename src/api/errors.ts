@@ -182,6 +182,10 @@ export class ApiAuthenticationError extends ApiResponseError {
   }
 }
 
+/**
+ * @deprecated No plan is denied the REST API, so a 402 should not occur. Still thrown for any
+ * 402 and not scheduled for removal: it keeps one from falling through to {@link ApiUnexpectedResponseError}.
+ */
 export class ApiPlanRestrictionError extends ApiResponseError {
   override readonly name: string = 'ApiPlanRestrictionError'
 

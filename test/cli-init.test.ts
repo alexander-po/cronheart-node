@@ -67,7 +67,7 @@ describe('cronheart init on the free path', () => {
     expect(ran.stdout).toContain('accepted')
   })
 
-  it('points at the page where a monitor is created, because the free tier cannot create one here', async () => {
+  it('points at the page where a monitor is created, because a pasted id needs no key to create anything', async () => {
     const ran = await runCli(
       ['init', '--name=job', `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`],
       { env: envFor() },
@@ -146,7 +146,7 @@ describe('cronheart init on the free path', () => {
   })
 })
 
-describe('cronheart init and the paid path', () => {
+describe('cronheart init and the API-key path', () => {
   let store: MonitorStore
   let api: ApiServer
 
@@ -161,7 +161,7 @@ describe('cronheart init and the paid path', () => {
     await api.close()
   })
 
-  function paidEnv(extra: Readonly<Record<string, string>> = {}): Record<string, string> {
+  function keyedEnv(extra: Readonly<Record<string, string>> = {}): Record<string, string> {
     return {
       CRONHEART_URL: api.url,
       CRONHEART_API_KEY: KEY,
@@ -174,7 +174,7 @@ describe('cronheart init and the paid path', () => {
   it('creates the monitor, writes the variable and checks in, all in one command', async () => {
     const ran = await runCli(
       ['init', '--name=nightly-backup', '--schedule=0 3 * * *', `--env-path=${envFile()}`],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
 
     expect(ran.status).toBe(0)
@@ -189,7 +189,7 @@ describe('cronheart init and the paid path', () => {
   it('attaches the account’s verified channels and says which', async () => {
     const ran = await runCli(
       ['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
 
     expect(store.monitors[0]?.channel_ids).toEqual(['7'])
@@ -201,7 +201,7 @@ describe('cronheart init and the paid path', () => {
 
     const ran = await runCli(
       ['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
 
     expect(ran.status).toBe(1)
@@ -213,7 +213,7 @@ describe('cronheart init and the paid path', () => {
   it('refuses a schedule the service would refuse, before it creates anything', async () => {
     const ran = await runCli(
       ['init', '--name=job', '--schedule=*/5 * * * * *', `--env-path=${envFile()}`],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
 
     expect(ran.status).toBe(64)
@@ -224,7 +224,7 @@ describe('cronheart init and the paid path', () => {
   it('takes the id it was handed instead of creating a second monitor for it', async () => {
     const ran = await runCli(
       ['init', '--name=job', `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
 
     expect(ran.status).toBe(0)
@@ -237,7 +237,7 @@ describe('cronheart init and the paid path', () => {
   it('reuses the monitor a previous run created instead of making a second of that name', async () => {
     const first = await runCli(
       ['init', '--name=nightly-backup', '--schedule=0 3 * * *', `--env-path=${envFile()}`],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
 
     // Swept, so the key that would replay the first create cannot be what stops the second:
@@ -246,7 +246,7 @@ describe('cronheart init and the paid path', () => {
 
     const second = await runCli(
       ['init', '--name=nightly-backup', '--schedule=0 3 * * *', `--env-path=${envFile()}`],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
 
     expect(first.status).toBe(0)
@@ -263,7 +263,7 @@ describe('cronheart init and the paid path', () => {
 
     const ran = await runCli(
       ['init', '--name=twice', '--schedule=@daily', `--env-path=${envFile()}`],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
 
     expect(ran.status).toBe(1)
@@ -290,7 +290,7 @@ describe('cronheart init and the paid path', () => {
     )
 
     await runCli(['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`], {
-      env: paidEnv(),
+      env: keyedEnv(),
     })
 
     const created = store.requests.find(
@@ -300,15 +300,15 @@ describe('cronheart init and the paid path', () => {
     expect((created?.body as { channel_ids?: string[] })?.channel_ids).toEqual(['7', '9', '12'])
   })
 
-  it('says the plan a REST token needs in its own words, and falls back to pasting an id', async () => {
+  it('says a plan restriction should not happen in its own words, and falls back to pasting an id', async () => {
     store.denyWithPlanRestriction = true
 
     const ran = await runCli(['init', `--env-path=${envFile()}`, '--name=job'], {
-      env: paidEnv(),
+      env: keyedEnv(),
       input: `${MONITOR_ID}\n`,
     })
 
-    expect(ran.stdout).toContain('Starter')
+    expect(ran.stdout).toContain('should not happen')
     expect(ran.stdout).toContain('every plan')
     expect(`${ran.stdout}${ran.stderr}`).not.toContain(KEY)
     expect(readFileSync(envFile(), 'utf8')).toContain(MONITOR_ID)
@@ -318,7 +318,7 @@ describe('cronheart init and the paid path', () => {
   it('never puts the key it authenticated with anywhere a reader can see it', async () => {
     const ran = await runCli(
       ['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
 
     expect(`${ran.stdout}${ran.stderr}`).not.toContain(KEY)
@@ -466,7 +466,7 @@ describe('the two ways an account has nothing to alert through', () => {
     await api.close()
   })
 
-  function paidEnv(): Record<string, string> {
+  function keyedEnv(): Record<string, string> {
     return {
       CRONHEART_URL: api.url,
       CRONHEART_API_KEY: KEY,
@@ -478,7 +478,7 @@ describe('the two ways an account has nothing to alert through', () => {
   function create(...extra: readonly string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {
     return runCli(
       ['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`, ...extra],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
   }
 
@@ -543,7 +543,7 @@ describe('what cronheart init tells the reader to run next', () => {
     await api.close()
   })
 
-  function paidEnv(): Record<string, string> {
+  function keyedEnv(): Record<string, string> {
     return {
       CRONHEART_URL: api.url,
       CRONHEART_API_KEY: KEY,
@@ -557,7 +557,7 @@ describe('what cronheart init tells the reader to run next', () => {
   it('never suggests the form that would ask for the name a second time', async () => {
     const ran = await runCli(
       ['init', '--name=nightly-backup', '--schedule=0 3 * * *', `--env-path=${envFile()}`],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
 
     const advice = ran.stdout
@@ -572,7 +572,7 @@ describe('what cronheart init tells the reader to run next', () => {
   it('prints the finished line rather than the command that would print it, once it holds both', async () => {
     const ran = await runCli(
       ['init', '--name=nightly-backup', '--schedule=0 3 * * *', '--print-env'],
-      { env: paidEnv() },
+      { env: keyedEnv() },
     )
     const id = store.monitors[0]?.uuid ?? ''
 

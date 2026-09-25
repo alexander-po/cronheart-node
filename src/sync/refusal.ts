@@ -1,5 +1,5 @@
 import { isCronheartApiError } from '../api/errors.js'
-import { PAID_ONLY_NOTICE } from '../api/tier.js'
+import { PLAN_RESTRICTION_NOTICE } from '../api/tier.js'
 
 const CONCURRENT_RUN =
   'the service is holding a reservation for this exact create, which is another run of this configuration finishing it. Nothing was made twice; read the plan again once that run is done'
@@ -12,7 +12,7 @@ export function describeApiRefusal(error: unknown, what: string): string {
   }
 
   if (error.kind === 'plan-restriction') {
-    return `${what} needs the REST API. ${PAID_ONLY_NOTICE}`
+    return `${what} was refused (HTTP 402). ${PLAN_RESTRICTION_NOTICE}`
   }
 
   if (error.kind === 'authentication') {

@@ -12,7 +12,7 @@ import {
   type AnyCronheartApiError,
   type RequestDescriptor,
 } from './errors.js'
-import { PAID_ONLY_NOTICE } from './tier.js'
+import { PLAN_RESTRICTION_NOTICE } from './tier.js'
 import type { ProblemDetails, RateLimitSnapshot } from './types.js'
 
 // Kept apart from the descriptor a caller sees on the error: which route this was is a
@@ -61,7 +61,7 @@ export function errorForStatus(
   }
 
   if (status === 402) {
-    return new ApiPlanRestrictionError(`${at} was refused. ${PAID_ONLY_NOTICE}`, details)
+    return new ApiPlanRestrictionError(`${at} was refused (HTTP 402). ${PLAN_RESTRICTION_NOTICE}`, details)
   }
 
   if (status === 403) {

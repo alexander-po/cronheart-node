@@ -18,7 +18,7 @@ import {
 } from '../src/api/errors.js'
 import type { AnyCronheartApiError } from '../src/api/errors.js'
 import { errorForStatus } from '../src/api/classify.js'
-import { PAID_ONLY_NOTICE } from '../src/api/tier.js'
+import { PLAN_RESTRICTION_NOTICE } from '../src/api/tier.js'
 import { ofKind } from './support/errors.js'
 
 const WHERE = { method: 'GET', path: '/api/v1/monitors' } as const
@@ -151,7 +151,7 @@ describe('classification reads the status and nothing else', () => {
   it('answers a plan restriction with the sentence this package owns', () => {
     const error = classify(402, { detail: 'security.api.token_invalid', upgradeUrl: 'https://x.example' })
 
-    expect(error.message).toContain(PAID_ONLY_NOTICE)
+    expect(error.message).toContain(PLAN_RESTRICTION_NOTICE)
     expect(error.message).not.toContain('security.api.token_invalid')
     ofKind(error, 'plan-restriction')
     expect(error.upgradeUrl).toBe('https://x.example')
