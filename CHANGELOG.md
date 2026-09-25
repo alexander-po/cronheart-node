@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.2.0
+
+A monitor read now says whether the monitor has an incident open, and the
+package stops telling readers that the management API needs a paid plan.
+**Upgrading from any `0.1.x` is safe**: the one new field is optional on the
+`Monitor` type, the wire contract moves to 2.4.0 by adding a key, and nothing
+else on the wire changes.
+
+### Minor Changes
+
+- **A monitor read through `cronheart/api` now says whether it has an incident
+  open.** `monitor.openIncident` is `null` when none is, and otherwise
+  `{ kind, since }`: `kind` is the alert that opened it, `'late'` or `'fail'`,
+  and `since` is when that alert was raised, or `null` when the service cannot
+  find it. Every monitor read carries it — `get`, `list`, `iterate` and every
+  write that answers with a monitor. Only a successful run ends an incident, so
+  a monitor that was paused, resumed or snoozed can still be inside one, and no
+  late or fail alert is sent until it ends. The field is optional on the
+  `Monitor` type, so a `Monitor` written by hand for `0.1.3` still compiles;
+  `OpenIncident` and `IncidentKind` are exported alongside it. The wire contract
+  moves to 2.4.0, which states the new key.
+
+### Patch Changes
+
+- The service now includes the REST API on every plan, Free included, each at
+  its own rate limit — 30 requests/min on Free, 120 on Starter, 300 on Growth,
+  600 on Scale. This package no longer tells a reader the API needs Starter or
+  above: `cronheart init`, `cronheart sync --help` and the README say what is now
+  true instead, and `cronheart doctor` no longer mentions a plan beside a
+  configured key.
+  
+  `ApiPlanRestrictionError` and `error.kind === 'plan-restriction'` are kept —
+  the wire contract still defines HTTP 402 as a possible answer, and a 402 must
+  still classify as something rather than fall through to
+  `ApiUnexpectedResponseError` — but the class is now `@deprecated`: no plan is
+  denied any more, so a caller should not expect to see one. Its message, and
+  the one `cronheart/sync`'s error reporting gives for the same `kind`, now say
+  a 402 should not happen under the current plans rather than naming a plan to
+  upgrade to.
+
 ## 0.1.3
 
 ### Patch Changes
