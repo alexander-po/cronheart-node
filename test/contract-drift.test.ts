@@ -232,4 +232,22 @@ describe('the drift watch compares the contract against what the server publishe
     expect(run.status).toBe(3)
     expect(Object.keys(written.facts).sort()).toEqual(Object.keys(shipped().facts).sort())
   })
+
+  // The served document states open_incident as a reference or null and every other nullable
+  // monitor field as a type list, so a projection reading only the list loses exactly one key.
+  it('reads a field published as a reference or null as nullable', () => {
+    const empty = join(mkdtempSync(join(tmpdir(), 'cronheart-drift-')), 'server-snapshot.json')
+    writeFileSync(empty, JSON.stringify({ source: shipped().source, facts: {} }, null, 2))
+
+    drift(['--live', '--snapshot', empty], './test/fixtures/drift/serve-the-document.mjs')
+    const written = JSON.parse(readFileSync(empty, 'utf8')) as Snapshot
+    const contract = JSON.parse(readFileSync(CONTRACT, 'utf8')) as {
+      api: { read_shapes: { monitor: { nullable: string[] } } }
+    }
+
+    expect(members(written.facts, '/api/read_shapes/monitor/nullable')).toEqual(
+      contract.api.read_shapes.monitor.nullable,
+    )
+    expect(contract.api.read_shapes.monitor.nullable).toContain('open_incident')
+  })
 })

@@ -400,11 +400,11 @@ publishing it produced eleven corrections, all of them in this release:
 
 ### Wire contract
 
-The repository carries a machine-readable wire contract, at version **2.3.0** for
-this release, read out of the running service rather than inferred from its
-documentation. Constant-equality checks and language-neutral conformance vectors
-run against it on every build, a drift watch compares it against a committed
-snapshot of the published API specification on every pull request and against the
-running service on a schedule, and the contract version rides in the User-Agent
-alongside the SDK version, so a support request names what the client was built
-against. It is not part of the published package.
+The repository carries a machine-readable wire contract, read out of the running
+service rather than inferred from its documentation. Constant-equality checks
+and language-neutral conformance vectors run against it on every build, a drift
+watch compares it against a committed snapshot of the published API
+specification on every pull request and against the running service on a
+schedule, and the contract version rides in the User-Agent alongside the SDK
+version, so a support request names what the client was built against. It is not
+part of the published package.

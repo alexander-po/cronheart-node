@@ -3,7 +3,7 @@
   "info": {
     "title": "Cronheart API",
     "version": "v1",
-    "description": "REST API for managing monitors and notification channels. Authenticate with a personal access token as a Bearer credential. Requires the Starter plan or higher."
+    "description": "REST API for managing monitors and notification channels. Authenticate with a personal access token as a Bearer credential. Included on every plan; the rate limit depends on the plan."
   },
   "servers": [
     {
@@ -35,9 +35,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
@@ -83,9 +80,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
@@ -140,9 +134,6 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
-          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
@@ -180,9 +171,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -228,9 +216,6 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
-          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
@@ -270,9 +255,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -314,9 +296,6 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
-          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
@@ -356,9 +335,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -413,9 +389,6 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
-          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
@@ -455,9 +428,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -511,9 +481,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -572,9 +539,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -635,9 +599,6 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
-          },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
           }
@@ -661,9 +622,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
@@ -718,9 +676,6 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
-          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
@@ -757,9 +712,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -804,9 +756,6 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
-          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
@@ -845,9 +794,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -890,9 +836,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -938,9 +881,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "402": {
-            "$ref": "#/components/responses/PaymentRequired"
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
@@ -1001,6 +941,16 @@
               "paused"
             ]
           },
+          "open_incident": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OpenIncident"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "next_expected_at": {
             "type": [
               "string",
@@ -1033,6 +983,32 @@
           "badge_url": {
             "type": "string",
             "format": "uri"
+          }
+        }
+      },
+      "OpenIncident": {
+        "type": "object",
+        "description": "The incident the monitor has open. No new alert fires while it is open; a successful run (success or heartbeat) closes it, and pause, resume, snooze and /start leave it open.",
+        "required": [
+          "kind",
+          "since"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "late",
+              "fail"
+            ],
+            "description": "The alert that opened it."
+          },
+          "since": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When that alert was raised; null if it cannot be found."
           }
         }
       },
@@ -1301,7 +1277,8 @@
           "name": {
             "type": "string",
             "minLength": 2,
-            "maxLength": 120
+            "maxLength": 120,
+            "description": "Leading and trailing spaces, control and invisible characters (such as U+200B) do not count toward minLength."
           },
           "schedule_kind": {
             "type": "string",
@@ -1344,7 +1321,8 @@
           "name": {
             "type": "string",
             "minLength": 2,
-            "maxLength": 120
+            "maxLength": 120,
+            "description": "Leading and trailing spaces, control and invisible characters (such as U+200B) do not count toward minLength."
           },
           "schedule_kind": {
             "type": "string",
@@ -1487,16 +1465,6 @@
     "responses": {
       "Unauthorized": {
         "description": "Missing, invalid, expired, or revoked token.",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/Problem"
-            }
-          }
-        }
-      },
-      "PaymentRequired": {
-        "description": "The plan does not include API access.",
         "content": {
           "application/problem+json": {
             "schema": {
