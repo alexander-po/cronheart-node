@@ -1069,6 +1069,24 @@ a support promise.
 Reporting a vulnerability, and the properties worth reporting against:
 [SECURITY.md](SECURITY.md). How a release is cut: [RELEASING.md](RELEASING.md).
 
+## For coding agents
+
+An agent asked to monitor a project's scheduled jobs follows
+[skills/add-cronheart/SKILL.md](skills/add-cronheart/SKILL.md): detect the
+scheduler, install the package, wrap each job, create the monitors, put each id
+in the environment, verify the first check-in, and what every error means. It
+is written in the Claude Code skill format — copy the `skills/add-cronheart`
+directory into a project's `.claude/skills/` and it is invoked as
+`/add-cronheart` — and it reads as a plain numbered recipe for any other agent.
+[AGENTS.md](AGENTS.md) at the root of this repository points at it, so an agent
+that lands here finds it without being told.
+
+The recipe is held to the same gate as this document: every sample in it is
+compiled against the built package, and every command, flag, environment
+variable and `make` recipe it names is probed against the program, so it cannot
+describe a package that no longer exists. Neither file is in the npm tarball;
+they live in the repository, where the gate can hold them.
+
 ## Development
 
 Everything runs inside Docker — no Node or pnpm on the host:

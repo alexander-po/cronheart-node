@@ -88,9 +88,10 @@ The documented-claims check compiles every sample in the documents and probes
 every flag, command, environment variable and `make` recipe they name against
 the built program, so writing a claim into a document is writing an assertion
 and it will be held to it in the same run. The documents it reads are
-`README.md`, `SECURITY.md`, `RELEASING.md`, this file and the two command-line
-help sources; anything else — `CHANGELOG.md`, the notes under `contract/` — is
-checked by nobody, so a claim written there has to be verified by hand.
+`README.md`, `SECURITY.md`, `RELEASING.md`, this file, `AGENTS.md`, the agent
+recipe under `skills/` and the two command-line help sources; anything else —
+`CHANGELOG.md`, the notes under `contract/` — is checked by nobody, so a claim
+written there has to be verified by hand.
 
 ## The axiom
 
