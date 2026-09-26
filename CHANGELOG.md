@@ -5,8 +5,8 @@
 A monitor read now says whether the monitor has an incident open, and the
 package stops telling readers that the management API needs a paid plan.
 **Upgrading from any `0.1.x` is safe**: the one new field is optional on the
-`Monitor` type, the wire contract moves to 2.4.0 by adding a key, and nothing
-else on the wire changes.
+`Monitor` type, the wire contract moves up a minor version by adding a key, and
+nothing else on the wire changes.
 
 ### Minor Changes
 
@@ -20,7 +20,7 @@ else on the wire changes.
   late or fail alert is sent until it ends. The field is optional on the
   `Monitor` type, so a `Monitor` written by hand for `0.1.3` still compiles;
   `OpenIncident` and `IncidentKind` are exported alongside it. The wire contract
-  moves to 2.4.0, which states the new key.
+  moves up a minor version, which states the new key.
 
 ### Patch Changes
 

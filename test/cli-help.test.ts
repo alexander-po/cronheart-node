@@ -18,6 +18,7 @@ const BELONGS_ELSEWHERE: Readonly<Record<string, string>> = {
   ping: '--kill-after=',
   doctor: '--env-path=',
   init: '--strict',
+  signup: '--apply',
 }
 
 function cronBlocks(): string[] {
@@ -37,12 +38,12 @@ describe('cronheart --help answers for the command that was asked about', () => 
     expect(ran.stdout).not.toContain(BELONGS_ELSEWHERE[command])
   })
 
-  it('gives each command a different page rather than four copies of one', async () => {
+  it('gives each command a different page rather than copies of one', async () => {
     const pages = await Promise.all(
       Object.keys(BELONGS_ELSEWHERE).map(async (command) => (await runCli([command, '--help'])).stdout),
     )
 
-    expect(new Set(pages).size).toBe(4)
+    expect(new Set(pages).size).toBe(Object.keys(BELONGS_ELSEWHERE).length)
   })
 
   it('still lists every command when no command was named', async () => {
@@ -144,6 +145,7 @@ describe('a page that documents every flag its command accepts', () => {
   it.each([
     ['init', ['--schedule', '--channels', '--env-path', '--print-env', '--name', '--uuid']],
     ['sync', ['--config', '--apply', '--check', '--prune', '--print-env', '--yes', '--all']],
+    ['signup', ['--accept-terms', '--env-path', '--print-env']],
   ])('names each of %s’s flags in the usage line and again in the options', async (command, flags) => {
     const ran = await runCli([command, '--help'])
     const usage = String(ran.stdout.split('\nOptions')[0])

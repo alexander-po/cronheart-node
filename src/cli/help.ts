@@ -18,6 +18,7 @@ Usage
   cronheart doctor [<name-or-id>]
   cronheart init [options]
   cronheart sync [--config=<path>] [--apply | --check] [--prune] [--print-env] [--yes] [--all]
+  cronheart signup <email> --accept-terms [--env-path=<path>] [--print-env]
 
 Commands
   run       wrap a command: open with a start check-in, then report what it did
@@ -25,6 +26,7 @@ Commands
   doctor    report what this environment resolves to, and check in for real
   init      create or record a monitor and verify it (creating one needs an API key)
   sync      reconcile the monitors of a project against a configuration file
+  signup    create an account from this terminal and save its first API key
 
 Options
   -h, --help      this page. Written after a command — cronheart run --help — the options

@@ -135,8 +135,10 @@ export async function exercise(): Promise<string[]> {
 import {
   API_RESPONSE_BODY_CAP_BYTES,
   CronheartApiError,
+  SIGNUP_EMAIL_MAX_LENGTH,
   SNOOZE_DURATIONS,
   createCronheartApi,
+  createSignupClient,
   isCronheartApiError,
 } from 'cronheart/api'
 import type {
@@ -149,7 +151,11 @@ import type {
   MonitorPage,
   OpenIncident,
   RateLimitSnapshot,
+  SignupClient,
+  SignupPollResult,
+  SignupStarted,
   SnoozeDuration,
+  StartSignupRequest,
 } from 'cronheart/api'
 
 const create: CreateMonitorRequest = {
@@ -316,4 +322,37 @@ export function monitorRegistry(registry: SchedulerRegistry): MonitoredSchedule 
   const held: ScheduledJobs = registry
 
   return monitorScheduledJobs(held, { jobs: { nightlyDigest: 'nightly-backup' } })
+}
+
+// The signup flow the way a consumer drives it: the acceptance is the literal true, and the
+// poll's answer narrows on its status before the token can be read off it.
+export async function signUp(
+  email: string,
+  wait: (seconds: number) => Promise<void>,
+): Promise<string | undefined> {
+  const signup: SignupClient = createSignupClient({ baseUrl: 'https://cronheart.com', timeoutMs: 8000 })
+  const request: StartSignupRequest = { email: email.slice(0, SIGNUP_EMAIL_MAX_LENGTH), acceptTerms: true }
+  const started: SignupStarted = await signup.start(request)
+
+  for (;;) {
+    await wait(started.interval)
+
+    try {
+      const answer: SignupPollResult = await signup.poll(started.deviceCode)
+
+      if (answer.status === 'issued') {
+        return answer.token
+      }
+    } catch (error) {
+      if (!isCronheartApiError(error) || error.kind === 'signup-expired') {
+        return undefined
+      }
+
+      if (error.kind !== 'rate-limit') {
+        throw error
+      }
+
+      await wait(error.retryAfterSeconds ?? started.interval)
+    }
+  }
 }

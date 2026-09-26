@@ -13,7 +13,7 @@ import { runCommand } from './cli/run.js'
 type Command = (args: ParsedArgs, io: Io) => Promise<number>
 
 // A Map rather than an object literal, so a name every object inherits is not a command
-// this program appears to have. The last three are loaded on demand: a wrapper a crontab
+// this program appears to have. The last four are loaded on demand: a wrapper a crontab
 // runs every minute pays the startup cost of everything the entry file reaches.
 const COMMANDS = new Map<string, Command>([
   ['run', runCommand],
@@ -21,6 +21,7 @@ const COMMANDS = new Map<string, Command>([
   ['doctor', async (args, io) => (await import('./cli/doctor.js')).doctorCommand(args, io)],
   ['init', async (args, io) => (await import('./cli/init.js')).initCommand(args, io)],
   ['sync', async (args, io) => (await import('./cli/sync.js')).syncCommand(args, io)],
+  ['signup', async (args, io) => (await import('./cli/signup.js')).signupCommand(args, io)],
 ])
 
 async function dispatch(args: ParsedArgs, io: Io): Promise<number> {

@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.4.0",
+  "contract_version": "2.5.0",
   "title": "Conformance vector vocabulary",
   "description": "The complete, fixed vocabulary every vector file is written in. Nothing here requires a language-specific expression evaluator: a per-SDK adapter is a lookup table of subjects plus a switch over six predicates.",
 
@@ -107,7 +107,8 @@
       "input": {
         "status": "integer — the HTTP status of a management-API response",
         "detail": "string or null — the problem document's detail field, present only so that cases can vary it and assert the classification does not move",
-        "deliversDownstream": "optional boolean — whether the route delivers to a destination the caller owns. Only the channel-test route does, and only there does a 502 mean the destination failed rather than the API"
+        "deliversDownstream": "optional boolean — whether the route delivers to a destination the caller owns. Only the channel-test route does, and only there does a 502 mean the destination failed rather than the API",
+        "signupFlow": "optional boolean — whether the route is one of the two signup routes, where a 403 means signup from the API is switched off and a 410 that the signup request is no longer open"
       },
       "result": "throws the classified error; never returns",
       "error_classes": [
@@ -119,9 +120,39 @@
         "Validation",
         "RateLimit",
         "ChannelDelivery",
+        "SignupExpired",
         "UnexpectedResponse"
       ],
-      "note": "The classification reads the status and the route, and nothing else. There is no machine-readable code on a problem response, so a port that branched on detail would be branching on English prose that a server-side rewording silently changes."
+      "note": "The classification reads the status and the route, and nothing else. Outside the two signup routes there is no machine-readable code on a problem response, so a port that branched on detail would be branching on English prose that a server-side rewording silently changes."
+    },
+
+    "api.readSignupStart": {
+      "pure": true,
+      "input": { "body": "the decoded JSON body of a 202 from the signup start route" },
+      "result": {
+        "deviceCode": "string",
+        "userCode": "string — matched against the contract's user_code_pattern before it is returned",
+        "expiresIn": "integer, seconds",
+        "interval": "integer, seconds",
+        "hint": "string or null — null when the answer carries none, or one that is not printable text of at most 500 characters"
+      },
+      "error_classes": ["Hydration"],
+      "note": "The user code is printed on a person's terminal, so a value outside the published pattern is refused rather than returned."
+    },
+    "api.readSignupPoll": {
+      "pure": true,
+      "input": {
+        "status": "integer — the 2xx status of a signup poll answer",
+        "body": "its decoded JSON body"
+      },
+      "result": {
+        "status": "\"pending\" or \"issued\"",
+        "token": "string, present when issued",
+        "tokenPrefix": "string or null, present when issued",
+        "project": "string or null, present when issued"
+      },
+      "error_classes": ["Hydration"],
+      "note": "The status decides and the body's own status string does not: a 202 carrying an object is pending whatever status string it names, and only a 200 with a token that is an API key of this service is issued. Only the token is required on an issued answer, since it is never sent again; tokenPrefix and project are null when the answer carries no short printable value for them."
     },
 
     "http.parseRetryAfter": {

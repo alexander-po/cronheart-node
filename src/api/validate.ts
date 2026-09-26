@@ -14,6 +14,7 @@ import {
   MONITOR_NAME_MIN_LENGTH,
   SCHEDULE_EXPR_MAX_LENGTH,
   SCHEDULE_KINDS,
+  SIGNUP_EMAIL_MAX_LENGTH,
   SIMPLE_SCHEDULES,
   SNOOZE_DURATIONS,
   TIMEZONE_MAX_LENGTH,
@@ -30,6 +31,10 @@ const MONITOR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const CHANNEL_ID = /^[0-9]+$/
 
 const ASCII_DIGITS = /^[0-9]+$/
+
+// Only what a mistyped argument gets wrong: one @, visible ASCII on both sides of it. Whether
+// the address is one the service takes is the service's to decide, and it answers 422.
+const EMAIL_SHAPE = /^[!-?A-~]+@[!-?A-~]+$/
 
 function refuse(message: string): never {
   throw new ApiInvalidRequestError(message)
@@ -321,4 +326,26 @@ export function pageOffset(value: number | undefined): number {
   }
 
   return value
+}
+
+export function assertSignupEmail(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || value.length > SIGNUP_EMAIL_MAX_LENGTH || !EMAIL_SHAPE.test(value)) {
+    refuse(
+      `email must be one address of at most ${SIGNUP_EMAIL_MAX_LENGTH} visible ASCII characters, with a single @ and no spaces.`,
+    )
+  }
+}
+
+export function assertTermsAccepted(value: unknown): asserts value is true {
+  if (value !== true) {
+    refuse(
+      'acceptTerms must be true. The service refuses a signup without it, and the acceptance it records is that of whoever confirms on the mailed page — so the person the address belongs to reads the terms first.',
+    )
+  }
+}
+
+export function assertDeviceCode(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || value === '') {
+    refuse('deviceCode must be the non-empty string the signup answer carried.')
+  }
 }

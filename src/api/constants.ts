@@ -4,6 +4,8 @@ export const API_BASE_PATH = '/api/v1'
 
 export const API_TOKEN_PREFIX = 'cmk_'
 
+export const API_KEY_VARIABLE = 'CRONHEART_API_KEY'
+
 export const API_PAGE_LIMIT_MAX = 100
 
 export const API_PAGE_LIMIT_DEFAULT = 50
@@ -71,6 +73,10 @@ export const CHANNEL_CHAT_ID_KINDS = ['telegram'] as const
 export const CHANNEL_WEBHOOK_URL_KINDS = ['slack', 'discord', 'webhook'] as const
 
 export const CHANNEL_SECRET_KINDS = ['webhook'] as const
+
+export const SIGNUP_EMAIL_MAX_LENGTH = 180
+
+export const SIGNUP_USER_CODE_PATTERN = '^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$'
 
 export const DEFAULT_API_TIMEOUT_MS = 10000
 

@@ -3,7 +3,7 @@
   "info": {
     "title": "Cronheart API",
     "version": "v1",
-    "description": "REST API for managing monitors and notification channels. Authenticate with a personal access token as a Bearer credential. Included on every plan; the rate limit depends on the plan."
+    "description": "REST API for managing monitors and notification channels. Authenticate with a personal access token as a Bearer credential; the two signup operations take none. Included on every plan; the rate limit depends on the plan."
   },
   "servers": [
     {
@@ -887,6 +887,111 @@
           }
         }
       }
+    },
+    "/api/v1/signup": {
+      "post": {
+        "summary": "Start a signup from a terminal",
+        "tags": [
+          "signup"
+        ],
+        "security": [],
+        "responses": {
+          "202": {
+            "description": "Request recorded; the same answer whether or not the address has an account. A mail with a confirmation link goes to the address.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/SignupDisabled"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupStart"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/signup/token": {
+      "post": {
+        "summary": "Poll a signup for its token",
+        "tags": [
+          "signup"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Confirmed: the account, its default project and this token now exist. Returned once.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupToken"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Not confirmed yet; poll again after the interval.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupPending"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/SignupDisabled"
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupPoll"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1439,6 +1544,88 @@
           }
         }
       },
+      "SignupStart": {
+        "type": "object",
+        "required": [
+          "email",
+          "accept_terms"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 180
+          },
+          "accept_terms": {
+            "type": "boolean",
+            "const": true,
+            "description": "Must be true. The terms are accepted for the record by whoever confirms on the emailed page."
+          }
+        }
+      },
+      "SignupStarted": {
+        "type": "object",
+        "properties": {
+          "device_code": {
+            "type": "string",
+            "description": "Secret; send it to /api/v1/signup/token and show it to nobody."
+          },
+          "user_code": {
+            "type": "string",
+            "pattern": "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$",
+            "description": "Show it to the person, who types it on the emailed page."
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "Seconds until both codes expire."
+          },
+          "interval": {
+            "type": "integer",
+            "description": "Minimum seconds between polls."
+          },
+          "hint": {
+            "type": "string"
+          }
+        }
+      },
+      "SignupPoll": {
+        "type": "object",
+        "required": [
+          "device_code"
+        ],
+        "properties": {
+          "device_code": {
+            "type": "string"
+          }
+        }
+      },
+      "SignupPending": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "authorization_pending"
+            ]
+          }
+        }
+      },
+      "SignupToken": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "The API token, shown this once."
+          },
+          "token_prefix": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string",
+            "description": "The token is scoped to the account default project."
+          }
+        }
+      },
       "Problem": {
         "type": "object",
         "description": "RFC 7807 problem detail.",
@@ -1458,6 +1645,10 @@
           "errors": {
             "type": "object",
             "description": "Per-field validation messages (422)."
+          },
+          "error": {
+            "type": "string",
+            "description": "On the signup endpoints: invalid_request, signup_disabled, rate_limited, slow_down or expired_token."
           }
         }
       }
@@ -1504,7 +1695,47 @@
         }
       },
       "TooManyRequests": {
-        "description": "Rate limit exceeded; see Retry-After.",
+        "description": "Rate limit exceeded: the plan request limit, or a per-action limit such as the account's monitor or channel create limit, test sends, verification emails, signup requests or signup polls. Wait for Retry-After; X-RateLimit-* describe the request limit.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "The body is not a JSON object.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "SignupDisabled": {
+        "description": "Signup from the API is switched off.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "UnsupportedMediaType": {
+        "description": "The body is not application/json.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "Gone": {
+        "description": "The signup request is unknown, expired, cancelled or already claimed; the detail names the recovery.",
         "content": {
           "application/problem+json": {
             "schema": {

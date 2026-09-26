@@ -10,6 +10,7 @@ import {
   ApiNotFoundError,
   ApiPlanRestrictionError,
   ApiRateLimitError,
+  ApiSignupExpiredError,
   ApiTransportError,
   ApiUnexpectedResponseError,
   ApiValidationError,
@@ -58,6 +59,7 @@ const EVERY_CLASS = [
   ApiNotFoundError,
   ApiPlanRestrictionError,
   ApiRateLimitError,
+  ApiSignupExpiredError,
   ApiTransportError,
   ApiUnexpectedResponseError,
   ApiValidationError,
@@ -87,6 +89,7 @@ describe('the error hierarchy', () => {
       new ApiConfigurationError('x').kind,
       new ApiInvalidRequestError('x').kind,
       new ApiChannelDeliveryError('x', { request: WHERE, problem: blankProblem }).kind,
+      errorForStatus(410, blankProblem, { request: WHERE, signupFlow: true }).kind,
     ]
 
     expect(new Set(kinds).size).toBe(kinds.length)
@@ -170,6 +173,16 @@ describe('classification reads the status and nothing else', () => {
       name: 'This value is too short.',
       schedule_expr: 'Invalid cron expression.',
     })
+  })
+
+  it('repeats no field name a terminal would read as a control sequence', () => {
+    const hostile = '\u001b]0;owned\u0007\u001b[2J'
+    const error = classify(422, { errors: { email: 'x', [hostile]: 'y' } })
+
+    ofKind(error, 'validation')
+    expect(error.message).toContain(': email.')
+    expect(error.message).not.toContain('\u001b')
+    expect(Object.keys(error.errors)).toContain(hostile)
   })
 
   it('carries the retry guidance a rate limit came with, without inventing one', () => {

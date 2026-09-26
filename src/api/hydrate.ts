@@ -1,3 +1,5 @@
+import { isApiKeyShaped } from './config.js'
+import { API_TOKEN_PREFIX, SIGNUP_USER_CODE_PATTERN } from './constants.js'
 import { ApiHydrationError } from './errors.js'
 import type {
   Account,
@@ -13,6 +15,8 @@ import type {
   PingPage,
   PingRecord,
   RotatedChannelSecret,
+  SignupPollResult,
+  SignupStarted,
 } from './types.js'
 
 type Source = Readonly<Record<string, unknown>>
@@ -273,5 +277,88 @@ export function rotatedSecretFrom(value: unknown): RotatedChannelSecret {
   return {
     channel: channelFrom(source),
     secret: text(source, 'secret', 'rotated channel secret'),
+  }
+}
+
+// Printed on a terminal, so anything outside the published shape is refused, never shown.
+const USER_CODE = new RegExp(SIGNUP_USER_CODE_PATTERN)
+
+const PRINTABLE = /^[ -~]+$/
+
+const LONGEST_LABEL = 80
+
+const LONGEST_HINT = 500
+
+const LONGEST_SHOWN_PREFIX = API_TOKEN_PREFIX.length + 8
+
+function wholeSeconds(source: Source, key: string, what: string): number {
+  const value = integer(source, key, what)
+
+  if (value < 0) {
+    refuse(what, `has a negative ${key}`)
+  }
+
+  return value
+}
+
+export function signupStartedFrom(value: unknown): SignupStarted {
+  const what = 'signup answer'
+  const source = objectFrom(value, what)
+  const deviceCode = text(source, 'device_code', what)
+  const userCode = text(source, 'user_code', what)
+
+  if (deviceCode === '') {
+    refuse(what, 'has an empty device_code')
+  }
+
+  if (!USER_CODE.test(userCode)) {
+    refuse(what, 'has a user_code that is not two groups of four capital consonants')
+  }
+
+  return {
+    deviceCode,
+    userCode,
+    expiresIn: wholeSeconds(source, 'expires_in', what),
+    interval: wholeSeconds(source, 'interval', what),
+    hint: displayable(source, 'hint', LONGEST_HINT),
+  }
+}
+
+function displayable(source: Source, key: string, longest: number): string | null {
+  const value = source[key]
+
+  return typeof value === 'string' && value.length <= longest && PRINTABLE.test(value) ? value : null
+}
+
+function shownPrefix(source: Source, token: string): string | null {
+  const prefix = displayable(source, 'token_prefix', LONGEST_SHOWN_PREFIX)
+
+  return prefix !== null && token.startsWith(prefix) ? prefix : null
+}
+
+// The status decides, and only the token must be there, since it is never sent again.
+export function signupPollFrom(status: number, value: unknown): SignupPollResult {
+  const what = 'signup poll answer'
+  const source = objectFrom(value, what)
+
+  if (status === 202) {
+    return { status: 'pending' }
+  }
+
+  if (status !== 200) {
+    refuse(what, `came with HTTP ${status}, which is neither pending nor issued`)
+  }
+
+  const token = text(source, 'token', what)
+
+  if (!isApiKeyShaped(token)) {
+    refuse(what, 'has a token that is not an API key of this service')
+  }
+
+  return {
+    status: 'issued',
+    token,
+    tokenPrefix: shownPrefix(source, token),
+    project: displayable(source, 'project', LONGEST_LABEL),
   }
 }

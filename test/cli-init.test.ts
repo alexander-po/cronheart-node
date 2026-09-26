@@ -11,7 +11,8 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { muteEchoWhile, upsertEnvLine } from '../src/cli/init.js'
+import { upsertEnvLine } from '../src/cli/env-file.js'
+import { muteEchoWhile } from '../src/cli/init.js'
 import { type ApiServer, startApiServer } from './support/api-server.js'
 import { MONITOR_ID, type PingServer, runCli, startPingServer } from './support/cli.js'
 import {

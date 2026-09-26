@@ -21,7 +21,8 @@ import { execution, fakeTask } from './node-cron-task.js'
 import { unsafelyManaged } from '../../src/api/__selftest__.js'
 import { createCronheartApi } from '../../src/api/client.js'
 import { isCronheartApiError } from '../../src/api/errors.js'
-import type { CronheartApi, CronheartApiOptions } from '../../src/api/types.js'
+import { createSignupClient } from '../../src/api/signup.js'
+import type { CronheartApi, CronheartApiOptions, SignupClient } from '../../src/api/types.js'
 import type { CheckInThunk, PingClient } from '../../src/ping/types.js'
 import { applySync } from '../../src/sync/apply.js'
 import { planSync } from '../../src/sync/plan.js'
@@ -62,14 +63,15 @@ function managementOptions(fault: FaultInstance): CronheartApiOptions {
 // the case swallows exactly the type it promises and rethrows anything else. An escape that
 // is not a branded error therefore breaks the same invariant a check-in would break, and
 // everything it hands back is recorded so the leak rules read it too.
-async function managed(
+async function guarded<T>(
   context: InvocationContext,
-  call: (api: CronheartApi) => Promise<unknown>,
+  open: () => T,
+  call: (api: T) => Promise<unknown>,
 ): Promise<void> {
-  let api: CronheartApi
+  let api: T
 
   try {
-    api = createCronheartApi(managementOptions(context.fault))
+    api = open()
   } catch (error) {
     context.record(error)
 
@@ -89,6 +91,26 @@ async function managed(
       throw error
     }
   }
+}
+
+function managed(
+  context: InvocationContext,
+  call: (api: CronheartApi) => Promise<unknown>,
+): Promise<void> {
+  return guarded(context, () => createCronheartApi(managementOptions(context.fault)), call)
+}
+
+function signingUp(
+  context: InvocationContext,
+  call: (client: SignupClient) => Promise<unknown>,
+): Promise<void> {
+  const { baseUrl, env, timeoutMs, fetch, signal } = managementOptions(context.fault)
+
+  return guarded(
+    context,
+    () => createSignupClient({ baseUrl, env, timeoutMs, fetch, signal }),
+    call,
+  )
 }
 
 export const CHECK_IN_ENTRY_POINTS: readonly EntryPoint[] = [
@@ -195,6 +217,30 @@ export const CHECK_IN_ENTRY_POINTS: readonly EntryPoint[] = [
           { idempotencyKey: 'a-key-the-caller-chose' },
         ),
       )
+
+      return context.host()
+    },
+  },
+  {
+    id: 'api.signup.start',
+    exports: ['./api#createSignupClient'],
+    pings: 1,
+    unsafe: false,
+    invoke: async (context) => {
+      await signingUp(context, (client) =>
+        client.start({ email: 'someone@example.com', acceptTerms: true }),
+      )
+
+      return context.host()
+    },
+  },
+  {
+    id: 'api.signup.poll',
+    exports: [],
+    pings: 1,
+    unsafe: false,
+    invoke: async (context) => {
+      await signingUp(context, (client) => client.poll('a-device-code-the-service-issued'))
 
       return context.host()
     },

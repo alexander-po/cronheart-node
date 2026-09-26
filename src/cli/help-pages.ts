@@ -243,12 +243,56 @@ Examples
 
 ${ENVIRONMENT}`
 
+const SIGNUP_HELP = `cronheart signup — create an account from this terminal and save its first API key
+
+Usage
+  cronheart signup <email> --accept-terms [--env-path=<path>] [--print-env]
+
+  Asks the service for an account for <email>. A mail with one link goes to that address;
+  the link opens a page where the person types the code this command shows. Once they have,
+  the account, its default project and one API key exist, and the key is written to an env
+  file as CRONHEART_API_KEY: a new file readable by its owner alone, or a line added to an
+  existing one. The account has no password until one is set with Forgot password.
+
+  The key is shown once and never again, so the file is checked before anything is asked
+  for and again before it is written. One that already assigns CRONHEART_API_KEY, one that
+  others can read or write, a link, and a directory that cannot be written are refused. A
+  file refused at the end, or a write that fails, puts the key once on stdout instead, since
+  there is no other copy.
+
+  Every address gets the same answer. One that already has an account never confirms, and
+  an active one is mailed that nothing changed; stop the command then, or it waits until
+  the code expires, 30 minutes on the service today.
+
+Options
+  --accept-terms      required. Signing up accepts the service's Terms of Service and
+                      Privacy Policy; without the flag this names both and stops. The
+                      acceptance the service records is the click of whoever confirms on
+                      the mailed page, so the person the address belongs to reads them
+                      first.
+  --env-path=<path>   where to write the key (default .env).
+  --print-env         print the CRONHEART_API_KEY line on stdout instead of writing it
+                      anywhere. Everything else goes to stderr.
+
+  Polls at the interval the service names, never faster than once a second, and waits
+  longer when it answers 429. Exits 0 once the key is saved. Exits 64 when the invocation
+  cannot be read, the terms were not accepted, the address is plainly not one, or the file
+  was refused before the flow started. Exits 1 when the service refused the request, the
+  code expired or was cancelled on the page, or the key could not be written.
+
+Examples
+  cronheart signup you@example.com --accept-terms
+  cronheart signup you@example.com --accept-terms --env-path=ops/.env
+
+${ENVIRONMENT}`
+
 const PAGES: Readonly<Record<string, string>> = {
   run: RUN_HELP,
   ping: PING_HELP,
   doctor: DOCTOR_HELP,
   init: INIT_HELP,
   sync: SYNC_HELP,
+  signup: SIGNUP_HELP,
 }
 
 export function helpFor(command: string | undefined): string {

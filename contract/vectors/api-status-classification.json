@@ -1,9 +1,9 @@
 {
-  "contract_version": "2.4.0",
+  "contract_version": "2.5.0",
   "group": "api.status_classification",
   "default_subject": "api.classifyStatus",
-  "description": "How a management-API response status becomes an error class. The service publishes no machine-readable code: every problem response carries type about:blank, three unrelated conditions share the 409, and the 401 detail is a translation key rather than prose. Status is therefore the only input, and these cases exist to keep it that way — several of them vary nothing but the detail string and assert the class does not move.",
-  "case_count": 19,
+  "description": "How a management-API response status becomes an error class. Outside the two signup routes the service publishes no machine-readable code: every problem response carries type about:blank, three unrelated conditions share the 409, and the 401 detail is a translation key rather than prose. Status is therefore the only input, and these cases exist to keep it that way — several of them vary nothing but the detail string and assert the class does not move.",
+  "case_count": 26,
   "cases": [
     {
       "id": "bad-request",
@@ -88,6 +88,47 @@
       "input": { "status": 502, "detail": null },
       "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "UnexpectedResponse" }],
       "why": "The same status on any other route carries none of that meaning, so the route decides and the status alone does not."
+    },
+    {
+      "id": "signup-switched-off",
+      "input": { "status": 403, "detail": "Switched off.", "signupFlow": true },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Forbidden" }],
+      "why": "The class is the one a 403 takes anywhere; only the sentence differs on these routes."
+    },
+    {
+      "id": "signup-request-gone",
+      "input": { "status": 410, "detail": null, "signupFlow": true },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "SignupExpired" }],
+      "why": "An expired, cancelled or already claimed signup means start a new one, which a caller cannot tell from an API fault unless it arrives as a class of its own."
+    },
+    {
+      "id": "gone-anywhere-else",
+      "input": { "status": 410, "detail": null },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "UnexpectedResponse" }],
+      "why": "No other route answers 410, so the route decides and the status alone does not."
+    },
+    {
+      "id": "signup-polled-too-fast",
+      "input": { "status": 429, "detail": "Slow down.", "signupFlow": true },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "RateLimit" }],
+      "why": "The class is the one a 429 takes anywhere; only the sentence differs on these routes."
+    },
+    {
+      "id": "signup-throttled",
+      "input": { "status": 429, "detail": "Refused.", "signupFlow": true },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "RateLimit" }],
+      "why": "A slowed poll and a refused start differ only in their error member, which restates the route, so the class does not move between them."
+    },
+    {
+      "id": "signup-unprocessable",
+      "input": { "status": 422, "detail": "Invalid.", "signupFlow": true },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Validation" }]
+    },
+    {
+      "id": "signup-body-not-json",
+      "input": { "status": 415, "detail": "Unsupported.", "signupFlow": true },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "UnexpectedResponse" }],
+      "why": "This client always sends JSON, so a 415 is a defect here rather than a condition a caller can act on."
     },
     {
       "id": "internal-server-error",

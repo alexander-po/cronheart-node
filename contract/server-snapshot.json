@@ -156,6 +156,48 @@
     ],
     "/api/read_shapes/alert/nullable": [
       "dispatched_to"
+    ],
+    "/api/constraints/signup.email/max_length": 180,
+    "/api/constraints/signup.start/required": [
+      "email",
+      "accept_terms"
+    ],
+    "/api/constraints/signup.poll/required": [
+      "device_code"
+    ],
+    "/api/read_shapes/signup.started/keys": [
+      "device_code",
+      "user_code",
+      "expires_in",
+      "interval",
+      "hint"
+    ],
+    "/api/read_shapes/signup.pending/keys": [
+      "status"
+    ],
+    "/api/read_shapes/signup.issued/keys": [
+      "token",
+      "token_prefix",
+      "project"
+    ],
+    "/api/signup/user_code_pattern": "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$",
+    "/api/signup/routes/0/statuses": [
+      202,
+      400,
+      403,
+      415,
+      422,
+      429
+    ],
+    "/api/signup/routes/1/statuses": [
+      200,
+      202,
+      400,
+      403,
+      410,
+      415,
+      422,
+      429
     ]
   }
 }

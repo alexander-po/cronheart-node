@@ -5,13 +5,16 @@ import {
   ApiChannelDeliveryError,
   ApiConflictError,
   ApiForbiddenError,
+  ApiHydrationError,
   ApiNotFoundError,
   ApiPlanRestrictionError,
   ApiRateLimitError,
+  ApiSignupExpiredError,
   ApiTransportError,
   ApiUnexpectedResponseError,
   ApiValidationError,
 } from '../src/api/errors.js'
+import { signupPollFrom, signupStartedFrom } from '../src/api/hydrate.js'
 import { EMPTY_PROBLEM } from '../src/api/problem.js'
 import { truncateBody } from '../src/ping/body.js'
 import { classifyStatus, isAccepted } from '../src/ping/outcome.js'
@@ -45,17 +48,24 @@ const SDK_SUBJECTS: Readonly<Record<string, Subject>> = {
     return { outcome, ok: isAccepted(outcome) }
   },
   'api.classifyStatus': (input) => {
-    const { status, detail, deliversDownstream } = input as {
+    const { status, detail, deliversDownstream, signupFlow } = input as {
       status: number
       detail: string | null
       deliversDownstream?: boolean
+      signupFlow?: boolean
     }
 
     throw errorForStatus(
       status,
       { ...EMPTY_PROBLEM, detail: detail ?? undefined },
-      { request: { method: 'GET', path: '/api/v1/monitors' }, deliversDownstream },
+      { request: { method: 'GET', path: '/api/v1/monitors' }, deliversDownstream, signupFlow },
     )
+  },
+  'api.readSignupStart': (input) => signupStartedFrom((input as { body: unknown }).body),
+  'api.readSignupPoll': (input) => {
+    const { status, body } = input as { status: number; body: unknown }
+
+    return signupPollFrom(status, body)
   },
   'http.parseRetryAfter': (input) => {
     const { header, now } = input as { header: string | null; now: string }
@@ -83,6 +93,8 @@ const adapter: Adapter = {
     Validation: ApiValidationError,
     RateLimit: ApiRateLimitError,
     ChannelDelivery: ApiChannelDeliveryError,
+    SignupExpired: ApiSignupExpiredError,
+    Hydration: ApiHydrationError,
     UnexpectedResponse: ApiUnexpectedResponseError,
     ApiTransport: ApiTransportError,
   },
@@ -119,6 +131,7 @@ const skipped: string[] = []
 describe('conformance vectors', () => {
   it('finds every vector group, so a file that stops loading cannot pass as an empty suite', () => {
     expect(files.map((file) => file.group)).toEqual([
+      'api.signup_answers',
       'api.status_classification',
       'body.truncation',
       'ping.action_to_kind',
@@ -128,7 +141,7 @@ describe('conformance vectors', () => {
   })
 
   it('counts the cases that exercise this SDK apart from the ones that only model the server', () => {
-    expect(declared).toEqual({ sdk: 82, serverModel: 35 })
+    expect(declared).toEqual({ sdk: 114, serverModel: 35 })
   })
 
   describe.each(files)('$group', (file) => {

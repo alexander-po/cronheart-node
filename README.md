@@ -34,8 +34,17 @@ you are not already running. Node 22 or newer; see
 
 ## Quick start
 
-Create the monitor in the dashboard, put its id in the environment, and wrap
-the job. A monitor called `nightly-backup` resolves from
+No account yet? Make one from the terminal. The command mails the address a
+link, shows a code to type on the page it opens, and writes the account's first
+API key to `.env` — see [Signing up](#signing-up):
+
+```bash
+cronheart signup you@example.com --accept-terms
+```
+
+Then create the monitor — `cronheart init` does it once the key is exported
+into the shell, or the dashboard once a password is set — put its id in the
+environment, and wrap the job. A monitor called `nightly-backup` resolves from
 `CRONHEART_NIGHTLY_BACKUP_UUID`; a raw id works anywhere a name does.
 
 ```ts
@@ -498,6 +507,7 @@ this process can bracket one, and `cronheart run` is the wrapper for that.
 ## CLI
 
 ```bash
+cronheart signup you@example.com --accept-terms   # no account yet: make one, save its API key to .env
 cronheart init                                    # create or paste a monitor, write the env var, verify it
 cronheart run --name=nightly-backup -- ./backup.sh
 cronheart ping nightly-backup --action=fail --body=-
@@ -631,6 +641,50 @@ without one, `init` links to the dashboard and takes a pasted id instead.
 Its destination flag is `--env-path` rather than
 `--env-file`, because Node reads `--env-file` as one of its own options
 wherever it appears on the line.
+
+### Signing up
+
+`signup` makes an account without a browser, and ends with its first API key.
+It sends the address to the service, which mails one link there; the person the
+address belongs to opens it and types the code the command shows, and the
+command writes the key to `.env` as `CRONHEART_API_KEY` — a new file readable by
+its owner alone, or a line added to an existing one. `--env-path=<path>` writes
+elsewhere and `--print-env` prints the line on stdout instead, with everything
+else on stderr. It polls at the interval the service names, never faster than
+once a second, and waits out a 429.
+
+`--accept-terms` is required, because signing up accepts the service's Terms of
+Service and Privacy Policy; without it the command names both and stops. The
+acceptance the service records is the click of whoever confirms on the mailed
+page, so an agent running this asks the person first.
+
+The key is shown once, so the file is checked before anything is asked of the
+service and again before it is written. A file that already assigns
+`CRONHEART_API_KEY`, one that others can read or write, a link, and a directory
+that cannot be written are refused. If the file is refused at the end, or the
+write fails, the key is printed once on stdout, since nothing else holds it.
+Apart from that and `--print-env`, the key is never printed, and the device
+code that claims it never is.
+
+It exits 0 once the key is saved. It exits 64 when the invocation cannot be
+read, the terms were not accepted, the address is plainly not one, or the file
+was refused before the flow started. It exits 1 when the service refused, the
+code expired or was cancelled on the page, or the key could not be written.
+
+An address that already has an account gets the same answer, an active one a
+mail saying nothing changed, and the code then never confirms: that account's
+keys come from its API tokens page. The new account has no password until one
+is set with Forgot password on the sign-in page, and no notification channel
+until one is added.
+
+The key manages monitors, and a job's check-ins need none of it, so where `.env`
+is what the application loads, `--env-path` puts the key somewhere the job never
+reads. `init` and `sync` take the key from the environment, not from the file,
+so load it into the shell that runs them:
+
+```bash
+export CRONHEART_API_KEY="$(sed -n 's/^CRONHEART_API_KEY=//p' .env)"
+```
 
 ## Not a Node project?
 
@@ -770,6 +824,57 @@ units, so one emoji is one. Every one of those bounds is exported from
 `api.rateLimit()` is what the last answered request reported, and it is a
 function so that it keeps working when it is destructured off the client the way
 every other member does.
+
+### Signing up from code
+
+The two calls that make an account take no key, so they live on a client of
+their own:
+
+```ts
+import { createSignupClient, isCronheartApiError } from 'cronheart/api'
+
+const pause = (seconds: number) => new Promise((resolve) => setTimeout(resolve, seconds * 1000))
+const signup = createSignupClient()
+const started = await signup.start({ email: 'you@example.com', acceptTerms: true })
+
+console.log(`Type ${started.userCode} on the page the mailed link opens.`)
+
+const interval = Math.max(started.interval, 1)
+let key: string | undefined
+let wait = interval
+
+while (key === undefined) {
+  await pause(wait)
+  wait = interval
+
+  try {
+    const answer = await signup.poll(started.deviceCode)
+
+    key = answer.status === 'issued' ? answer.token : undefined
+  } catch (error) {
+    if (!isCronheartApiError(error) || error.kind !== 'rate-limit') throw error
+
+    wait = Math.max(interval, error.retryAfterSeconds ?? 0)
+  }
+}
+```
+
+`acceptTerms` is the literal `true`: the service refuses a signup without it,
+and the acceptance it records is that of whoever confirms on the mailed page.
+`poll` answers `{ status: 'pending' }` until the code is typed there, then
+`{ status: 'issued', token, tokenPrefix, project }` once — ask no faster than
+`started.interval` seconds, and after a `rate-limit` error wait its
+`retryAfterSeconds`. Only the token is certain to be there: `tokenPrefix` and
+`project` are `null` when the answer carries no short printable value for them.
+A signup that expired, was cancelled on the page or was already claimed rejects
+with `kind: 'signup-expired'`, which ends the loop above with a throw, and a 403
+means signup from the API is switched off. Neither call is ever retried: a start
+mails the address again, and a poll that was answered with the token is never
+answered with it again. The device code is what claims the token, so it belongs
+in memory only; no message this client writes carries it, or the token. A user
+code outside the published shape is refused rather than handed over for a
+terminal to print. `cronheart signup` runs the same loop, and also polls on
+through an answer that never came, before it writes the file.
 
 ### Paging has three shapes and they are not interchangeable
 
@@ -1089,7 +1194,7 @@ consumer onto the package rather than by reading the code; `0.1.1` added four
 more, each of them something the package reported wrongly rather than something
 it could not do. [CHANGELOG.md](CHANGELOG.md) names all fifteen.
 
-**The wire contract.** This package is built against wire contract 2.4.0, the
+**The wire contract.** This package is built against wire contract 2.5.0, the
 machine-readable statement of the service's wire surface its checks run
 against. `cronheart --version` prints it, and it rides in the User-Agent, so a
 support request names it.

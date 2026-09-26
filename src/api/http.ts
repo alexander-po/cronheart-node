@@ -41,11 +41,12 @@ export interface Endpoint {
   readonly idempotencyKey?: string | undefined
   readonly deliversDownstream?: boolean | undefined
   readonly separatelyThrottled?: boolean | undefined
+  readonly signupFlow?: boolean | undefined
 }
 
 export interface SessionSettings {
   readonly baseUrl: string
-  readonly apiKey: string
+  readonly apiKey: string | undefined
   readonly timeoutMs: number
   readonly attempts: Attempts
   readonly userAgent: string
@@ -60,8 +61,14 @@ interface Wire {
   readonly idempotencyKey: string | undefined
 }
 
+export interface Answer {
+  readonly status: number
+  readonly value: unknown
+}
+
 export interface Session {
   send(endpoint: Endpoint, options: RequestOptions | undefined): Promise<unknown>
+  answer(endpoint: Endpoint, options: RequestOptions | undefined): Promise<Answer>
   readonly rateLimit: RateLimitSnapshot | undefined
 }
 
@@ -146,12 +153,15 @@ export function createSession(settings: SessionSettings): Session {
     wire: Wire,
     timeoutMs: number,
     options: RequestOptions | undefined,
-  ): Promise<unknown> {
+  ): Promise<Answer> {
     const { where, body, idempotencyKey } = wire
     const headers: Record<string, string> = {
       Accept: 'application/json',
-      Authorization: `Bearer ${settings.apiKey}`,
       'User-Agent': settings.userAgent,
+    }
+
+    if (settings.apiKey !== undefined) {
+      headers['Authorization'] = `Bearer ${settings.apiKey}`
     }
 
     if (body !== undefined) {
@@ -185,16 +195,17 @@ export function createSession(settings: SessionSettings): Session {
           rateLimit,
           deliversDownstream: endpoint.deliversDownstream,
           separatelyThrottled: endpoint.separatelyThrottled,
+          signupFlow: endpoint.signupFlow,
         },
       )
     }
 
     if (answered.status === 204 || answered.body.trim() === '') {
-      return undefined
+      return { status: answered.status, value: undefined }
     }
 
     try {
-      return JSON.parse(answered.body)
+      return { status: answered.status, value: JSON.parse(answered.body) as unknown }
     } catch {
       const cutShort = reachedTheReadCap(answered.body)
 
@@ -246,64 +257,67 @@ export function createSession(settings: SessionSettings): Session {
     return typeof status === 'number' && status >= 500
   }
 
+  async function answer(endpoint: Endpoint, options: RequestOptions | undefined): Promise<Answer> {
+    const path = `${API_BASE_PATH}${endpoint.path}`
+    const where: RequestDescriptor = { method: endpoint.method, path: forDisplay(path) }
+
+    // Encoding is inside the seal too: a body the caller handed in is the last place a
+    // rejection this client did not author could come from.
+    try {
+      const wire: Wire = {
+        where,
+        url: `${settings.baseUrl}${path}${queryOf(endpoint.query)}`,
+        // Serialised once and retried byte for byte: the idempotency fingerprint covers
+        // the raw body, so re-encoding the same object is a different request.
+        body: encode(endpoint.body),
+        idempotencyKey: idempotencyKeyFor(endpoint.idempotencyKey),
+      }
+      const budgetMs = positiveOr(options?.timeoutMs, settings.timeoutMs)
+      const deadline = Date.now() + budgetMs
+      let attemptNumber = 0
+
+      for (;;) {
+        if (attemptNumber > 0) {
+          const waited = countdown(
+            Math.max(0, Math.min(delayFor(attemptNumber, wire), deadline - Date.now())),
+          )
+
+          try {
+            await waited.reached
+          } finally {
+            waited.cancel()
+          }
+        }
+
+        attemptNumber += 1
+        const remaining = deadline - Date.now()
+
+        if (remaining <= 0) {
+          throw new ApiTransportError(
+            'timeout',
+            `The request ran out of its time budget after ${attemptNumber - 1} attempt(s).`,
+            { request: where },
+          )
+        }
+
+        try {
+          return await attempt(endpoint, wire, remaining, options)
+        } catch (error) {
+          if (attemptNumber >= settings.attempts || !mayRetry(endpoint, wire, error)) {
+            throw error
+          }
+        }
+      }
+    } catch (error) {
+      throw sealed(error)
+    }
+  }
+
   return {
     get rateLimit() {
       return lastSeen
     },
-    send: async (endpoint, options) => {
-      const path = `${API_BASE_PATH}${endpoint.path}`
-      const where: RequestDescriptor = { method: endpoint.method, path: forDisplay(path) }
-
-      // Encoding is inside the seal too: a body the caller handed in is the last place a
-      // rejection this client did not author could come from.
-      try {
-        const wire: Wire = {
-          where,
-          url: `${settings.baseUrl}${path}${queryOf(endpoint.query)}`,
-          // Serialised once and retried byte for byte: the idempotency fingerprint covers
-          // the raw body, so re-encoding the same object is a different request.
-          body: encode(endpoint.body),
-          idempotencyKey: idempotencyKeyFor(endpoint.idempotencyKey),
-        }
-        const budgetMs = positiveOr(options?.timeoutMs, settings.timeoutMs)
-        const deadline = Date.now() + budgetMs
-        let attemptNumber = 0
-
-        for (;;) {
-          if (attemptNumber > 0) {
-            const waited = countdown(
-              Math.max(0, Math.min(delayFor(attemptNumber, wire), deadline - Date.now())),
-            )
-
-            try {
-              await waited.reached
-            } finally {
-              waited.cancel()
-            }
-          }
-
-          attemptNumber += 1
-          const remaining = deadline - Date.now()
-
-          if (remaining <= 0) {
-            throw new ApiTransportError(
-              'timeout',
-              `The request ran out of its time budget after ${attemptNumber - 1} attempt(s).`,
-              { request: where },
-            )
-          }
-
-          try {
-            return await attempt(endpoint, wire, remaining, options)
-          } catch (error) {
-            if (attemptNumber >= settings.attempts || !mayRetry(endpoint, wire, error)) {
-              throw error
-            }
-          }
-        }
-      } catch (error) {
-        throw sealed(error)
-      }
-    },
+    send: async (endpoint, options) => (await answer(endpoint, options)).value,
+    answer,
   }
 }
