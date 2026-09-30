@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.5.0",
+  "contract_version": "3.0.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -17,10 +17,10 @@
       "layer": "server",
       "direction": "write",
       "openness": "closed",
-      "description": "Path segments an SDK is permitted to emit after /ping/{uuid}. Never build this segment from a variable: an unrecognised segment does not error, it is silently mapped to heartbeat, which marks the monitor UP.",
+      "description": "Path segments an SDK is permitted to emit after /ping/{uuid}. Never build this segment from a variable: a segment outside the server's vocabulary is answered 404 and records nothing, so a typo or a forwarded negative exit status loses the check-in it carried.",
       "emit": ["start", "success", "fail"],
       "emit_no_segment_means": "heartbeat",
-      "accepted_by_server_but_not_emitted": ["run", "ok", "0", "<any ASCII digit string>"]
+      "accepted_by_server_but_not_emitted": ["run", "ok", "<run, start, success, ok or fail with at least one ASCII capital letter>", "<1 to 16 ASCII digits>"]
     },
     "ping.kind": {
       "layer": "server",
@@ -106,14 +106,14 @@
         "template": "/ping/{uuid}",
         "methods": ["GET", "POST", "HEAD"],
         "uuid_pattern": "^[0-9a-fA-F-]{36}$",
-        "note": "The route pattern is looser than a UUID; a 36-character hex-and-dash string routes and is then rejected as not-found by UUID parsing. Hex case is not significant."
+        "note": "The route pattern is looser than a UUID; a 36-character hex-and-dash string routes and is then rejected as not-found by UUID parsing. Hex case is not significant. The pattern is matched against the whole segment: $ is the end of input, never the point before a trailing newline."
       },
       {
         "template": "/ping/{uuid}/{action}",
         "methods": ["GET", "POST", "HEAD"],
         "uuid_pattern": "^[0-9a-fA-F-]{36}$",
-        "action_pattern": "^[a-zA-Z0-9_-]{1,16}$",
-        "note": "An action outside this pattern does not reach the action mapper at all: no route matches and the response is a routing 404 that is indistinguishable from an unknown monitor."
+        "action_pattern": "^(?:[Rr][Uu][Nn]|[Ss][Tt][Aa][Rr][Tt]|[Ss][Uu][Cc][Cc][Ee][Ss][Ss]|[Oo][Kk]|[Ff][Aa][Ii][Ll]|[0-9]{1,16})$",
+        "note": "The server states this as the words run, start, success, ok and fail matched case-insensitively, or 1 to 16 ASCII digits, with no Unicode semantics. It is spelled with ASCII letter classes rather than a case-insensitive flag, because a Unicode-aware case-insensitive match folds U+017F LATIN SMALL LETTER LONG S onto s and U+212A KELVIN SIGN onto k, and accepts segments the server refuses. Both patterns on this route are matched against the whole segment: $ is the end of input, never the point before a trailing newline, which is what Python's re.match and re.search, Perl and PCRE by default give it. A port uses a whole-string match, such as Python's re.fullmatch. A GET or HEAD whose path ends in one extra slash is answered with a 301 to the same path without it, so a client that follows redirects turns /ping/{uuid}/ into a heartbeat and /ping/{uuid}/fail/ into a failure report; a POST gets the 404. An action outside this pattern matches no route, so the answer is the router's 404, an HTML error page rather than the ping handler's plain-text body; a client that classifies on status reads it as an unknown monitor."
       }
     ],
     "request": {
@@ -134,36 +134,43 @@
       "not_rejected": "Over-cap bodies are truncated, never rejected; the response is unchanged."
     },
     "action_to_kind": {
-      "description": "How the server maps the optional action segment onto a stored ping kind. Evaluated only for segments that satisfy the route's action pattern.",
+      "description": "How the server maps the optional action segment onto a stored ping kind. The vocabulary is closed: the route admits only segments that satisfy its action pattern, and the ping handler applies the same test again before it records anything.",
       "algorithm": [
-        "no segment, an empty segment, or the exact lowercase literal 'run' maps to heartbeat",
-        "otherwise the segment is lowercased, then: 'start' maps to start; 'success', 'ok' and '0' map to success; 'fail' maps to fail; a string of ASCII digits maps to fail; everything else maps to heartbeat"
+        "no segment, or an empty one, maps to heartbeat; an empty segment cannot be routed, because the action pattern needs at least one character, and a GET or HEAD to /ping/{uuid}/ is redirected to the route without a segment",
+        "a segment outside the action pattern is answered 404 and records nothing",
+        "otherwise the segment is lowercased, then: 'run' maps to heartbeat; 'start' maps to start; 'success', 'ok' and '0' map to success; 'fail' and every other digit string map to fail"
       ],
-      "case_sensitivity": "The lowercasing step makes start / success / ok / fail / digit matching case-insensitive. The 'run' literal is compared before lowercasing and so is case-sensitive, but an uppercase 'RUN' reaches the same heartbeat result through the default arm.",
-      "digit_test": "ASCII-only. The server's digit test rejects non-ASCII decimal digits, so a segment such as an Arabic-Indic numeral is not a digit string. A port must not use a Unicode-aware digit test (Python's str.isdigit and JavaScript's /\\d/u with Unicode property escapes both disagree with the server here).",
+      "case_sensitivity": "Every word, run included, matches in any ASCII letter case. The match and the lowercasing are ASCII-only, so a non-ASCII letter that Unicode case folding equates with an ASCII one matches nothing: 'ſtart' with U+017F and 'ok' spelled with U+212A KELVIN SIGN are both 404s.",
+      "digit_test": "ASCII-only, 1 to 16 digits, leading zeros counted. Only the one-character '0' is success; '00', '000' and every other digit string are fail. The server's digit test rejects non-ASCII decimal digits, so a segment such as an Arabic-Indic numeral is not a digit string. A port must not use a Unicode-aware digit test (Python's str.isdigit, \\d in a Python str pattern and JavaScript's \\p{Nd} all disagree with the server here).",
       "hazards": [
         {
-          "id": "unrecognised-action-is-heartbeat",
-          "severity": "high",
-          "statement": "An unrecognised action does not error. It maps to heartbeat, which sets the monitor UP and resets its failure count. A typo in the segment converts a failure report into a success report.",
-          "sdk_rule": "Never construct the action segment from a variable. Use a closed union of literals and validate any user-supplied action before a URL exists."
+          "id": "unrecognised-action-is-not-found",
+          "severity": "medium",
+          "statement": "An action outside the vocabulary records nothing and is answered 404, the status an unknown monitor gets. A typo in the segment loses the check-in: a failure report is never recorded, and the monitor turns late at its deadline instead of failing at once.",
+          "sdk_rule": "Never construct the action segment from a variable. Use a closed union of literals and validate any user-supplied action before a URL exists, so the mistake is a local error rather than a 404 that points at the monitor id."
         },
         {
-          "id": "signed-integer-is-heartbeat",
-          "severity": "high",
-          "statement": "A leading minus sign passes the route pattern but fails the digit test, so '-1' maps to heartbeat. A wrapper that forwards a shell exit status without normalising it can report success for a failed run.",
+          "id": "signed-integer-is-not-found",
+          "severity": "medium",
+          "statement": "A sign is not a digit: '-1' and '+1' are outside the vocabulary, so they are answered 404 and record nothing. A wrapper that forwards a shell exit status without normalising it loses the failure it was reporting.",
           "sdk_rule": "Map exit status client-side: zero to the success action, non-zero to the fail action. Never interpolate the raw status into the URL."
         },
         {
           "id": "non-ascii-digit-is-not-routable",
           "severity": "medium",
-          "statement": "A non-ASCII decimal digit fails the route's action pattern, so the request 404s at routing and never reaches the mapper. The mapper would classify it as heartbeat if it did.",
-          "sdk_rule": "Both layers are ASCII-only. A port must reproduce the route pattern as an ASCII character class, not as a Unicode-aware word or digit class."
+          "statement": "A non-ASCII decimal digit fails the action pattern, so the request 404s at routing, and the ping handler's own test would refuse it too.",
+          "sdk_rule": "Both layers are ASCII-only. A port must reproduce the action pattern with ASCII character classes, not with a Unicode-aware word or digit class."
+        },
+        {
+          "id": "unicode-case-fold-is-not-routable",
+          "severity": "medium",
+          "statement": "The words match case-insensitively over ASCII only. A letter that Unicode case folding equates with an ASCII one, U+017F LATIN SMALL LETTER LONG S with s or U+212A KELVIN SIGN with k, is a different letter to the server, so 'ſtart' and an 'ok' written with the Kelvin sign 404 at routing.",
+          "sdk_rule": "Reproduce the case-insensitive match with ASCII letter classes or an ASCII-only case-insensitive mode, never with a Unicode-aware one, and never apply a Unicode case mapping before the ASCII test: JavaScript's toLowerCase and Python's str.lower and str.casefold turn the Kelvin sign into k, and toUpperCase and str.upper turn U+017F into S."
         },
         {
           "id": "action-length-boundary",
           "severity": "low",
-          "statement": "The action segment is 1 to 16 characters. A 17-character segment 404s at routing.",
+          "statement": "An exit code is 1 to 16 ASCII digits. A 17-digit segment 404s at routing.",
           "sdk_rule": "Validate length client-side so the failure is a local error, not an ambiguous 404."
         },
         {
@@ -273,7 +280,7 @@
           "outcome": "not-found",
           "retryable": false,
           "config_class": true,
-          "note": "Also returned by the router for a malformed action segment or a malformed UUID, so 404 does not prove the monitor is unknown."
+          "note": "Also returned by the router, as an HTML error page rather than this body, for an action outside the vocabulary or an identifier outside the route's UUID pattern, so 404 does not prove the monitor is unknown."
         },
         {
           "status": 429,
@@ -864,6 +871,13 @@
       "impact": "A client that switches between the two forms changes both the stored history and the dedup behaviour."
     },
     {
+      "id": "ping-actions-documented-as-three",
+      "where": "public documentation page",
+      "documented": "One ping URL with three lifecycle actions, start, success and fail, and a bare heartbeat.",
+      "actual": "The route also takes run, ok and a 1 to 16 digit exit code, in any ASCII letter case for the words, and answers 404 to anything else without recording it.",
+      "impact": "A reader cannot learn from the page that a misspelt action is a 404 rather than a recorded check-in, or that a zero-padded exit code is a failure."
+    },
+    {
       "id": "body-cap-documented-in-kb",
       "where": "public documentation page",
       "documented": "Up to 10KB of output; anything past 10KB is truncated.",
@@ -909,7 +923,7 @@
     { "id": "ping.responses.status_to_outcome", "pointer": "/ping/responses/status_to_outcome" },
     { "id": "retry_after.max_seconds", "pointer": "/retry_after/max_seconds", "value": 2147483647 },
     { "id": "vocabulary.ping_outcome", "pointer": "/vocabularies/ping.outcome/members" },
-    { "id": "ping.action.pattern", "pointer": "/ping/routes/1/action_pattern", "value": "^[a-zA-Z0-9_-]{1,16}$" },
+    { "id": "ping.action.pattern", "pointer": "/ping/routes/1/action_pattern", "value": "^(?:[Rr][Uu][Nn]|[Ss][Tt][Aa][Rr][Tt]|[Ss][Uu][Cc][Cc][Ee][Ss][Ss]|[Oo][Kk]|[Ff][Aa][Ii][Ll]|[0-9]{1,16})$" },
     { "id": "ping.uuid.pattern", "pointer": "/ping/routes/0/uuid_pattern", "value": "^[0-9a-fA-F-]{36}$" },
     { "id": "ping.dedup.window_seconds", "pointer": "/ping/dedup/window_seconds", "value": 2 },
     { "id": "ping.runtime_header.name", "pointer": "/ping/runtime_header/name", "value": "X-Cronheart-Runtime-Ms" },

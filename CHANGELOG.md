@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.1
+
+### Patch Changes
+
+The service now refuses a check-in action it does not know, and this release
+says so. **Upgrading from `0.3.0` is safe**: nothing the package sends changes.
+It still sends only `start`, `success`, `fail` or no segment at all, and
+`cronheart run` still turns the command's exit status into `success` or `fail`
+before any URL exists.
+
+- **The messages about a refused check-in action now say what the service does
+  with one.** The service used to record an action it did not know as a
+  heartbeat, which marked the monitor up; it now answers `404`, the answer an
+  unknown monitor gets, and records nothing. The message `InvalidActionError`
+  carries, the refusal `cronheart ping --action` prints, that command's help
+  page and the README all described the first and now describe the second.
+- **Wire contract 3.0.0.** It states the service's closed action vocabulary —
+  `run`, `start`, `success`, `ok` and `fail` in any ASCII letter case, or an
+  exit code of 1 to 16 ASCII digits, with `0` alone meaning success — and
+  rides in the User-Agent and `cronheart --version` in place of 2.5.0.
+
 ## 0.3.0
 
 Someone without an account can now make one from the terminal and come away

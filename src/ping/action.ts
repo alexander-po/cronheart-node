@@ -10,8 +10,8 @@ export function isEmittableAction(action: string): boolean {
   return EMITTABLE.has(action)
 }
 
-// undefined rather than null for an unrecognised action: null is the heartbeat, and the
-// server maps an unrecognised segment to a heartbeat too. The two must not collapse.
+// undefined rather than null for an action this SDK does not emit: null is the heartbeat, and
+// collapsing the two would send an unknown action as one.
 export function segmentFor(action: PingAction): string | null | undefined {
   if (action === 'heartbeat') {
     return null

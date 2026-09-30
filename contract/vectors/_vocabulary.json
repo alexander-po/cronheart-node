@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.5.0",
+  "contract_version": "3.0.0",
   "title": "Conformance vector vocabulary",
   "description": "The complete, fixed vocabulary every vector file is written in. Nothing here requires a language-specific expression evaluator: a per-SDK adapter is a lookup table of subjects plus a switch over six predicates.",
 
@@ -70,8 +70,8 @@
       "input": { "action": "string or null — the raw, percent-decoded path segment after the monitor id; null means no segment" },
       "result": {
         "routable": "boolean — whether the server's route pattern accepts this segment at all",
-        "kind": "string or null — the ping kind the server records; null when the request never reaches the mapper",
-        "mapperKind": "string — what the action mapper alone would return, ignoring routing. Always populated, so the mapper's behaviour on unroutable input stays pinned"
+        "kind": "string or null — the ping kind the server records; null when the route refuses the segment",
+        "mapperKind": "string or null — what the ping handler alone would record, ignoring routing; null when its own test refuses the segment. Pinned for unroutable input too, so a port that implements the route and the handler as separate tests has the handler's own refusal checked"
       },
       "note": "This models the server; it is not a function an SDK calls on a hot path. Implement it in test scope if that is cheaper than exporting it."
     },
@@ -80,7 +80,7 @@
       "input": { "action": "string or null" },
       "result": "undefined on success; throws otherwise",
       "error_classes": ["InvalidAction"],
-      "note": "The wiring-time guard. The emittable set is exactly null, \"start\", \"success\", \"fail\" — canonical lowercase only. It is deliberately narrower than what the server accepts: the moment an SDK accepts a variable here, a typo becomes a silent success report."
+      "note": "The wiring-time guard. The emittable set is exactly null, \"start\", \"success\", \"fail\" — canonical lowercase only. It is deliberately narrower than what the server accepts: the moment an SDK accepts a variable here, a typo becomes a lost check-in answered with the 404 an unknown monitor gets."
     },
     "ping.classifyResponse": {
       "pure": true,

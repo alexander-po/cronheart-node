@@ -44,7 +44,7 @@ export function assertPingBaseUrl(baseUrl: unknown): asserts baseUrl is string {
 
 function notEmittable(action: unknown): InvalidActionError {
   return new InvalidActionError(
-    `cronheart: ${JSON.stringify(action)} is not a check-in action this SDK will emit. Use "start", "success" or "fail", or omit it for a heartbeat. The server maps an unrecognised action to a heartbeat, which marks the monitor up.`,
+    `cronheart: ${JSON.stringify(action)} is not a check-in action this SDK will emit: it sends only "start", "success" or "fail", or no action for a heartbeat. The server answers any action outside its own vocabulary with the 404 an unknown monitor gets, and records nothing.`,
   )
 }
 
@@ -56,9 +56,9 @@ export function assertEmittableAction(action: string | null): asserts action is 
   throw notEmittable(action)
 }
 
-// The last gate before the segment is interpolated into the URL. An unrecognised one does
-// not fail on the far side: it matches the route, falls through to the action mapper and
-// is recorded as a heartbeat, which marks the monitor up while the job is failing.
+// The last gate before the segment is interpolated into the URL. The far side answers an
+// unrecognised one with the 404 an unknown monitor gets and records nothing, so a failing
+// job would go unreported behind a diagnosis that points at the monitor id.
 export function pingPath(action: PingAction): string {
   const segment = segmentFor(action)
 

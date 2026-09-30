@@ -24,8 +24,8 @@ interface PingSpec {
   readonly excerptRefusal: string | undefined
 }
 
-// Validated here, against a closed list of literals, because the far side does not reject an
-// action it does not know: it records a heartbeat, which marks the monitor up.
+// Validated here, against a closed list of literals, because the far side answers an action it
+// does not know with the 404 an unknown monitor gets, and records nothing.
 function readAction(args: ParsedArgs): Read<PingAction | undefined> {
   const given = readText(args, 'action')
 
@@ -42,7 +42,7 @@ function readAction(args: ParsedArgs): Read<PingAction | undefined> {
   if (!allowed.includes(given.value)) {
     return {
       ok: false,
-      problem: `--action=${given.value} is not a check-in this SDK will send. Use ${PING_ACTIONS.join(', ')}, or leave --action off — the server reads anything else as a heartbeat and marks the monitor up.`,
+      problem: `--action=${given.value} is not a check-in this SDK will send: it sends only ${PING_ACTIONS.join(', ')}, and leaving --action off sends a heartbeat. The server answers any action outside its own vocabulary with the 404 an unknown monitor gets, and records nothing.`,
     }
   }
 

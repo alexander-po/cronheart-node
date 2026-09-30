@@ -1,9 +1,9 @@
 {
-  "contract_version": "2.5.0",
+  "contract_version": "3.0.0",
   "group": "ping.response_classification",
   "default_subject": "ping.classifyResponse",
   "description": "How a ping response becomes an outcome. Every row of /ping/responses/table appears here, and a per-SDK test asserts that: a row nothing covers fails the suite rather than going unpinned. The whole surface is one status line plus, at 2xx only, one English sentence — accepted and duplicate are the same status with no distinguishing header, so a wording change on the far side silently turns every duplicate into an accepted check-in. That is why the literal is anchored rather than copied.",
-  "case_count": 18,
+  "case_count": 19,
   "cases": [
     {
       "id": "accepted-200",
@@ -68,6 +68,15 @@
         { "predicate": "equals", "path": "/outcome", "value": "not-found" },
         { "predicate": "equals", "path": "/ok", "value": false }
       ]
+    },
+    {
+      "id": "not-found-404-from-the-router",
+      "input": { "status": 404, "body": "<!DOCTYPE html><html><body>Not Found</body></html>" },
+      "expect": [
+        { "predicate": "equals", "path": "/outcome", "value": "not-found" },
+        { "predicate": "equals", "path": "/ok", "value": false }
+      ],
+      "why": "An action outside the vocabulary or an identifier outside the route's UUID pattern is answered by the router with an HTML error page, not the ping handler's body. The outcome is read from the status alone."
     },
     {
       "id": "paused-410",

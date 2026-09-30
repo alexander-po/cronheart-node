@@ -141,7 +141,7 @@ describe('conformance vectors', () => {
   })
 
   it('counts the cases that exercise this SDK apart from the ones that only model the server', () => {
-    expect(declared).toEqual({ sdk: 114, serverModel: 35 })
+    expect(declared).toEqual({ sdk: 115, serverModel: 42 })
   })
 
   describe.each(files)('$group', (file) => {

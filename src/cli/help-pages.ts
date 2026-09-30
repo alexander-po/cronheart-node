@@ -76,8 +76,8 @@ Usage
 Options
   --action=<action>   heartbeat, start, success or fail; heartbeat is what leaving it off
                       sends. Validated here against the closed list the package exports as
-                      PING_ACTIONS, because the server reads an action it does not know as
-                      a heartbeat — which marks the monitor up.
+                      PING_ACTIONS, because the server records nothing for an action it
+                      does not know and answers 404, as it does for an unknown monitor.
   --body=<text>       text to send with the check-in. --body=- reads it from standard input.
   --strict            exit 1 when the check-in fails. Off, the exit status is 0 whatever the
                       check-in did, so it cannot break the job around it — an invocation this
