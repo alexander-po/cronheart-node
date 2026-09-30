@@ -5,7 +5,7 @@ import type { PingClientOptions, PingResult } from '../src/ping/types.js'
 import { UnknownMonitorError } from '../src/wiring/errors.js'
 import { clearWarnings, createPingRecorder } from '../src/testing.js'
 
-const MONITOR_ID = '00000000-0000-4000-8000-0000000000a1'
+const MONITOR_ID = '00000000-0000-0000-0000-000000000001'
 const BASE = 'https://ping.example'
 const FLUSH_DEADLINE_MS = 30
 
@@ -60,7 +60,7 @@ describe('name resolution', () => {
   })
 
   it('prefers an explicitly defined id over the environment', async () => {
-    const other = '00000000-0000-4000-8000-0000000000b2'
+    const other = '00000000-0000-0000-0000-000000000002'
     await client({ monitors: { job: MONITOR_ID }, env: { CRONHEART_JOB_UUID: other } }).ping('job')
 
     expect(recorder.pings[0]?.monitorId).toBe(MONITOR_ID)

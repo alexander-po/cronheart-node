@@ -7,7 +7,7 @@ import { sharedClientKey } from '../src/ping/default.js'
 import { clearWarnings } from '../src/testing.js'
 import { UnknownMonitorError } from '../src/wiring/errors.js'
 
-const MONITOR_ID = '00000000-0000-4000-8000-0000000000c3'
+const MONITOR_ID = '00000000-0000-0000-0000-000000000000'
 
 const { version } = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),

@@ -692,7 +692,7 @@ The CLI wraps any command, so a crontab entry, a systemd timer or a shell
 script checks in without a Node codebase around it.
 
 ```cron
-*/5 * * * * /usr/local/bin/cronheart run --uuid=00000000-0000-4000-8000-000000000000 -- /usr/local/bin/cleanup.sh
+*/5 * * * * /usr/local/bin/cronheart run --uuid=00000000-0000-0000-0000-000000000000 -- /usr/local/bin/cleanup.sh
 ```
 
 Two things that line is deliberate about. The id is written **inline**, because
@@ -705,7 +705,7 @@ To use a name instead, set the variable in the crontab itself, where cron will
 pass it to the job:
 
 ```cron
-CRONHEART_CLEANUP_UUID=00000000-0000-4000-8000-000000000000
+CRONHEART_CLEANUP_UUID=00000000-0000-0000-0000-000000000000
 */5 * * * * /usr/local/bin/cronheart run --name=cleanup -- /usr/local/bin/cleanup.sh
 ```
 

@@ -54,8 +54,8 @@ describe('what apply sends', () => {
   it('reports every row the plan could not resolve as a failure of this run', async () => {
     const store = createMonitorStore(
       [
-        monitorRow({ uuid: '00000000-0000-4000-8000-00000000000a' }),
-        monitorRow({ uuid: '00000000-0000-4000-8000-00000000000b' }),
+        monitorRow({ uuid: '00000000-0000-0000-0000-000000000001' }),
+        monitorRow({ uuid: '00000000-0000-0000-0000-000000000002' }),
       ],
       [VERIFIED, channelRow({ id: '9', label: 'pager', verified: false })],
     )
@@ -202,9 +202,9 @@ describe('the routing an update sends', () => {
   it('never blanks the routing of any monitor a silent configuration describes', async () => {
     const store = createMonitorStore(
       [
-        monitorRow({ name: 'one', uuid: '00000000-0000-4000-8000-000000000001' }),
-        monitorRow({ name: 'two', uuid: '00000000-0000-4000-8000-000000000002' }),
-        monitorRow({ name: 'three', uuid: '00000000-0000-4000-8000-000000000003' }),
+        monitorRow({ name: 'one', uuid: '00000000-0000-0000-0000-000000000001' }),
+        monitorRow({ name: 'two', uuid: '00000000-0000-0000-0000-000000000002' }),
+        monitorRow({ name: 'three', uuid: '00000000-0000-0000-0000-000000000003' }),
       ],
       [VERIFIED],
     )
@@ -255,7 +255,7 @@ describe('deleting a monitor destroys its history, so nothing does it by default
     const store = createMonitorStore(
       [
         monitorRow({ name: 'kept' }),
-        monitorRow({ name: 'retired', uuid: '00000000-0000-4000-8000-0000000000b2' }),
+        monitorRow({ name: 'retired', uuid: '00000000-0000-0000-0000-000000000001' }),
       ],
       [VERIFIED],
     )
@@ -423,8 +423,8 @@ describe('what pruning waits for', () => {
   it('deletes nothing for a configuration that describes no monitors at all', async () => {
     const store = createMonitorStore(
       [
-        monitorRow({ name: 'one', uuid: '00000000-0000-4000-8000-000000000001' }),
-        monitorRow({ name: 'two', uuid: '00000000-0000-4000-8000-000000000002' }),
+        monitorRow({ name: 'one', uuid: '00000000-0000-0000-0000-000000000001' }),
+        monitorRow({ name: 'two', uuid: '00000000-0000-0000-0000-000000000002' }),
       ],
       [VERIFIED],
     )
@@ -440,7 +440,7 @@ describe('what pruning waits for', () => {
     const store = createMonitorStore(
       [
         monitorRow({ name: 'kept' }),
-        monitorRow({ name: 'retired', uuid: '00000000-0000-4000-8000-000000000002' }),
+        monitorRow({ name: 'retired', uuid: '00000000-0000-0000-0000-000000000002' }),
       ],
       [VERIFIED],
     )
@@ -576,7 +576,7 @@ describe('the order a result is read in', () => {
     const printed = renderResult({
       created: [],
       updated: [],
-      deleted: [{ name: 'retired', uuid: '00000000-0000-4000-8000-0000000000c1' }],
+      deleted: [{ name: 'retired', uuid: '00000000-0000-0000-0000-000000000000' }],
       unchanged: [],
       failures: [{ name: 'replacement', action: 'refused', message: 'no channel of this account' }],
       stopped: false,

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MONITOR_ID, type PingServer, runCli, startPingServer } from './support/cli.js'
 
-const NEARLY_AN_ID = '00000000-0000-4000-8000-00000000c11'
+const NEARLY_AN_ID = '00000000-0000-0000-0000-00000000000'
 
 let server: PingServer
 

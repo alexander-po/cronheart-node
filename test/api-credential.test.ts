@@ -83,7 +83,7 @@ describe('the credential is checked before a job can be running', () => {
     const wrong = [
       '',
       'Bearer cmk_0000',
-      '00000000-0000-4000-8000-000000000000',
+      '00000000-0000-0000-0000-000000000000',
       'cmk_',
       'cmk_short',
       `cmk_${'a'.repeat(20)}=`,

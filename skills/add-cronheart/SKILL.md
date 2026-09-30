@@ -8,7 +8,7 @@ description: Add cronheart.com check-in monitoring to the scheduled jobs of a No
 Work through steps 1-7 in order; each says what to run and what done looks
 like. Steps 8 and 9 are reference: what an error means, and what not to do.
 Every monitor id and API key in this file is a placeholder:
-`00000000-0000-4000-8000-000000000000` is never a real monitor and
+`00000000-0000-0000-0000-000000000000` is never a real monitor and
 `cmk_replace-me` is never a real key. Nothing here needs to be typed from
 memory — the README of the package states the same facts at more length, and
 this recipe is held to the built package by the same gate.
@@ -330,7 +330,7 @@ Channel ids are the strings the listing gave; a create attaches none by itself.
   itself, above the line that uses it, and both paths are absolute:
 
   ```cron
-  CRONHEART_NIGHTLY_BACKUP_UUID=00000000-0000-4000-8000-000000000000
+  CRONHEART_NIGHTLY_BACKUP_UUID=00000000-0000-0000-0000-000000000000
   0 3 * * * /usr/local/bin/cronheart run --name=nightly-backup -- /usr/local/bin/backup.sh
   ```
 

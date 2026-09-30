@@ -80,7 +80,7 @@ describe('cronheart init on the free path', () => {
   it('replaces the value already written for that variable instead of appending a second one', async () => {
     writeFileSync(
       envFile(),
-      `DATABASE_URL=postgres://local\nCRONHEART_JOB_UUID=00000000-0000-4000-8000-0000000000ff\nOTHER=1\n`,
+      `DATABASE_URL=postgres://local\nCRONHEART_JOB_UUID=00000000-0000-0000-0000-000000000002\nOTHER=1\n`,
     )
 
     const ran = await runCli(['init', '--name=job', `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`], {
@@ -258,8 +258,8 @@ describe('cronheart init and the API-key path', () => {
 
   it('refuses rather than guessing when the account already carries that name twice', async () => {
     store.monitors.push(
-      monitorRow({ name: 'twice', uuid: '00000000-0000-4000-8000-0000000000d1' }),
-      monitorRow({ name: 'twice', uuid: '00000000-0000-4000-8000-0000000000d2' }),
+      monitorRow({ name: 'twice', uuid: '00000000-0000-0000-0000-000000000001' }),
+      monitorRow({ name: 'twice', uuid: '00000000-0000-0000-0000-000000000002' }),
     )
 
     const ran = await runCli(

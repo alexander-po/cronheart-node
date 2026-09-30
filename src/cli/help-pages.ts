@@ -52,11 +52,11 @@ Examples
   Every five minutes from a crontab, with the id written out. Cron sets almost no PATH and
   sources no profile, so the binary is named in full and the monitor is addressed directly:
 
-    */5 * * * * /usr/local/bin/cronheart run --uuid=00000000-0000-4000-8000-000000000000 -- /usr/local/bin/cleanup.sh
+    */5 * * * * /usr/local/bin/cronheart run --uuid=00000000-0000-0000-0000-000000000000 -- /usr/local/bin/cleanup.sh
 
   The same job by name, with the variable set in the crontab itself, where cron will find it:
 
-    CRONHEART_CLEANUP_UUID=00000000-0000-4000-8000-000000000000
+    CRONHEART_CLEANUP_UUID=00000000-0000-0000-0000-000000000000
     */5 * * * * /usr/local/bin/cronheart run --name=cleanup -- /usr/local/bin/cleanup.sh
 
   From a shell or a systemd unit, where the environment already carries the names:

@@ -89,7 +89,7 @@ export async function firstChunkOf(body: PingResponseBody): Promise<number> {
 
 const options: PingClientOptions = {
   baseUrl: 'https://cronheart.com',
-  monitors: { 'nightly-backup': '00000000-0000-4000-8000-000000000000' },
+  monitors: { 'nightly-backup': '00000000-0000-0000-0000-000000000000' },
   timeoutMs: 2000,
   truncate: 'tail',
   redact: [/token=\S+/g],
@@ -120,7 +120,7 @@ export async function exercise(): Promise<string[]> {
   const run: MonitorRun = startRun('nightly-backup')
   const beat: CheckInThunk = checkInWith('nightly-backup', { action: 'success' })
 
-  monitors.define({ sweep: '00000000-0000-4000-8000-000000000001' })
+  monitors.define({ sweep: '00000000-0000-0000-0000-000000000001' })
   beat()
 
   const rows: number = await withMonitor('nightly-backup', () => 12)
@@ -225,7 +225,7 @@ export async function retune(management: CronheartApi, uuid: string): Promise<st
 // A stub written the way 0.1.3 allowed, with no open incident, which a new read key must not
 // turn into a compile error in someone else's test suite.
 export const stubbed: Monitor = {
-  uuid: '00000000-0000-4000-8000-000000000001',
+  uuid: '00000000-0000-0000-0000-000000000001',
   name: 'nightly-backup',
   scheduleKind: 'cron',
   scheduleExpr: '0 3 * * *',
@@ -237,8 +237,8 @@ export const stubbed: Monitor = {
   snoozedUntil: null,
   lastPingAt: null,
   createdAt: '2026-08-01T09:15:00+00:00',
-  pingUrl: 'https://cronheart.com/ping/00000000-0000-4000-8000-000000000001',
-  badgeUrl: 'https://cronheart.com/badge/00000000-0000-4000-8000-000000000001.svg',
+  pingUrl: 'https://cronheart.com/ping/00000000-0000-0000-0000-000000000001',
+  badgeUrl: 'https://cronheart.com/badge/00000000-0000-0000-0000-000000000001.svg',
 }
 
 export function incidentOf(monitor: Monitor): string {

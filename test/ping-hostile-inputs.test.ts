@@ -12,7 +12,7 @@ import { clearWarnings, createPingRecorder } from '../src/testing.js'
 import { CronheartConfigurationError } from '../src/wiring/errors.js'
 import { captureUnhandledRejections } from './support/unhandled.js'
 
-const MONITOR_ID = '00000000-0000-4000-8000-0000000000a1'
+const MONITOR_ID = '00000000-0000-0000-0000-000000000000'
 const BASE = 'https://hostile.example'
 
 let recorder = createPingRecorder()

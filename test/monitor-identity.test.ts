@@ -4,19 +4,19 @@ import { envVarFor, resolveMonitor } from '../src/ping/resolve.js'
 import { InvalidMonitorIdError, UnknownMonitorError } from '../src/wiring/errors.js'
 import { resolveOrThrow } from '../src/wiring/validate.js'
 
-const REAL_ID = '00000000-0000-4000-8000-0000000000a1'
+const REAL_ID = '00000000-0000-0000-0000-000000000000'
 
 // Shaped like an identifier the whole way through: a wrong character, a lost one, the
 // dashes stripped. Nothing here is a name somebody chose.
 const WHOLLY_ID_SHAPED = [
-  '0000000g-0000-4000-8000-0000000000a1',
-  '00000000-0000-4000-8000-000000000a1',
-  '00000000000040008000000000000a1',
+  '0000000g-0000-0000-0000-000000000000',
+  '00000000-0000-0000-0000-00000000000',
+  '0000000000000000000000000000000',
 ]
 
 // Opens like an identifier and then stops. A monitor may legitimately be called this, so
 // its variable still answers — while an unconfigured one is reported as a broken id.
-const OPENS_LIKE_AN_ID = ['00000000-0000-4000-8000-0000000000a1x', 'deadbeef-nightly']
+const OPENS_LIKE_AN_ID = ['00000000-0000-0000-0000-000000000000x', 'deadbeef-nightly']
 
 const NEARLY_AN_ID = [...WHOLLY_ID_SHAPED, ...OPENS_LIKE_AN_ID]
 

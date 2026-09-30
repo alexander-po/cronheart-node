@@ -10,7 +10,7 @@ export const API_KEY = `cmk_${'0'.repeat(28)}synthetic`
 
 export const BASE_URL = 'https://api.example'
 
-export const MONITOR_UUID = '00000000-0000-4000-8000-0000000000e5'
+export const MONITOR_UUID = '00000000-0000-0000-0000-000000000000'
 
 export const CHANNEL_ID = '4611686018427387904'
 

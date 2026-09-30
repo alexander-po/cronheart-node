@@ -5,7 +5,7 @@ import type { PingClientOptions } from '../src/ping/types.js'
 import { createPingRecorder } from '../src/testing.js'
 import { InvalidBaseUrlError } from '../src/wiring/errors.js'
 
-const MONITOR_ID = '00000000-0000-4000-8000-0000000000a1'
+const MONITOR_ID = '00000000-0000-0000-0000-000000000000'
 const BASE = 'https://ping.example'
 
 let recorder = createPingRecorder()
