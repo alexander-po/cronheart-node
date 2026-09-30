@@ -83,7 +83,7 @@ describe('cronheart ping', () => {
   })
 })
 
-describe('cronheart ping refuses an action the server would silently read as a heartbeat', () => {
+describe('cronheart ping refuses every action outside the list it sends, whatever the server accepts', () => {
   it.each(['run', 'ok', '0', '-1', '7', 'START', 'Success', 'HEARTBEAT', 'succeeded', ''])(
     'exits 64 on --action=%s before any URL exists',
     async (action) => {

@@ -3,6 +3,7 @@ import { PING_ACTIONS, PING_EMITTABLE_ACTIONS } from '../src/index.js'
 import { type PingAction, segmentFor } from '../src/ping/action.js'
 import { InvalidActionError } from '../src/wiring/errors.js'
 import { pingPath } from '../src/wiring/validate.js'
+import { classifyAction } from './support/server-model.js'
 
 describe('both action vocabularies are published, because they are not the same set', () => {
   it('separates every action the SDK sends from the subset that becomes a URL segment', () => {
@@ -44,9 +45,27 @@ describe('the ping path', () => {
   })
 
   it.each(['constructor', 'toString', 'succes', ''])(
-    'refuses to build a path for %s rather than letting the server read it as a heartbeat',
+    'refuses to build a path for %s rather than sending a segment it does not emit',
     (action) => {
       expect(() => pingPath(action as PingAction)).toThrow(InvalidActionError)
     },
   )
+})
+
+function sentSegment(action: PingAction): string | null {
+  return pingPath(action).slice(1) || null
+}
+
+describe('every segment this SDK emits is one the server records as that action', () => {
+  it.each([...PING_EMITTABLE_ACTIONS])('routes %s and records it under its own kind', (action) => {
+    expect(classifyAction(sentSegment(action))).toEqual({ routable: true, kind: action, mapperKind: action })
+  })
+
+  it('records the heartbeat, which sends no segment, as a heartbeat', () => {
+    expect(classifyAction(sentSegment('heartbeat'))).toEqual({
+      routable: true,
+      kind: 'heartbeat',
+      mapperKind: 'heartbeat',
+    })
+  })
 })

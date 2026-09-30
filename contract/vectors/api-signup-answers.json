@@ -1,5 +1,5 @@
 {
-  "contract_version": "2.5.0",
+  "contract_version": "3.0.0",
   "group": "api.signup_answers",
   "description": "How the two signup answers are read. The user code is printed on a person's terminal and the token is written into an env file, so both are held to a shape before either is handed on; and the poll's status decides between pending and issued, never a string in its body.",
   "case_count": 25,

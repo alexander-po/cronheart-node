@@ -614,8 +614,8 @@ check-in into exit `1`. It is
 the way `curl -fsS` behaves — one mail per run from a per-minute crontab is how
 a monitoring tool gets uninstalled. At a terminal, or under `--verbose`, the
 confirmation is printed. `--action` is validated against a closed set of
-literals before a URL exists, because the server maps an action it does not
-recognise to a plain heartbeat — which marks the monitor *up*. That set is
+literals before a URL exists, because the server records nothing for an action
+it does not recognise and answers `404`, as it does for an unknown monitor. That set is
 `PING_ACTIONS`, exported from the package, so a caller generating the flag can check the
 value before passing it; `heartbeat` is in it and means the same as leaving `--action` off.
 `PING_EMITTABLE_ACTIONS` is the subset that becomes a path segment.
@@ -1194,7 +1194,7 @@ consumer onto the package rather than by reading the code; `0.1.1` added four
 more, each of them something the package reported wrongly rather than something
 it could not do. [CHANGELOG.md](CHANGELOG.md) names all fifteen.
 
-**The wire contract.** This package is built against wire contract 2.5.0, the
+**The wire contract.** This package is built against wire contract 3.0.0, the
 machine-readable statement of the service's wire surface its checks run
 against. `cronheart --version` prints it, and it rides in the User-Agent, so a
 support request names it.

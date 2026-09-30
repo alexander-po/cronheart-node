@@ -10,22 +10,30 @@ export const contract = JSON.parse(
   readFileSync(new URL('../../contract/cronheart-contract.json', import.meta.url), 'utf8'),
 ) as Contract
 
-const ACTION_ROUTE_PATTERN = new RegExp(contract.ping.routes[1]?.action_pattern ?? '(?!)')
+const ACTION_PATTERN = new RegExp(contract.ping.routes[1]?.action_pattern ?? '(?!)')
 
 const ASCII_DIGITS = /^[0-9]+$/
 
 export interface ActionClassification {
   readonly routable: boolean
   readonly kind: string | null
-  readonly mapperKind: string
+  readonly mapperKind: string | null
 }
 
-function mapperKindOf(action: string | null): string {
-  if (action === null || action === '' || action === 'run') {
+function mapperKindOf(action: string | null): string | null {
+  if (action === null || action === '') {
     return 'heartbeat'
   }
 
+  if (!ACTION_PATTERN.test(action)) {
+    return null
+  }
+
   const lowered = action.toLowerCase()
+
+  if (lowered === 'run') {
+    return 'heartbeat'
+  }
 
   if (lowered === 'start') {
     return 'start'
@@ -39,11 +47,11 @@ function mapperKindOf(action: string | null): string {
     return 'fail'
   }
 
-  return 'heartbeat'
+  throw new Error(`${JSON.stringify(action)} passes the contract's action pattern but maps to no kind`)
 }
 
 export function classifyAction(action: string | null): ActionClassification {
-  const routable = action === null || ACTION_ROUTE_PATTERN.test(action)
+  const routable = action === null || ACTION_PATTERN.test(action)
   const mapperKind = mapperKindOf(action)
 
   return { routable, kind: routable ? mapperKind : null, mapperKind }
