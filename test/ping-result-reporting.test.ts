@@ -6,9 +6,9 @@ import type { PingOutcome } from '../src/ping/outcome.js'
 import type { FetchLike, PingClientOptions, PingResult } from '../src/ping/types.js'
 import { clearWarnings, createPingRecorder } from '../src/testing.js'
 
-const MONITOR_ID = '00000000-0000-4000-8000-0000000000d1'
+const MONITOR_ID = '00000000-0000-0000-0000-000000000001'
 
-const OTHER_ID = '00000000-0000-4000-8000-0000000000d2'
+const OTHER_ID = '00000000-0000-0000-0000-000000000002'
 
 const BASE_URL = 'https://example.invalid'
 

@@ -182,7 +182,7 @@ describe('deleting a monitor is the one thing sync will not do on being asked on
   it('prunes when the confirmation is given in writing', async () => {
     store.monitors.push(
       monitorRow({ name: 'kept' }),
-      monitorRow({ name: 'retired', uuid: '00000000-0000-4000-8000-0000000000b2' }),
+      monitorRow({ name: 'retired', uuid: '00000000-0000-0000-0000-000000000001' }),
     )
 
     const config = jsonConfig([
@@ -202,7 +202,7 @@ describe('deleting a monitor is the one thing sync will not do on being asked on
   it('asks at a terminal, and keeps the monitor when the answer is not the word', async () => {
     store.monitors.push(
       monitorRow({ name: 'kept' }),
-      monitorRow({ name: 'retired', uuid: '00000000-0000-4000-8000-0000000000b2' }),
+      monitorRow({ name: 'retired', uuid: '00000000-0000-0000-0000-000000000001' }),
     )
 
     const config = jsonConfig([
@@ -249,7 +249,7 @@ describe('closing the gap between a monitor and the job that has to address it',
 
     expect(ran.status).toBe(0)
     expect(ran.stdout).toMatch(
-      /^CRONHEART_NIGHTLY_BACKUP_UUID=00000000-0000-4000-8000-[0-9a-f]{12}$/m,
+      /^CRONHEART_NIGHTLY_BACKUP_UUID=00000000-0000-0000-0000-[0-9a-f]{12}$/m,
     )
   })
 
@@ -262,7 +262,7 @@ describe('closing the gap between a monitor and the job that has to address it',
     const ran = await runCli(['sync', `--config=${config}`], { env: envFor() })
 
     expect(ran.status).toBe(0)
-    expect(`${ran.stdout}${ran.stderr}`).not.toContain('00000000-0000-4000-8000-0000000000a1')
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain('00000000-0000-0000-0000-000000000000')
   })
 })
 
@@ -292,8 +292,8 @@ describe('what sync refuses before it reaches the service', () => {
 
   it('ends an --apply that could not resolve a row with a status that says so', async () => {
     store.monitors.push(
-      monitorRow({ uuid: '00000000-0000-4000-8000-00000000000a' }),
-      monitorRow({ uuid: '00000000-0000-4000-8000-00000000000b' }),
+      monitorRow({ uuid: '00000000-0000-0000-0000-000000000001' }),
+      monitorRow({ uuid: '00000000-0000-0000-0000-000000000002' }),
     )
 
     const config = jsonConfig([
@@ -486,7 +486,7 @@ describe('declining the deletion is an answer, not a failure', () => {
   it('exits 0 and says nothing was deleted when the confirmation is refused at a terminal', async () => {
     store.monitors.push(
       monitorRow({ name: 'kept' }),
-      monitorRow({ name: 'retired', uuid: '00000000-0000-4000-8000-0000000000b2' }),
+      monitorRow({ name: 'retired', uuid: '00000000-0000-0000-0000-000000000001' }),
     )
 
     const config = jsonConfig([{ name: 'kept', schedule: '0 3 * * *', channels: ['ops inbox'] }])
@@ -516,13 +516,13 @@ describe('declining the deletion is an answer, not a failure', () => {
 })
 
 describe('how much of a twelve-monitor plan a reader has to read', () => {
-  function quiet(name: string, at: string) {
-    return monitorRow({ name, uuid: `00000000-0000-4000-8000-0000000000${at}` })
+  function quiet(name: string, at: number) {
+    return monitorRow({ name, uuid: `00000000-0000-0000-0000-${String(at).padStart(12, '0')}` })
   }
 
   it('leaves the unchanged rows out and keeps the count, and puts them back for --all', async () => {
-    store.monitors.push(...Array.from({ length: 11 }, (_, n) => quiet(`steady-${n}`, `d${n}`)))
-    store.monitors.push(quiet('the-one-that-moved', 'e0'))
+    store.monitors.push(...Array.from({ length: 11 }, (_, n) => quiet(`steady-${n}`, n + 1)))
+    store.monitors.push(quiet('the-one-that-moved', 12))
 
     const config = jsonConfig([
       ...Array.from({ length: 11 }, (_, n) => ({

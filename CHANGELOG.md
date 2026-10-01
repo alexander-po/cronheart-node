@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.2
+
+### Patch Changes
+
+The example monitor id the package shows to a reader is now an obviously fake
+one. **Upgrading from `0.3.1` is safe**: nothing on the wire changes, and
+nothing the package sends or accepts does either.
+
+- **The README and `cronheart --help` now use
+  `00000000-0000-0000-0000-000000000000` as the example monitor id.** The
+  example used to be a zero-filled id that still carried a version and a
+  variant digit, which reads as a real id that happens to be mostly zeros. The
+  id is only ever an example, and a value that is all zeros cannot be taken for
+  a monitor.
+
 ## 0.3.1
 
 ### Patch Changes

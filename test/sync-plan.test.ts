@@ -56,8 +56,8 @@ describe('what a plan does with a name it can and cannot identify', () => {
   it('reports a duplicated name as a conflict and plans nothing for it', async () => {
     const store = createMonitorStore(
       [
-        monitorRow({ uuid: '00000000-0000-4000-8000-0000000000a1' }),
-        monitorRow({ uuid: '00000000-0000-4000-8000-0000000000a2', schedule_expr: '0 4 * * *' }),
+        monitorRow({ uuid: '00000000-0000-0000-0000-000000000000' }),
+        monitorRow({ uuid: '00000000-0000-0000-0000-000000000001', schedule_expr: '0 4 * * *' }),
       ],
       [VERIFIED],
     )
@@ -241,7 +241,7 @@ describe('a monitor that would alert nobody', () => {
 describe('what a plan prints', () => {
   it('names every class of row and counts them', async () => {
     const store = createMonitorStore(
-      [monitorRow(), monitorRow({ uuid: '00000000-0000-4000-8000-0000000000b9', name: 'retired' })],
+      [monitorRow(), monitorRow({ uuid: '00000000-0000-0000-0000-000000000001', name: 'retired' })],
       [VERIFIED],
     )
     const plan = await planSync(apiFor(store), [
@@ -265,7 +265,7 @@ describe('what a plan prints', () => {
       { name: 'nightly-backup', schedule: '0 4 * * *', channels: ['ops inbox'] },
     ])
 
-    expect(renderPlan(plan)).not.toContain('00000000-0000-4000-8000-0000000000a1')
+    expect(renderPlan(plan)).not.toContain('00000000-0000-0000-0000-000000000000')
   })
 
   it('says which project it reconciled against cannot be known from here', async () => {
@@ -448,10 +448,10 @@ describe('how visible a row that alerts nobody is', () => {
         monitorRow({ name: 'silent', channel_ids: [] }),
         monitorRow({
           name: 'paused-one',
-          uuid: '00000000-0000-4000-8000-0000000000b2',
+          uuid: '00000000-0000-0000-0000-000000000001',
           status: 'paused',
         }),
-        monitorRow({ name: 'healthy', uuid: '00000000-0000-4000-8000-0000000000b3' }),
+        monitorRow({ name: 'healthy', uuid: '00000000-0000-0000-0000-000000000002' }),
       ],
       [VERIFIED],
     )
@@ -541,8 +541,8 @@ describe('a plan reads as a plan rather than as a table of wire fields', () => {
     const store = createMonitorStore(
       [
         monitorRow({ name: 'retired-one' }),
-        monitorRow({ name: 'retired-two', uuid: '00000000-0000-4000-8000-0000000000b2' }),
-        monitorRow({ name: 'retired-three', uuid: '00000000-0000-4000-8000-0000000000b3' }),
+        monitorRow({ name: 'retired-two', uuid: '00000000-0000-0000-0000-000000000001' }),
+        monitorRow({ name: 'retired-three', uuid: '00000000-0000-0000-0000-000000000002' }),
       ],
       [VERIFIED],
     )
@@ -580,12 +580,12 @@ describe('a plan reads as a plan rather than as a table of wire fields', () => {
 })
 
 describe('which rows a plan of many monitors puts in front of the reader', () => {
-  const quiet = (name: string, at: string) =>
-    monitorRow({ name, uuid: `00000000-0000-4000-8000-0000000000${at}`, channel_ids: ['7'] })
+  const quiet = (name: string, at: number) =>
+    monitorRow({ name, uuid: `00000000-0000-0000-0000-${String(at).padStart(12, '0')}`, channel_ids: ['7'] })
 
   const twelve = [
-    ...Array.from({ length: 11 }, (_, n) => quiet(`steady-${n}`, `d${n}`)),
-    quiet('the-one-that-moved', 'e0'),
+    ...Array.from({ length: 11 }, (_, n) => quiet(`steady-${n}`, n + 1)),
+    quiet('the-one-that-moved', 12),
   ]
 
   const described = [
@@ -612,7 +612,7 @@ describe('which rows a plan of many monitors puts in front of the reader', () =>
   // exactly because nothing in the file is fixing it.
   it('keeps an unchanged row that alerts nobody, which is the one hiding would cost most', async () => {
     const store = createMonitorStore(
-      [...twelve, quiet('never-heard-from', 'f0')].map((monitor) =>
+      [...twelve, quiet('never-heard-from', 13)].map((monitor) =>
         monitor.name === 'never-heard-from' ? { ...monitor, channel_ids: [] } : monitor,
       ),
       [VERIFIED],

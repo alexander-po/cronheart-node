@@ -12,7 +12,7 @@ export { API_KEY } from './api-recorder.js'
 
 export const MONITOR_NAME = 'job'
 
-export const MONITOR_ID = '00000000-0000-4000-8000-0000000000d4'
+export const MONITOR_ID = '00000000-0000-0000-0000-000000000000'
 
 export const BASE_URL = 'https://faults.example'
 

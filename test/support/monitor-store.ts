@@ -198,7 +198,7 @@ export function createMonitorStore(
         const body = (request.body ?? {}) as Record<string, unknown>
         minted += 1
         const created: StoredMonitor = {
-          uuid: store.nextUuid ?? `00000000-0000-4000-8000-${String(minted).padStart(12, '0')}`,
+          uuid: store.nextUuid ?? `00000000-0000-0000-0000-${String(minted).padStart(12, '0')}`,
           name: String(body['name']),
           schedule_kind: String(body['schedule_kind']),
           schedule_expr: String(body['schedule_expr']),
@@ -278,7 +278,7 @@ export function createMonitorStore(
 
 export function monitorRow(overrides: Partial<StoredMonitor> = {}): StoredMonitor {
   return {
-    uuid: '00000000-0000-4000-8000-0000000000a1',
+    uuid: '00000000-0000-0000-0000-000000000000',
     name: 'nightly-backup',
     schedule_kind: 'cron',
     schedule_expr: '0 3 * * *',

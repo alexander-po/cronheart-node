@@ -4,7 +4,7 @@ import { type PingRecorder, createPingRecorder } from '../../src/testing.js'
 
 export const ADAPTER_MONITOR = 'nightly-backup'
 
-export const ADAPTER_MONITOR_ID = '00000000-0000-4000-8000-00000000ada9'
+export const ADAPTER_MONITOR_ID = '00000000-0000-0000-0000-000000000000'
 
 export const ADAPTER_BASE_URL = 'https://adapters.example'
 

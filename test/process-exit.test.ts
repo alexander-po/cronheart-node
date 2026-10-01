@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 const repoRoot = new URL('../', import.meta.url)
 const entry = new URL('dist/index.mjs', repoRoot).href
 
-const MONITOR_ID = '00000000-0000-4000-8000-0000000000e5'
+const MONITOR_ID = '00000000-0000-0000-0000-000000000000'
 
 interface Run {
   readonly status: number | null

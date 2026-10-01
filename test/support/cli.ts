@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url'
 
 export const CLI = fileURLToPath(new URL('../../dist/cli.mjs', import.meta.url))
 
-export const MONITOR_ID = '00000000-0000-4000-8000-00000000c11a'
+export const MONITOR_ID = '00000000-0000-0000-0000-000000000001'
 
-export const OTHER_MONITOR_ID = '00000000-0000-4000-8000-00000000c11b'
+export const OTHER_MONITOR_ID = '00000000-0000-0000-0000-000000000002'
 
 export interface Ran {
   readonly status: number | null
