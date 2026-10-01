@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest'
 import { isScanned, scanTarball, scanTree, unreadOf } from '../scripts/private-information.mjs'
 
 interface Scan {
+  readonly disclosures: readonly { readonly id: string; readonly where: string }[]
   readonly files: readonly string[]
   readonly read: number
   readonly unreadable: readonly string[]
@@ -204,6 +205,40 @@ describe('the generic half of the leak control', () => {
 
     for (const value of plantedIn('test/fixtures/private-information/dirty')) {
       expect(run.output).not.toContain(value)
+    }
+  })
+
+  it('admits the nil uuid and the three numbered after it, and no other id behind a zero prefix', () => {
+    const tree = mkdtempSync(join(tmpdir(), 'leak-scan-uuids-'))
+    const nil = ['00000000', '0000', '0000', '0000', '000000000000']
+    // Assembled rather than written out: a literal outside the admitted four is a disclosure
+    // in this file too, and the scan holds the tests to the same reading as the rest.
+    const nilWith = (changes: Record<number, string>) =>
+      nil.map((part, index) => changes[index] ?? part).join('-')
+    const admitted = [0, 1, 2, 3].map((n) => nilWith({ 4: `00000000000${n}` }))
+    const refused = [
+      nilWith({ 2: '4000', 3: '8000' }),
+      nilWith({ 2: '4000', 3: '8000', 4: '000000000001' }),
+      nilWith({ 4: '000000000004' }),
+      nilWith({ 4: '00000000000a' }),
+      nilWith({ 4: '000000000010' }),
+      nilWith({ 4: '100000000000' }),
+      nilWith({ 3: '0001' }),
+      nilWith({ 1: '0001' }),
+      nilWith({ 0: '10000000' }),
+    ]
+
+    try {
+      writeUnder(tree, 'notes.md', [...admitted, ...refused].map((id) => `sample ${id}\n`).join(''))
+
+      const { disclosures } = scanOf(tree)
+
+      expect(disclosures.map((found) => found.id)).toEqual(refused.map(() => 'live-identifier'))
+      expect(disclosures.map((found) => found.where)).toEqual(
+        refused.map((_, offset) => `notes.md:${admitted.length + offset + 1}`),
+      )
+    } finally {
+      rmSync(tree, { recursive: true, force: true })
     }
   })
 

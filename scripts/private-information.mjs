@@ -54,7 +54,9 @@ const PUBLISHABLE_EMAIL_DOMAIN =
 
 const UUID = /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g
 
-const PLACEHOLDER_UUID = /^0{8}-0{4}-/
+// The nil uuid and the three numbered after it, and nothing else: any wider reading lets an
+// issued id through behind a zero prefix.
+const PLACEHOLDER_UUID = /^0{8}-0{4}-0{4}-0{4}-0{11}[0-3]$/
 
 const CROSS_REPOSITORY_REFERENCE =
   /(?:\bgithub\.com\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/\d+|(?:^|\s)([\w.-]+\/[\w.-]+)#\d+)/g
