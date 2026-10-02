@@ -128,8 +128,8 @@ mechanical rather than aspirational:
 
 - One `safely()` chokepoint that every ping passes through, with the guarded
   region covering name resolution, URL construction and body encoding — not
-  just the network call. The sibling PHP SDK left exactly those three outside
-  its `try` and shipped green through its whole suite.
+  just the network call, because a throw from any of those three would
+  otherwise reach the job being monitored.
 - A lint rule banning `await fetch`, `throw` and `Promise.reject` outside the
   transport layer, over a lexer that follows template interpolations back into
   code rather than treating everything between backticks as string content.
@@ -147,11 +147,9 @@ arrow, a default export and a class method are all visible to it.
 
 ## A test that cannot fail is worse than no test
 
-This is the defect this repository has produced most of, by a distance:
-twenty-three distinct classes of test that could not have failed have gone into
-it, and every single one was caught by a person reading the diff rather than by
-the suite going red. A green run is evidence of nothing until the check has
-been shown able to go red. Assume the next one of these is in your change.
+Tests that cannot fail are this repository's most common defect, and the suite
+cannot catch them: a green run is evidence of nothing until the check has been
+shown able to go red.
 
 So before a check counts as written, point it at a deliberately broken input
 and watch it fail for the reason you intended. That is why the fault matrix
