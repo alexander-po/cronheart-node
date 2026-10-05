@@ -22,6 +22,8 @@ const FACTS = [
   ['/api/constraints/channel.label/min_length', 'value', (doc) => property(doc, 'ChannelCreate', 'label')?.minLength],
   ['/api/constraints/channel.label/max_length', 'value', (doc) => property(doc, 'ChannelCreate', 'label')?.maxLength],
   ['/api/constraints/channel.secret/min_length', 'value', (doc) => property(doc, 'ChannelCreate', 'secret')?.minLength],
+  ['/api/constraints/channel.secret/max_length', 'value', (doc) => property(doc, 'ChannelCreate', 'secret')?.maxLength],
+  ['/api/constraints/channel.routing_key/format', 'value', (doc) => property(doc, 'ChannelCreate', 'routing_key')?.pattern],
   ['/api/constraints/snooze.duration/required', 'value', (doc) => schema(doc, 'Snooze')?.required?.includes('duration')],
 
   ['/vocabularies/monitor.status/members', 'members', (doc) => property(doc, 'Monitor', 'status')?.enum],

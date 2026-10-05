@@ -769,6 +769,27 @@ channel kinds — are typed open in both directions, so a value read off a
 monitor can be written straight back; a member the service does not have is
 refused by name before a request exists rather than at compile time.
 
+A channel is created with the field its kind takes, and a missing one is refused
+before a request exists. The service checks the rest — the host a webhook may
+sit on and the shape of a routing key — and answers a wrong value with
+a `validation` error that names the field:
+
+```ts
+await api.channels.create({ kind: 'email', label: 'ops inbox', address: 'ops@example.com' })
+await api.channels.create({ kind: 'telegram', label: 'ops chat', chatId: '-100123' })
+await api.channels.create({ kind: 'slack', label: 'ops room', webhookUrl: process.env.SLACK_WEBHOOK_URL! })
+await api.channels.create({ kind: 'discord', label: 'ops room', webhookUrl: process.env.DISCORD_WEBHOOK_URL! })
+await api.channels.create({ kind: 'teams', label: 'ops room', webhookUrl: process.env.TEAMS_WORKFLOW_URL! })
+await api.channels.create({ kind: 'google_chat', label: 'ops space', webhookUrl: process.env.GOOGLE_CHAT_WEBHOOK_URL! })
+await api.channels.create({ kind: 'pagerduty', label: 'on call', routingKey: process.env.PAGERDUTY_ROUTING_KEY! })
+await api.channels.create({
+  kind: 'webhook',
+  label: 'ops sink',
+  webhookUrl: process.env.OPS_SINK_URL!,
+  secret: process.env.OPS_SINK_SECRET!,
+})
+```
+
 **It always throws.** The check-in client never does; this one runs in CLIs and
 admin scripts, where a silent failure is worse than a loud one. Every failure —
 a refused request, a connection that never opened, a body that is not JSON, a
@@ -1088,7 +1109,7 @@ list, since the service scans neither for lateness. The table carries the rows
 that differ; unchanged ones are counted in the tally and left out, and `--all`
 puts them back — except a row that alerts nobody, which is shown either way,
 because it is unchanged precisely when nothing in the file is fixing it. Sync cannot diff a
-channel's destination — the service redacts `webhook_url`, `url` and `secret` —
+channel's destination — the service redacts `webhook_url`, `url`, `secret` and `routing_key` —
 only its ownership and label, and it does not pretend otherwise.
 
 **A channel named by digits is not assumed to be an identifier.** The service's
@@ -1194,7 +1215,7 @@ consumer onto the package rather than by reading the code; `0.1.1` added four
 more, each of them something the package reported wrongly rather than something
 it could not do. [CHANGELOG.md](CHANGELOG.md) names all fifteen.
 
-**The wire contract.** This package is built against wire contract 3.0.0, the
+**The wire contract.** This package is built against wire contract 3.1.0, the
 machine-readable statement of the service's wire surface its checks run
 against. `cronheart --version` prints it, and it rides in the User-Agent, so a
 support request names it.

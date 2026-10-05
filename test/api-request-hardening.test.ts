@@ -212,6 +212,66 @@ describe('what the caller hands the client', () => {
     expect(recorder.requests).toHaveLength(0)
   })
 
+  it.each([
+    [
+      'teams',
+      { kind: 'teams', label: 'ops room', webhookUrl: 'https://example.invalid/teams' },
+      { webhook_url: 'https://example.invalid/teams' },
+    ],
+    [
+      'google_chat',
+      { kind: 'google_chat', label: 'ops room', webhookUrl: 'https://example.invalid/chat' },
+      { webhook_url: 'https://example.invalid/chat' },
+    ],
+    [
+      'pagerduty',
+      { kind: 'pagerduty', label: 'on call', routingKey: 'a'.repeat(32) },
+      { routing_key: 'a'.repeat(32) },
+    ],
+  ] as const)('sends a %s channel with the field that kind takes', async (kind, request, sent) => {
+    const { api, recorder } = apiWith({ status: 201, json: CHANNEL_JSON })
+
+    await api.channels.create(request)
+
+    expect(JSON.parse(String(recorder.requests[0]?.body))).toEqual({
+      kind,
+      label: request.label,
+      ...sent,
+    })
+  })
+
+  it('sends a destination field the kind does not take, as it sends any field it was given', async () => {
+    const { api, recorder } = apiWith({ status: 201, json: CHANNEL_JSON })
+
+    await api.channels.create({
+      kind: 'slack',
+      label: 'ops room',
+      webhookUrl: 'https://example.invalid/slack',
+      routingKey: 'a'.repeat(32),
+    })
+
+    expect(JSON.parse(String(recorder.requests[0]?.body))).toEqual({
+      kind: 'slack',
+      label: 'ops room',
+      webhook_url: 'https://example.invalid/slack',
+      routing_key: 'a'.repeat(32),
+    })
+  })
+
+  it('refuses a routing key that is not a string, without repeating it', async () => {
+    const { api, recorder } = apiWith({ status: 201, json: CHANNEL_JSON })
+    const request = { kind: 'pagerduty', label: 'on call', routingKey: 12345 }
+
+    const refusal = await api.channels
+      .create(request as unknown as Parameters<typeof api.channels.create>[0])
+      .catch((error: unknown) => error)
+
+    expect(refusal).toBeInstanceOf(ApiInvalidRequestError)
+    expect(String((refusal as Error).message)).toMatch(/routingKey/)
+    expect(String((refusal as Error).message)).not.toContain('12345')
+    expect(recorder.requests).toHaveLength(0)
+  })
+
   it('still sends the destination fields the caller did give as strings', async () => {
     const { api, recorder } = apiWith({ status: 201, json: CHANNEL_JSON })
 
@@ -359,6 +419,9 @@ describe('what this client refuses before a guaranteed rejection reaches the wir
     ['telegram', { kind: 'telegram', label: 'ops chat' }, /chatId/],
     ['slack', { kind: 'slack', label: 'ops room' }, /webhookUrl/],
     ['discord', { kind: 'discord', label: 'ops room' }, /webhookUrl/],
+    ['teams', { kind: 'teams', label: 'ops room' }, /webhookUrl/],
+    ['google_chat', { kind: 'google_chat', label: 'ops room' }, /webhookUrl/],
+    ['pagerduty', { kind: 'pagerduty', label: 'on call' }, /routingKey/],
     [
       'webhook',
       { kind: 'webhook', label: 'ops sink', webhookUrl: 'https://sink.example/hook' },

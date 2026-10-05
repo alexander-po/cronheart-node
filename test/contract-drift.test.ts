@@ -230,7 +230,7 @@ describe('the drift watch compares the contract against what the server publishe
     const written = JSON.parse(readFileSync(empty, 'utf8')) as Snapshot
 
     expect(run.status).toBe(3)
-    expect(Object.keys(written.facts).sort()).toEqual(Object.keys(shipped().facts).sort())
+    expect(written.facts).toEqual(shipped().facts)
   })
 
   // The served document states open_incident as a reference or null and every other nullable

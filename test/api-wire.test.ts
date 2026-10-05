@@ -151,6 +151,18 @@ describe('the vocabularies', () => {
     expect(read.channels[0]?.kind).toBe('matrix')
   })
 
+  it('reads a channel of a kind it has never seen, from the listing and by identifier', async () => {
+    const unseen = { ...CHANNEL_JSON, kind: 'carrier-pigeon' }
+    const { api } = apiWith({ json: { data: [unseen], total: 1 } })
+    const listed = await api.channels.list()
+
+    expect(listed.data[0]?.kind).toBe('carrier-pigeon')
+
+    const { api: single } = apiWith({ json: unseen })
+
+    expect((await single.channels.get(CHANNEL_ID)).kind).toBe('carrier-pigeon')
+  })
+
   it('refuses a member it has never seen on a write, before any request exists', async () => {
     const { api, recorder } = apiWith({ json: MONITOR_JSON })
 

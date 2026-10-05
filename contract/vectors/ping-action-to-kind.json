@@ -1,5 +1,5 @@
 {
-  "contract_version": "3.0.0",
+  "contract_version": "3.1.0",
   "group": "ping.action_to_kind",
   "default_subject": "ping.classifyAction",
   "description": "Two layers guard the ping action segment and they agree on one closed vocabulary: the words run, start, success, ok and fail in any ASCII letter case, or 1 to 16 ASCII digits. The route refuses anything else with a 404, and the ping handler applies the same test again before it records anything, so nothing outside the vocabulary is ever stored. Inside it, the segment is lowercased and matched against a handful of literals, with '0' alone meaning success and every other digit string meaning failure. Both layers are ASCII-only, and reproducing them with a Unicode-aware digit test or case-insensitive match is the single most likely way for a port to drift.",
