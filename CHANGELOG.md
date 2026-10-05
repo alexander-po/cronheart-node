@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+The service added three alert channel kinds, and the management client can now
+create them. **Upgrading from `0.3.2` is safe**: nothing the package sent
+before changes, and a channel of a kind this package has not seen has always
+been listed and fetched as it is, so an account that already holds one of the
+three read fine on `0.3.2`.
+
+- **`api.channels.create` takes `teams`, `google_chat` and `pagerduty`.** A
+  Microsoft Teams or Google Chat channel takes the `webhookUrl` of its
+  incoming webhook, the way Slack and Discord do. A PagerDuty channel takes a
+  new field, `routingKey`, the 32-character Events API v2 integration key of a
+  service. A request missing the field its kind needs is refused before it is
+  sent, naming the field. The host and the shape of the value are left to the
+  service, which refuses a wrong one with a validation error that names the
+  field. The service redacts a routing key in its responses, as it does a
+  webhook address, so it can never be read back. `CHANNEL_ROUTING_KEY_KINDS`
+  is exported from `cronheart/api` beside the other lists of kinds.
+- **The wire contract moves up a minor version** to state the three kinds, the
+  field each takes and the shape of a routing key. Its version rides in the
+  User-Agent and `cronheart --version`.
+
 ## 0.3.2
 
 ### Patch Changes
