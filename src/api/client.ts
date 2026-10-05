@@ -9,6 +9,7 @@ import {
   API_PAGE_LIMIT_DEFAULT,
   CHANNEL_ADDRESS_KINDS,
   CHANNEL_CHAT_ID_KINDS,
+  CHANNEL_ROUTING_KEY_KINDS,
   CHANNEL_SECRET_KINDS,
   CHANNEL_WEBHOOK_URL_KINDS,
   DEFAULT_API_RETRIES,
@@ -128,6 +129,7 @@ function channelBodyFrom(request: CreateChannelRequest) {
     ['chat_id', 'chatId', request.chatId, CHANNEL_CHAT_ID_KINDS],
     ['webhook_url', 'webhookUrl', request.webhookUrl, CHANNEL_WEBHOOK_URL_KINDS],
     ['secret', 'secret', request.secret, CHANNEL_SECRET_KINDS],
+    ['routing_key', 'routingKey', request.routingKey, CHANNEL_ROUTING_KEY_KINDS],
   ] as const) {
     if (value === undefined) {
       if ((neededBy as readonly string[]).includes(request.kind)) {

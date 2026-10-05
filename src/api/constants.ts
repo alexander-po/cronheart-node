@@ -46,7 +46,16 @@ export const SIMPLE_SCHEDULES = [
 
 export const SNOOZE_DURATIONS = ['1h', '4h', '1d', '1w'] as const
 
-export const CHANNEL_KINDS = ['email', 'telegram', 'slack', 'discord', 'webhook'] as const
+export const CHANNEL_KINDS = [
+  'email',
+  'telegram',
+  'slack',
+  'discord',
+  'webhook',
+  'teams',
+  'google_chat',
+  'pagerduty',
+] as const
 
 export const MONITOR_STATUSES = ['new', 'up', 'late', 'down', 'paused'] as const
 
@@ -70,7 +79,15 @@ export const CHANNEL_ADDRESS_KINDS = ['email'] as const
 
 export const CHANNEL_CHAT_ID_KINDS = ['telegram'] as const
 
-export const CHANNEL_WEBHOOK_URL_KINDS = ['slack', 'discord', 'webhook'] as const
+export const CHANNEL_WEBHOOK_URL_KINDS = [
+  'slack',
+  'discord',
+  'webhook',
+  'teams',
+  'google_chat',
+] as const
+
+export const CHANNEL_ROUTING_KEY_KINDS = ['pagerduty'] as const
 
 export const CHANNEL_SECRET_KINDS = ['webhook'] as const
 

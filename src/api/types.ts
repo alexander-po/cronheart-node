@@ -71,8 +71,8 @@ export interface Channel {
   readonly kind: Open<ChannelKind>
   readonly label: string
   readonly verified: boolean
-  // The destination keys are masked when set, so a Slack or Discord address can be replaced
-  // but never read back or compared.
+  // The destination keys are masked when set, so a webhook URL or a routing key can never
+  // be read back or compared.
   readonly config: Readonly<Record<string, unknown>>
   readonly createdAt: string
 }
@@ -221,6 +221,7 @@ export interface CreateChannelRequest {
   readonly chatId?: string | undefined
   readonly webhookUrl?: string | undefined
   readonly secret?: string | undefined
+  readonly routingKey?: string | undefined
 }
 
 export interface CronheartApiOptions {

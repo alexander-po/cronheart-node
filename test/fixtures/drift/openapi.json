@@ -1132,7 +1132,10 @@
               "telegram",
               "slack",
               "discord",
-              "webhook"
+              "webhook",
+              "teams",
+              "google_chat",
+              "pagerduty"
             ]
           },
           "label": {
@@ -1153,7 +1156,10 @@
               "telegram",
               "slack",
               "discord",
-              "webhook"
+              "webhook",
+              "teams",
+              "google_chat",
+              "pagerduty"
             ]
           },
           "label": {
@@ -1504,13 +1510,17 @@
               "telegram",
               "slack",
               "discord",
-              "webhook"
+              "webhook",
+              "teams",
+              "google_chat",
+              "pagerduty"
             ]
           },
           "label": {
             "type": "string",
             "minLength": 2,
-            "maxLength": 80
+            "maxLength": 80,
+            "description": "Leading and trailing spaces, control and invisible characters do not count toward minLength."
           },
           "address": {
             "type": "string",
@@ -1522,12 +1532,20 @@
           },
           "webhook_url": {
             "type": "string",
-            "description": "Required for slack/discord/webhook."
+            "format": "uri",
+            "description": "Required for slack (https://hooks.slack.com/services/…), discord (https://discord.com/api/webhooks/<id>/<token>), teams (https://<…>.environment.api.powerplatform.com/…, the URL of a Teams Workflows flow), google_chat (https://chat.googleapis.com/v1/spaces/<space>/messages?key=…&token=…) and webhook (https on a public host name; IP addresses in any spelling and localhost are refused)."
           },
           "secret": {
             "type": "string",
             "minLength": 16,
-            "description": "Required for webhook."
+            "maxLength": 200,
+            "description": "Required for webhook. Leading and trailing spaces, control and invisible characters do not count toward minLength or maxLength; the secret is stored as sent."
+          },
+          "routing_key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]{32}$",
+            "writeOnly": true,
+            "description": "Required for pagerduty: the Integration Key of an Events API v2 integration, 32 letters and digits. Leading and trailing spaces are trimmed. Responses redact it."
           }
         }
       },
@@ -1540,7 +1558,8 @@
           "label": {
             "type": "string",
             "minLength": 2,
-            "maxLength": 80
+            "maxLength": 80,
+            "description": "Leading and trailing spaces, control and invisible characters do not count toward minLength."
           }
         }
       },

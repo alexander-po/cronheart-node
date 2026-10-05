@@ -135,6 +135,7 @@ export async function exercise(): Promise<string[]> {
 import {
   API_RESPONSE_BODY_CAP_BYTES,
   CronheartApiError,
+  CHANNEL_ROUTING_KEY_KINDS,
   SIGNUP_EMAIL_MAX_LENGTH,
   SNOOZE_DURATIONS,
   createCronheartApi,
@@ -355,4 +356,13 @@ export async function signUp(
       await wait(error.retryAfterSeconds ?? started.interval)
     }
   }
+}
+
+export async function addOnCall(api: CronheartApi, routingKey: string | undefined): Promise<string> {
+  const request: CreateChannelRequest = { kind: 'pagerduty', label: 'on call', routingKey }
+  const takesAKey: readonly string[] = CHANNEL_ROUTING_KEY_KINDS
+
+  void takesAKey
+
+  return (await api.channels.create(request)).id
 }

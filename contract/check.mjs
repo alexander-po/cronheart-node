@@ -134,6 +134,7 @@ const HELD_AS_CONSTANTS = {
   'constraints.channel.address.required_for': 'CHANNEL_ADDRESS_KINDS',
   'constraints.channel.chat_id.required_for': 'CHANNEL_CHAT_ID_KINDS',
   'constraints.channel.webhook_url.required_for': 'CHANNEL_WEBHOOK_URL_KINDS',
+  'constraints.channel.routing_key.required_for': 'CHANNEL_ROUTING_KEY_KINDS',
   'constraints.channel.secret.required_for': 'CHANNEL_SECRET_KINDS',
   'constraints.grace.min': 'MONITOR_GRACE_SECONDS_MIN',
   'constraints.grace.max': 'MONITOR_GRACE_SECONDS_MAX',

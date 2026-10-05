@@ -31,10 +31,10 @@ before any URL exists.
   unknown monitor gets, and records nothing. The message `InvalidActionError`
   carries, the refusal `cronheart ping --action` prints, that command's help
   page and the README all described the first and now describe the second.
-- **Wire contract 3.0.0.** It states the service's closed action vocabulary —
-  `run`, `start`, `success`, `ok` and `fail` in any ASCII letter case, or an
-  exit code of 1 to 16 ASCII digits, with `0` alone meaning success — and
-  rides in the User-Agent and `cronheart --version` in place of 2.5.0.
+- **The wire contract moves up a major version** to state the service's closed
+  action vocabulary — `run`, `start`, `success`, `ok` and `fail` in any ASCII
+  letter case, or an exit code of 1 to 16 ASCII digits, with `0` alone meaning
+  success. Its version rides in the User-Agent and `cronheart --version`.
 
 ## 0.3.0
 
