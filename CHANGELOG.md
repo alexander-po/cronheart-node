@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+The management client hardens what a refusal from the service can carry and how
+it reads what the caller hands it. **Upgrading from `0.4.0` changes two things a
+caller can see**: on every `api.channels` call, `error.problem` no longer
+carries the service's `title`, `detail` or `upgradeUrl`, and a request or an
+option whose accessor throws now rejects with `ApiInvalidRequestError` rather
+than with the accessor's own error. Nothing the package sends changes.
+
+- **A refusal on a channel route withholds the service's wording.** The
+  service's text about a channel may repeat its destination: a webhook
+  address, a secret, a routing key, an email address or a chat id. On every
+  `api.channels` call, `error.problem` therefore keeps its status and retry
+  guidance only, and `error.errors` keeps only the fields a channel request
+  can carry, each with a fixed sentence in place of the service's message. The
+  error's own message, which names fields and never values, is unchanged.
+- **A `409` on a channel test says what it means there.** Delivery for the
+  channel's kind is switched off on the service, so nothing was delivered;
+  sending the test again delivers a real message once it is switched back on.
+  Creates keep the advice to read the resource back.
+- **Every request is composed inside the one error type a caller catches.** A
+  request or an option whose accessor throws rejects with
+  `ApiInvalidRequestError` and sends nothing, as does a cursor that is not a
+  string. Each field and option is read once, so the value validated is the
+  value sent; a walk reads its options once rather than once per page, and
+  channel ids are copied without calling anything on the array handed in.
+- **The wire contract moves to 3.2.0.** It states that the write half of the
+  channel kinds is closed, adds a `writers-behind` verdict that fails the drift
+  watch when the service widens a closed write list, scopes the meaning of a
+  `409` on the channel-test route, and states for ports the rule that
+  withholds the service's wording on channel routes. Its version rides in the
+  User-Agent and `cronheart --version`.
+
 ## 0.4.0
 
 ### Minor Changes
