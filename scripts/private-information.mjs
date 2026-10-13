@@ -67,21 +67,77 @@ const PHP_SHAPES = [
   { id: 'php-namespace', pattern: /\b(?:namespace|use)\s+[A-Z]\w*(?:\\[A-Z]\w*)+/ },
 ]
 
+const SIGNING_SECRET_MIN_LENGTH = JSON.parse(
+  readFileSync(join(repoRoot, 'contract/cronheart-contract.json'), 'utf8'),
+).api.constraints['channel.secret'].min_length
+
+function inAnyCase(word) {
+  return `(?:${word}|${word[0].toUpperCase()}${word.slice(1)}|${word.toUpperCase()})`
+}
+
+function assignedTo(names, shortest) {
+  return new RegExp(
+    `(?:--[\\w-]*?(?:${names})[\\w-]*\\s+|\\b\\w*?(?:${names})(?:[-_A-Z][\\w-]*)?\\b\\\\?["'\`]?(?:\\s*:\\s*[\\w.]+)?\\s*(?:=>|[:?]?=|:)\\s*)\\\\?["'\`]?([A-Za-z0-9+/=_-]{${shortest},})(?!\\w|\\.\\w)`,
+    'g',
+  )
+}
+
+function keyNamed(...words) {
+  return `(?:${words.map(inAnyCase).join('|')})[_-]?${inAnyCase('key')}`
+}
+
 const CREDENTIAL_SHAPES = [
-  { id: 'private-key-block', pattern: /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/ },
-  { id: 'vendor-token', pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|npm_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})\b/ },
+  { id: 'private-key-block', pattern: /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/g },
+  { id: 'vendor-token', pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|npm_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})\b/g },
   {
     id: 'assigned-secret',
-    pattern:
-      /\b(?:api[_-]?key|secret|password|passwd|token|authorization)\b\s*[:=]\s*["'`]?([A-Za-z0-9+/=_-]{24,})(?![\w.])/i,
+    pattern: assignedTo(
+      [keyNamed('api'), ...['password', 'passwd', 'token', 'authorization'].map(inAnyCase)].join('|'),
+      24,
+    ),
+    guard: issuedRatherThanNamed,
+  },
+  {
+    id: 'assigned-signing-secret',
+    pattern: assignedTo(`${inAnyCase('secret')}|${keyNamed('signing')}`, SIGNING_SECRET_MIN_LENGTH),
+    guard: issuedRatherThanNamed,
+  },
+  {
+    id: 'assigned-routing-key',
+    pattern: assignedTo(keyNamed('routing', 'integration', 'service'), 20),
+    guard: issuedRatherThanNamed,
+  },
+  {
+    id: 'signed-url',
+    pattern: /(?:[?&]|&amp;)sig=((?:[\w+/=-]|%[0-9A-F]{2}){20,})/gi,
+    guard: looksIssued,
+  },
+  {
+    id: 'slack-webhook-token',
+    pattern: /hooks\.slack\.com\/services\/[\w-]+\/[\w-]+\/([\w-]{16,})/g,
+    guard: looksIssued,
+  },
+  {
+    id: 'discord-webhook-token',
+    pattern: /discord(?:app)?\.com\/api\/(?:v\d+\/)?webhooks\/\d+\/([\w-]{20,})/g,
+    guard: looksIssued,
+  },
+  {
+    id: 'url-credential',
+    pattern: /\b[a-z][\w+.-]*:\/\/[^\s/:@]*:([^\s/:@$<>{}]+)@/gi,
     guard: looksIssued,
   },
 ]
 
 // A placeholder is written to be read: it repeats a filler character and reuses a small
-// alphabet, where anything a service actually issued does neither.
+// alphabet, where anything a service actually issued does neither. Hex draws on 16 characters.
 function looksIssued(value) {
-  return new Set(value).size >= 12 && !/(.)\1{5,}/.test(value)
+  return new Set(value).size >= (/^[0-9a-f]+$/i.test(value) ? 8 : 12) && !/(.)\1{5,}/.test(value)
+}
+
+// A constant's name on the right of an assignment is code, not a value.
+function issuedRatherThanNamed(value) {
+  return looksIssued(value) && !/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(value)
 }
 
 // Every address a document may carry, so anything outside them is a real host somewhere.
@@ -185,9 +241,9 @@ function disclosuresIn(label, text, { repository, prefix }) {
       }
     }
 
-    for (const [address, domain] of line.matchAll(EMAIL)) {
+    for (const [, domain] of line.matchAll(EMAIL)) {
       if (!PUBLISHABLE_EMAIL_DOMAIN.test(domain)) {
-        report('reachable-address', at, address)
+        report('reachable-address', at, `an address at ${domain}`)
       }
     }
 
@@ -212,16 +268,20 @@ function disclosuresIn(label, text, { repository, prefix }) {
     }
 
     for (const shape of PHP_SHAPES) {
-      if (shape.pattern.test(line)) {
-        report(shape.id, at, line.trim().slice(0, 80))
+      const matched = shape.pattern.exec(line)
+
+      if (matched !== null) {
+        report(shape.id, at, matched[0].split('/').at(-1))
       }
     }
 
     // A report is read in a gate log, so it names the shape and never repeats the value.
     for (const shape of CREDENTIAL_SHAPES) {
-      const matched = shape.pattern.exec(line)
+      const issued = [...line.matchAll(shape.pattern)].some(
+        (matched) => shape.guard === undefined || shape.guard(matched[1]),
+      )
 
-      if (matched !== null && (shape.guard === undefined || shape.guard(matched[1] ?? ''))) {
+      if (issued) {
         report(shape.id, at, 'a value of this shape')
       }
     }

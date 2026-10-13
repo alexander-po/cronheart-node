@@ -64,14 +64,14 @@ describe('what cronheart run puts on the wire when the child prints a secret', (
   })
 
   it('redacts the password embedded in a connection string', async () => {
-    const secret = 'postgres://appuser:hunter2-not-a-real-password@db.invalid:5432/app'
+    const secret = 'postgres://appuser:hunter2-not-real@db.invalid:5432/app'
     const ran = await runCli(['run', '--name=job', ...emits('cannot connect to ', secret, 10)], {
       env: envFor(),
     })
 
     expect(ran.status).toBe(3)
     expect(failBody()).toContain('[redacted]')
-    expect(failBody()).not.toContain('hunter2-not-a-real-password')
+    expect(failBody()).not.toContain('hunter2-not-real')
   })
 
   it('redacts a credential assigned to an environment-shaped name', async () => {

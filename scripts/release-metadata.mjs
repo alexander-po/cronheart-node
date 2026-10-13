@@ -53,6 +53,38 @@ function checkPendingChangesets() {
   return pending.length
 }
 
+function versionHeadingsIn(changelog) {
+  const headings = []
+  let opened
+  let index = 0
+
+  for (const line of changelog.split('\n')) {
+    const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+
+    if (opened !== undefined) {
+      if (fence?.[0] === opened[0] && fence.length >= opened.length) {
+        opened = undefined
+      }
+    } else if (fence !== undefined) {
+      opened = fence
+    } else {
+      const version = /^## \[?(\d+\.\d+\.\d+[\w.-]*)\]?/.exec(line)?.[1]
+
+      if (version !== undefined) {
+        headings.push({ version, index })
+      }
+    }
+
+    index += line.length + 1
+  }
+
+  return headings
+}
+
+function newestReleaseOf(changelog) {
+  return changelog.slice(0, versionHeadingsIn(changelog)[1]?.index)
+}
+
 function checkChangelog() {
   const changelog = read('CHANGELOG.md')
 
@@ -62,7 +94,7 @@ function checkChangelog() {
     return
   }
 
-  const newest = /^## \[?(\d+\.\d+\.\d+[\w.-]*)\]?/m.exec(changelog)?.[1]
+  const newest = versionHeadingsIn(changelog)[0]?.version
 
   if (newest === undefined) {
     fail('CHANGELOG.md', 'carries no version heading, so nothing states what was released')
@@ -88,11 +120,13 @@ function checkContractVersion() {
   }
 
   for (const name of DESCRIBED_DOCUMENTS) {
-    const text = read(name)
+    const whole = read(name)
 
-    if (text === undefined) {
+    if (whole === undefined) {
       continue
     }
+
+    const text = name === 'CHANGELOG.md' ? newestReleaseOf(whole) : whole
 
     text.split('\n').forEach((line, offset) => {
       for (const [, before, after] of line.matchAll(CONTRACT_NEARBY)) {
