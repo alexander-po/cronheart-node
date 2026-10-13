@@ -27,7 +27,7 @@ import {
   rotatedSecretFrom,
 } from './hydrate.js'
 import { type Endpoint, type Session, createSession } from './http.js'
-import { ApiConfigurationError, isCronheartApiError } from './errors.js'
+import { ApiConfigurationError, ApiInvalidRequestError, isCronheartApiError } from './errors.js'
 import { cursorWalk, offsetWalk } from './paginate.js'
 import type {
   Account,
@@ -68,6 +68,7 @@ import {
   canonicalTimezone,
   channelIdFor,
   channelIdsFor,
+  pageCursor,
   pageLimit,
   pageOffset,
   refuseMissingChannelField,
@@ -76,64 +77,74 @@ import {
 const API_KEY_OPTION = 'the apiKey option'
 
 function monitorBodyFrom(request: CreateMonitorRequest | UpdateMonitorRequest, partial: boolean) {
+  const { name, scheduleKind, scheduleExpr, tz, graceSeconds, channelIds } = request
   const body: Record<string, unknown> = {}
 
-  if (!partial || request.name !== undefined) {
-    assertMonitorName(request.name)
-    body['name'] = request.name
+  if (!partial || name !== undefined) {
+    assertMonitorName(name)
+    body['name'] = name
   }
 
-  if (!partial || request.scheduleKind !== undefined) {
-    assertScheduleKind(request.scheduleKind)
-    body['schedule_kind'] = request.scheduleKind
+  if (!partial || scheduleKind !== undefined) {
+    assertScheduleKind(scheduleKind)
+    body['schedule_kind'] = scheduleKind
   }
 
-  if (!partial || request.scheduleExpr !== undefined) {
+  if (!partial || scheduleExpr !== undefined) {
     // The dialect check needs the kind, and an update that changes only the expression is
     // merged over a stored kind this client cannot see. Shape is all that can be checked.
-    if (request.scheduleKind === undefined) {
-      assertScheduleExprShape(request.scheduleExpr)
+    if (scheduleKind === undefined) {
+      assertScheduleExprShape(scheduleExpr)
     } else {
-      assertScheduleExpression(request.scheduleKind, request.scheduleExpr)
+      assertScheduleExpression(scheduleKind, scheduleExpr)
     }
 
-    body['schedule_expr'] = request.scheduleExpr
+    body['schedule_expr'] = scheduleExpr
   }
 
-  if (request.tz !== undefined) {
-    body['tz'] = canonicalTimezone(request.tz)
+  if (tz !== undefined) {
+    body['tz'] = canonicalTimezone(tz)
   }
 
-  if (request.graceSeconds !== undefined) {
-    assertGraceSeconds(request.graceSeconds)
-    body['grace_seconds'] = request.graceSeconds
+  if (graceSeconds !== undefined) {
+    assertGraceSeconds(graceSeconds)
+    body['grace_seconds'] = graceSeconds
   }
 
-  if (request.channelIds !== undefined) {
+  if (channelIds !== undefined) {
     // Written as the decimal string the listing reports, which the service casts to an
     // integer. Sending a JavaScript number instead would round a 64-bit identifier.
-    body['channel_ids'] = channelIdsFor(request.channelIds)
+    body['channel_ids'] = channelIdsFor(channelIds)
   }
 
   return body
 }
 
+const CHANNEL_DESTINATIONS = [
+  ['address', 'address', CHANNEL_ADDRESS_KINDS],
+  ['chat_id', 'chatId', CHANNEL_CHAT_ID_KINDS],
+  ['webhook_url', 'webhookUrl', CHANNEL_WEBHOOK_URL_KINDS],
+  ['secret', 'secret', CHANNEL_SECRET_KINDS],
+  ['routing_key', 'routingKey', CHANNEL_ROUTING_KEY_KINDS],
+] as const
+
+const CHANNEL_FIELDS: readonly string[] = ['kind', 'label', ...CHANNEL_DESTINATIONS.map(([key]) => key)]
+
 function channelBodyFrom(request: CreateChannelRequest) {
-  assertChannelKind(request.kind)
-  assertChannelLabel(request.label)
+  const { kind, label, address, chatId, webhookUrl, secret, routingKey } = request
+  const given = { address, chatId, webhookUrl, secret, routingKey }
 
-  const body: Record<string, unknown> = { kind: request.kind, label: request.label }
+  assertChannelKind(kind)
+  assertChannelLabel(label)
 
-  for (const [key, field, value, neededBy] of [
-    ['address', 'address', request.address, CHANNEL_ADDRESS_KINDS],
-    ['chat_id', 'chatId', request.chatId, CHANNEL_CHAT_ID_KINDS],
-    ['webhook_url', 'webhookUrl', request.webhookUrl, CHANNEL_WEBHOOK_URL_KINDS],
-    ['secret', 'secret', request.secret, CHANNEL_SECRET_KINDS],
-    ['routing_key', 'routingKey', request.routingKey, CHANNEL_ROUTING_KEY_KINDS],
-  ] as const) {
+  const body: Record<string, unknown> = { kind, label }
+
+  for (const [key, field, neededBy] of CHANNEL_DESTINATIONS) {
+    const value = given[field]
+
     if (value === undefined) {
-      if ((neededBy as readonly string[]).includes(request.kind)) {
-        refuseMissingChannelField(field, request.kind)
+      if ((neededBy as readonly string[]).includes(kind)) {
+        refuseMissingChannelField(field, kind)
       }
 
       continue
@@ -144,6 +155,26 @@ function channelBodyFrom(request: CreateChannelRequest) {
   }
 
   return body
+}
+
+function composed<T>(compose: () => T): T {
+  try {
+    return compose()
+  } catch (error) {
+    throw isCronheartApiError(error)
+      ? error
+      : new ApiInvalidRequestError(
+          'This request could not be composed: reading a value it was given threw, so nothing was sent.',
+        )
+  }
+}
+
+function plainOptions(options: RequestOptions | undefined): RequestOptions {
+  return { timeoutMs: options?.timeoutMs, signal: options?.signal }
+}
+
+function channelRoute(endpoint: () => Endpoint): () => Endpoint {
+  return () => ({ ...endpoint(), problemFieldsKept: CHANNEL_FIELDS })
 }
 
 // A property is an accessor as readily as a value, and one that throws would leave this
@@ -185,12 +216,18 @@ function build(configuration: CronheartApiOptions): CronheartApi {
     signal: configuration.signal,
   })
 
+  function send(endpoint: () => Endpoint, options: RequestOptions | undefined): Promise<unknown> {
+    const request = composed(() => ({ endpoint: endpoint(), options: plainOptions(options) }))
+
+    return session.send(request.endpoint, request.options)
+  }
+
   async function read<T>(
-    endpoint: Endpoint,
+    endpoint: () => Endpoint,
     options: RequestOptions | undefined,
     hydrate: (value: unknown) => T,
   ): Promise<T> {
-    return hydrate(await session.send(endpoint, options))
+    return hydrate(await send(endpoint, options))
   }
 
   function monitorAt(uuid: string, suffix = ''): string {
@@ -210,14 +247,14 @@ function build(configuration: CronheartApiOptions): CronheartApi {
     body?: unknown,
   ) {
     return read<Monitor>(
-      {
+      () => ({
         method: 'POST',
         path: monitorAt(uuid, `/${action}`),
         // A rotate leaves a different identifier behind every time it runs, so a repeat is
         // a second rotation and the first one's new address is lost before anyone read it.
         retry: action === 'rotate-uuid' ? 'never' : 'safe',
         body,
-      },
+      }),
       options,
       monitorFrom,
     )
@@ -225,7 +262,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
 
   function monitorPage(options: ListOptions | undefined): Promise<MonitorPage> {
     return read(
-      {
+      () => ({
         method: 'GET',
         path: '/monitors',
         retry: 'safe',
@@ -233,7 +270,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
           limit: pageLimit(options?.limit, API_PAGE_LIMIT_DEFAULT),
           offset: pageOffset(options?.offset),
         },
-      },
+      }),
       options,
       monitorPageFrom,
     )
@@ -241,7 +278,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
 
   function alertPage(uuid: string, options: ListOptions | undefined): Promise<AlertPage> {
     return read(
-      {
+      () => ({
         method: 'GET',
         path: monitorAt(uuid, '/alerts'),
         retry: 'safe',
@@ -249,7 +286,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
           limit: pageLimit(options?.limit, API_PAGE_LIMIT_DEFAULT),
           offset: pageOffset(options?.offset),
         },
-      },
+      }),
       options,
       alertPageFrom,
     )
@@ -257,15 +294,15 @@ function build(configuration: CronheartApiOptions): CronheartApi {
 
   function pingPage(uuid: string, options: CursorOptions | undefined): Promise<PingPage> {
     return read(
-      {
+      () => ({
         method: 'GET',
         path: monitorAt(uuid, '/pings'),
         retry: 'safe',
         query: {
           limit: pageLimit(options?.limit, API_PAGE_LIMIT_DEFAULT),
-          cursor: options?.cursor,
+          cursor: pageCursor(options?.cursor),
         },
-      },
+      }),
       options,
       pingPageFrom,
     )
@@ -274,32 +311,50 @@ function build(configuration: CronheartApiOptions): CronheartApi {
   // Every method below is async, and every iterator is a generator, so that a request this
   // client refuses to compose arrives as a rejection rather than as a synchronous throw out
   // of something whose signature promises a promise — which no await or catch would see.
+  function offsetWalkOptions(options: ListOptions | undefined) {
+    return composed(() => ({
+      ...plainOptions(options),
+      limit: pageLimit(options?.limit, API_PAGE_LIMIT_DEFAULT),
+      offset: pageOffset(options?.offset),
+    }))
+  }
+
   async function* walkMonitors(options: ListOptions | undefined) {
+    const { limit, offset, ...plain } = offsetWalkOptions(options)
+
     yield* offsetWalk<Monitor>(
       'monitors',
       (monitor) => monitor.uuid,
-      (limit, offset) => monitorPage({ ...options, limit, offset }),
-      pageLimit(options?.limit, API_PAGE_LIMIT_DEFAULT),
-      pageOffset(options?.offset),
+      (size, from) => monitorPage({ ...plain, limit: size, offset: from }),
+      limit,
+      offset,
     )
   }
 
   async function* walkAlerts(uuid: string, options: ListOptions | undefined) {
+    const { limit, offset, ...plain } = offsetWalkOptions(options)
+
     yield* offsetWalk<Alert>(
       'alerts',
       (alert) => alert.id,
-      (limit, offset) => alertPage(uuid, { ...options, limit, offset }),
-      pageLimit(options?.limit, API_PAGE_LIMIT_DEFAULT),
-      pageOffset(options?.offset),
+      (size, from) => alertPage(uuid, { ...plain, limit: size, offset: from }),
+      limit,
+      offset,
     )
   }
 
   async function* walkPings(uuid: string, options: CursorOptions | undefined) {
+    const { limit, cursor, ...plain } = composed(() => ({
+      ...plainOptions(options),
+      limit: pageLimit(options?.limit, API_PAGE_LIMIT_DEFAULT),
+      cursor: pageCursor(options?.cursor),
+    }))
+
     yield* cursorWalk<PingRecord>(
       'pings',
-      (limit, cursor) => pingPage(uuid, { ...options, limit, cursor }),
-      pageLimit(options?.limit, API_PAGE_LIMIT_DEFAULT),
-      options?.cursor,
+      (size, from) => pingPage(uuid, { ...plain, limit: size, cursor: from }),
+      limit,
+      cursor,
     )
   }
 
@@ -307,32 +362,32 @@ function build(configuration: CronheartApiOptions): CronheartApi {
     list: async (options) => monitorPage(options),
     iterate: (options) => walkMonitors(options),
     get: async (uuid, options) =>
-      read({ method: 'GET', path: monitorAt(uuid), retry: 'safe' }, options, monitorFrom),
+      read(() => ({ method: 'GET', path: monitorAt(uuid), retry: 'safe' }), options, monitorFrom),
     create: async (request, options) =>
       read(
-        {
+        () => ({
           method: 'POST',
           path: '/monitors',
           retry: 'with-idempotency-key',
           body: monitorBodyFrom(request, false),
           idempotencyKey: options?.idempotencyKey,
-        },
+        }),
         options,
         monitorFrom,
       ),
     update: async (uuid, request, options) =>
       read(
-        {
+        () => ({
           method: 'PATCH',
           path: monitorAt(uuid),
           retry: 'safe',
           body: monitorBodyFrom(request, true),
-        },
+        }),
         options,
         monitorFrom,
       ),
     delete: async (uuid, options) => {
-      await session.send({ method: 'DELETE', path: monitorAt(uuid), retry: 'safe' }, options)
+      await send(() => ({ method: 'DELETE', path: monitorAt(uuid), retry: 'safe' }), options)
     },
     pause: async (uuid, options) => monitorAction(uuid, 'pause', options),
     resume: async (uuid, options) => monitorAction(uuid, 'resume', options),
@@ -358,15 +413,19 @@ function build(configuration: CronheartApiOptions): CronheartApi {
     // could not even tell one request's worth from the whole set, and would never finish.
     list: async (options) =>
       read<ChannelList>(
-        { method: 'GET', path: '/channels', retry: 'safe' },
+        channelRoute(() => ({ method: 'GET', path: '/channels', retry: 'safe' })),
         options,
         channelListFrom,
       ),
     get: async (id, options) =>
-      read<Channel>({ method: 'GET', path: channelAt(id), retry: 'safe' }, options, channelFrom),
+      read<Channel>(
+        channelRoute(() => ({ method: 'GET', path: channelAt(id), retry: 'safe' })),
+        options,
+        channelFrom,
+      ),
     create: async (request, options) =>
       read<Channel>(
-        {
+        channelRoute(() => ({
           method: 'POST',
           path: '/channels',
           retry: 'with-idempotency-key',
@@ -374,7 +433,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
           idempotencyKey: options?.idempotencyKey,
           // An email channel spends a verification-mail allowance of its own.
           separatelyThrottled: true,
-        },
+        })),
         options,
         channelFrom,
       ),
@@ -382,17 +441,17 @@ function build(configuration: CronheartApiOptions): CronheartApi {
       assertChannelLabel(label)
 
       return read<Channel>(
-        { method: 'PATCH', path: channelAt(id), retry: 'safe', body: { label } },
+        channelRoute(() => ({ method: 'PATCH', path: channelAt(id), retry: 'safe', body: { label } })),
         options,
         channelFrom,
       )
     },
     delete: async (id, options) => {
-      await session.send({ method: 'DELETE', path: channelAt(id), retry: 'safe' }, options)
+      await send(channelRoute(() => ({ method: 'DELETE', path: channelAt(id), retry: 'safe' })), options)
     },
     rotateSecret: async (id, options) =>
       read<RotatedChannelSecret>(
-        { method: 'POST', path: channelAt(id, '/rotate-secret'), retry: 'never' },
+        channelRoute(() => ({ method: 'POST', path: channelAt(id, '/rotate-secret'), retry: 'never' })),
         options,
         rotatedSecretFrom,
       ),
@@ -400,13 +459,13 @@ function build(configuration: CronheartApiOptions): CronheartApi {
     // the account's API rate limit, so a repeat is a second notification, not a retry.
     test: async (id, options) =>
       read<ChannelTestResult>(
-        {
+        channelRoute(() => ({
           method: 'POST',
           path: channelAt(id, '/test'),
           retry: 'never',
           deliversDownstream: true,
           separatelyThrottled: true,
-        },
+        })),
         options,
         channelTestFrom,
       ),
@@ -414,7 +473,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
 
   const account: AccountApi = {
     get: async (options) =>
-      read<Account>({ method: 'GET', path: '/account', retry: 'safe' }, options, accountFrom),
+      read<Account>(() => ({ method: 'GET', path: '/account', retry: 'safe' }), options, accountFrom),
   }
 
   // A function rather than an accessor: every other member of this object survives being

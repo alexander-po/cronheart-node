@@ -1,9 +1,9 @@
 {
-  "contract_version": "3.1.0",
+  "contract_version": "3.2.0",
   "group": "api.status_classification",
   "default_subject": "api.classifyStatus",
   "description": "How a management-API response status becomes an error class. Outside the two signup routes the service publishes no machine-readable code: every problem response carries type about:blank, three unrelated conditions share the 409, and the 401 detail is a translation key rather than prose. Status is therefore the only input, and these cases exist to keep it that way — several of them vary nothing but the detail string and assert the class does not move.",
-  "case_count": 26,
+  "case_count": 27,
   "cases": [
     {
       "id": "bad-request",
@@ -66,6 +66,12 @@
       "input": { "status": 409, "detail": null },
       "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Conflict" }],
       "why": "A classifier that read the prose would have nothing to read here and would have to guess."
+    },
+    {
+      "id": "conflict-on-a-channel-test",
+      "input": { "status": 409, "detail": null, "deliversDownstream": true },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Conflict" }],
+      "why": "On the channel-test route the documented 409 is a channel kind whose delivery is switched off. The route changes what the conflict means, not its class."
     },
     {
       "id": "unprocessable",

@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+// @ts-expect-error — a plain script, deliberately not part of the typed source tree
+import { classify } from '../contract/classify.mjs'
 
 const root = new URL('../', import.meta.url)
 
@@ -57,6 +59,19 @@ function members(facts: Record<string, unknown>, pointer: string): string[] {
   return held as string[]
 }
 
+describe('the classifier reads the write half of a vocabulary on its own', () => {
+  const added = { pointer: '/vocabularies/any.kind/members', direction: 'added', before: ['a'], after: ['a', 'b'] }
+
+  it.each([
+    ['stated open', { direction: 'write', openness: 'closed', writeOpenness: 'open' }, 'additive', ['3']],
+    ['stated closed', { direction: 'write', openness: 'open', writeOpenness: 'closed' }, 'writers-behind', ['3a']],
+    ['not stated, under a closed vocabulary', { direction: 'write', openness: 'closed' }, 'writers-behind', ['3a']],
+    ['not stated, under an open vocabulary', { direction: 'write', openness: 'open' }, 'additive', ['3']],
+  ])('classifies a member added to a write half %s', (_id, tags, verdict, rows) => {
+    expect(classify(added, tags)).toEqual({ verdict, rows })
+  })
+})
+
 describe('the drift watch compares the contract against what the server publishes', () => {
   it('reads the shipped snapshot as agreeing with the contract', () => {
     const run = drift([])
@@ -102,6 +117,50 @@ describe('the drift watch compares the contract against what the server publishe
     expect(run.output).toContain('additive')
     expect(run.output).not.toMatch(/breaking-/)
     expect(run.status).toBe(0)
+  })
+
+  it('passes a member a read-only open vocabulary gained', () => {
+    const path = mutated((facts) => {
+      facts['/vocabularies/alert.kind/members'] = [
+        ...members(facts, '/vocabularies/alert.kind/members'),
+        'escalated',
+      ]
+    })
+    const run = drift(['--snapshot', path])
+
+    expect(run.output).toContain('added "escalated" — additive')
+    expect(run.status).toBe(0)
+  })
+
+  // The read half of the channel kinds is open and its write half closed, so this is the case
+  // that tells a write half read off its own tag from one read off the vocabulary's openness.
+  it.each([
+    ['/vocabularies/channel.kind/members', 'carrier_pigeon'],
+    ['/vocabularies/snooze.duration/members', '1m'],
+  ])('fails on a member %s gained, which a writer validating a closed list refuses', (pointer, member) => {
+    const path = mutated((facts) => {
+      facts[pointer] = [...members(facts, pointer), member]
+    })
+    const run = drift(['--snapshot', path])
+
+    expect(run.output).toContain(`${pointer} — added "${member}" — writers-behind (rule `)
+    expect(run.output).toMatch(/writers-behind \(rule [0-9a-z, ]*\b3a\)/)
+    expect(run.output).not.toMatch(/breaking-/)
+    expect(run.status).toBe(1)
+  })
+
+  it('reads a member a closed read and write vocabulary gained as breaking its readers, not as writers behind', () => {
+    const path = mutated((facts) => {
+      facts['/vocabularies/schedule.kind/members'] = [
+        ...members(facts, '/vocabularies/schedule.kind/members'),
+        'calendar',
+      ]
+    })
+    const run = drift(['--snapshot', path])
+
+    expect(run.output).toContain('added "calendar" — breaking-readers (rule 2a, 3a)')
+    expect(run.output).not.toContain('writers-behind')
+    expect(run.status).toBe(1)
   })
 
   // The same edit in the two directions, because a job that failed on every difference would

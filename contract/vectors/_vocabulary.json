@@ -1,5 +1,5 @@
 {
-  "contract_version": "3.1.0",
+  "contract_version": "3.2.0",
   "title": "Conformance vector vocabulary",
   "description": "The complete, fixed vocabulary every vector file is written in. Nothing here requires a language-specific expression evaluator: a per-SDK adapter is a lookup table of subjects plus a switch over six predicates.",
 
@@ -107,7 +107,7 @@
       "input": {
         "status": "integer — the HTTP status of a management-API response",
         "detail": "string or null — the problem document's detail field, present only so that cases can vary it and assert the classification does not move",
-        "deliversDownstream": "optional boolean — whether the route delivers to a destination the caller owns. Only the channel-test route does, and only there does a 502 mean the destination failed rather than the API",
+        "deliversDownstream": "optional boolean — whether the route delivers to a destination the caller owns. Only the channel-test route does, and only there does a 502 mean the destination failed rather than the API, and a 409 a channel kind whose delivery is switched off rather than a resource that may or may not have been created",
         "signupFlow": "optional boolean — whether the route is one of the two signup routes, where a 403 means signup from the API is switched off and a 410 that the signup request is no longer open"
       },
       "result": "throws the classified error; never returns",

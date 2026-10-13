@@ -1,5 +1,5 @@
 {
-  "contract_version": "3.1.0",
+  "contract_version": "3.2.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -46,8 +46,9 @@
       "layer": "server",
       "direction": "read+write",
       "openness": "open",
+      "write_openness": "closed",
       "members": ["email", "telegram", "slack", "discord", "webhook", "teams", "google_chat", "pagerduty"],
-      "write_note": "The write side is validated against exactly this list today, so a writer may treat it as closed; the read side must stay open."
+      "write_note": "The read side must stay open."
     },
     "alert.kind": {
       "layer": "server",
@@ -441,6 +442,12 @@
           "severity": "medium",
           "statement": "A non-conforming error body may be HTML from an edge proxy, or may contain request data.",
           "sdk_rule": "Parse problem+json tolerantly, fall back to a status-derived message, and never include the raw body in an exception message or log record."
+        },
+        {
+          "id": "destination-echo",
+          "severity": "high",
+          "statement": "A channel's destination (an address, a chat id, a webhook URL, a webhook secret, a routing key) is a credential in all but name, and a problem response on any channel route may repeat it, in any spelling and in any position: in title, in detail, in upgrade_url, in an errors message or as an errors key.",
+          "sdk_rule": "On every channel route and for every problem status, keep none of the service's free text: drop title, detail and upgrade_url, and of errors keep only the keys a channel request can carry (kind, label and the destination fields), each with one fixed client-written sentence in place of the service's message. Strip rather than match the value sent, since a match misses a changed spelling."
         }
       ]
     },
@@ -452,7 +459,7 @@
         { "status": 402, "class": "PlanRestriction", "carries": ["upgrade_url"] },
         { "status": 403, "class": "Forbidden", "conditions": ["monitor limit reached", "account email unverified", "signup from the API switched off, on the two signup routes"] },
         { "status": 404, "class": "NotFound", "note": "Also returned for a resource outside the token's project scope; existence is masked." },
-        { "status": 409, "class": "Conflict", "conditions": ["idempotency key in flight", "idempotency key reused with a different body", "channel kind disabled"] },
+        { "status": 409, "class": "Conflict", "conditions": ["idempotency key in flight", "idempotency key reused with a different body", "channel kind disabled"], "note": "On the channel-test route the documented condition is a channel kind whose delivery the service has switched off, and nothing is delivered; a test sent again once the kind is back on delivers a real message. A conflict there never means a resource was or was not created, which is what it means on a create." },
         { "status": 410, "class": "UnexpectedResponse", "note": "On the two signup routes only, 410 means the signup request is unknown, expired, cancelled on the confirmation page or already claimed, and is raised as a SignupExpired subclass so the caller can tell 'start a new signup' from 'our API misbehaved'. No other route answers it." },
         { "status": 422, "class": "Validation", "carries": ["errors"] },
         { "status": 429, "class": "RateLimit", "carries": ["retry_after", "Retry-After header"], "note": "On the two signup routes the limit that refused is the address's, the network's or the poll interval, never an account's API rate limit." },

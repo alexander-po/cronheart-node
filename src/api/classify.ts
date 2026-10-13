@@ -124,6 +124,13 @@ export function errorForStatus(
     )
   }
 
+  if (status === 409 && context.deliversDownstream === true) {
+    return new ApiConflictError(
+      `The test send conflicted with the account's current state (HTTP 409) on ${at}. The documented cause on this route is that delivery for this channel's kind is switched off on the service, in which case nothing was delivered — and sending the test again delivers a real message once it is switched back on.`,
+      details,
+    )
+  }
+
   if (status === 409) {
     return new ApiConflictError(
       `The request conflicted with the account's current state (HTTP 409) on ${at}. An idempotency key is reserved for ${API_IDEMPOTENCY_TTL_SECONDS} s and is refused while the first request is still running, reused with a different body, or aimed at a channel kind the service has switched off — read the resource back before deciding it was not created.`,

@@ -5,7 +5,7 @@ Three artifacts, in dependency order.
 | File | What it is |
 | --- | --- |
 | `cronheart-contract.json` | The normative description of the Cronheart wire surface. Every fact in it was read out of the running server's source. |
-| `CLASSIFICATION.md` | The rule table that turns a diff of that file into `additive` / `breaking-*` / `undecidable`. |
+| `CLASSIFICATION.md` | The rule table that turns a diff of that file into `additive` / `writers-behind` / `breaking-*` / `undecidable`. |
 | `vectors/*.json` | Language-neutral conformance cases, written in the fixed predicate vocabulary defined in `vectors/_vocabulary.json`. |
 | `classify.mjs` | That rule table as code, plus the reader that fails the drift watch on any cell the two disagree about. |
 | `server-snapshot.json` | The published specification projected onto the pointers of the contract. Written by `contract:drift:live`, never by hand. |
@@ -39,7 +39,8 @@ Python port a port rather than a second design.
 - `openness` on a vocabulary says whether a consumer must reject an unknown member
   (`closed`) or tolerate it (`open`). Read vocabularies are mostly open on purpose: a
   hydrator that throws on an unrecognised status turns a server-side addition into a
-  client outage.
+  client outage. `write_openness`, where a vocabulary states one, says the same of the
+  write half alone, which can be closed while the read half stays open.
 - The **deferral ledger** in `check.mjs` records anchors no SDK constant holds, each with
   a reason. A reason that names an unbuilt part of the SDK is a debt, not an exemption: the
   entries reading "management client" came due when that client shipped, and the three that
@@ -125,7 +126,7 @@ Four more gaps worth naming:
 | --- | --- | --- |
 | `contract:check` | **shipped** | Validates `cronheart-contract.json`: every `anchors` pointer resolves, every stated `value` equals what it resolves to, ids are unique, and the validated count matches the entry count. Also compares anchors against the SDK's own constants — read from a build-time module that is never published — and sweeps that module and **both** published entry points, the check-in client and the management client, for a wire literal no anchor states. Fails on any anchor that is neither held nor named in the deferral ledger. |
 | `contract:vectors` | **shipped** | Runs every case in `vectors/` through the adapter. Fails on an unknown predicate, an unknown non-optional subject, or an executed-case count that disagrees with the files. Reports the SDK-exercising cases apart from the server-model ones — see below. |
-| `contract:drift` | **shipped** | Compares every fact in `server-snapshot.json` against the pointer it was projected from, classifies each difference through `CLASSIFICATION.md`, and fails on `breaking-*` or `undecidable` while passing `additive`. Refuses to run at all if the rules it holds and the rules that file documents have parted. Reads no network. |
+| `contract:drift` | **shipped** | Compares every fact in `server-snapshot.json` against the pointer it was projected from, classifies each difference through `CLASSIFICATION.md`, and fails on `writers-behind`, `breaking-*` or `undecidable` while passing `additive`. Refuses to run at all if the rules it holds and the rules that file documents have parted. Reads no network. |
 | `contract:drift:live` | **shipped** | Fetches the published specification, projects it, rewrites the snapshot, and exits 3 when the projection moved so the scheduled workflow opens a pull request rather than failing at an unrelated moment. |
 | `contract:check` diff classification | planned | Classifying a contract against its own previous version needs a previous version to diff against. The rule engine is shipped; what is missing is the second document. |
 

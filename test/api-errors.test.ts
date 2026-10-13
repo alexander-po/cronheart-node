@@ -143,6 +143,20 @@ describe('classification reads the status and nothing else', () => {
     expect(new Set(classified.map((error) => error.message)).size).toBe(1)
   })
 
+  it('says on a channel test what a conflict there means, and not what it means on a create', () => {
+    const onTest = classifyDownstream(409)
+    const onCreate = classify(409)
+
+    expect(onTest).toBeInstanceOf(ApiConflictError)
+    expect(onTest.message).toContain('documented cause on this route')
+    expect(onTest.message).toContain('switched off')
+    expect(onTest.message).toContain('nothing was delivered')
+    expect(onTest.message).toContain('sending the test again delivers a real message')
+    expect(onTest.message).not.toContain('created')
+    expect(onCreate.message).toContain('read the resource back before deciding it was not created')
+    expect(onCreate.message).not.toContain('delivered')
+  })
+
   it('never lets the server prose reach the message it composes', () => {
     const detail = 'Invalid credentials.'
     const errors = classify(401, { detail })
