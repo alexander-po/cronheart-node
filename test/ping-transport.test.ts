@@ -1165,14 +1165,14 @@ describe('the body', () => {
   })
 
   it('redacts before truncating, so a cut cannot split a secret out of its pattern', async () => {
-    const secret = 'SECRET-123456-END'
+    const secret = 'SECRET-424242-END'
     await client({ redact: [/SECRET-[0-9]{6}-END/g] }).fail('job', {
       body: `${'a'.repeat(9975)}${secret}${'b'.repeat(100)}`,
     })
     const body = recorder.pings[0]?.body ?? ''
 
     expect(body).not.toContain('SECRET-')
-    expect(body).not.toContain('123456')
+    expect(body).not.toContain('424242')
   })
 })
 

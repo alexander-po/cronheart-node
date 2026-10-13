@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -122,19 +123,52 @@ function writeUnder(tree: string, path: string, text = 'nothing to see here\n'):
 // Read out of the fixture rather than written here, since a line carrying one of them is a
 // disclosure wherever it sits. A report is read in a gate log, so it must not repeat them.
 function plantedIn(tree: string): string[] {
-  const text = ['credentials.md', 'notes.md']
-    .map((name) => readFileSync(join(root, tree, name), 'utf8'))
-    .join('\n')
+  const fixture = (name: string) => readFileSync(join(root, tree, name), 'utf8')
+  const lastValueOf = (line: string) => [...line.matchAll(/[\w%+-]{16,}/g)].at(-1)?.[0]
 
   return [
-    /\bghp_\w+/.exec(text)?.[0],
-    /"(\w{24,})"/.exec(text)?.[1],
-    /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/.exec(text)?.[0],
+    /\bghp_\w+/.exec(fixture('credentials.md'))?.[0],
+    /"(\w{24,})"/.exec(fixture('credentials.md'))?.[1],
+    /\bcmk_\w+/.exec(fixture('credentials.md'))?.[0],
+    ...[...fixture('credentials.md').matchAll(/:\/\/\w+:(\w+)@/g)].map((match) => match[1]),
+    /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/.exec(fixture('notes.md'))?.[0],
+    /"(\w{24,})"/.exec(fixture('backend.md'))?.[1],
+    /\/srv\/(\w+)\//.exec(fixture('backend.md'))?.[1],
+    ...fixture('destinations.md')
+      .split('\n')
+      .filter((line) => line !== '')
+      .map(lastValueOf),
   ].filter((value): value is string => value !== undefined)
 }
 
+const SIGNING_SECRET_MIN_LENGTH = Number(
+  (
+    JSON.parse(readFileSync(join(root, 'contract/cronheart-contract.json'), 'utf8')) as {
+      api: { constraints: Record<string, { min_length: number }> }
+    }
+  ).api.constraints['channel.secret']?.min_length,
+)
+
+const scanSource = () => readFileSync(join(root, 'scripts/private-information.mjs'), 'utf8')
+
+function shapeIdsOfTheScan(): string[] {
+  return [...scanSource().matchAll(/\bid: ['"`]([^:\s'"`]+)['"`]/g)].map((match) => match[1] as string).sort()
+}
+
+// Every rule the scan holds, read out of the scan itself, so a rule added without a planted
+// line in the dirty fixture is a rule this suite notices.
+function ruleIdsOfTheScan(): string[] {
+  const reported = [...scanSource().matchAll(/\breport\(['"`]([^:\s'"`]+)['"`]/g)].map((match) => match[1] as string)
+
+  return [...new Set([...shapeIdsOfTheScan(), ...reported])].sort()
+}
+
 function disclosureIdsIn(output: string): string[] {
-  return [...new Set([...output.matchAll(/^ {2}- ([a-z-]+):/gm)].map((match) => match[1] as string))].sort()
+  return [...new Set([...output.matchAll(/^ {2}- ([^:\s]+):/gm)].map((match) => match[1] as string))].sort()
+}
+
+function disclosuresAtLinesIn(output: string): string[] {
+  return [...output.matchAll(/^ {2}- ([^:\s]+): (\S+) — /gm)].map((match) => `${match[1]} ${match[2]}`).sort()
 }
 
 describe('the documented surface is held against the built one', () => {
@@ -179,29 +213,78 @@ describe('the generic half of the leak control', () => {
   it('passes a tree that gives nothing away', () => {
     const run = check('private-information', 'test/fixtures/private-information/clean')
 
-    expect(disclosureIdsIn(run.output)).toEqual([])
+    expect(disclosuresAtLinesIn(run.output)).toEqual([])
     expect(run.output).toContain('none of the shapes this scan knows')
+    expect(filesReadIn(run.output)).toBe(readdirSync(join(root, 'test/fixtures/private-information/clean')).length)
+    expect(
+      /WEBHOOK_SECRET=(\S+)/.exec(readFileSync(join(root, 'test/fixtures/private-information/clean/notes.md'), 'utf8'))?.[1],
+    ).toHaveLength(SIGNING_SECRET_MIN_LENGTH - 1)
     expect(run.status).toBe(0)
   })
 
-  it('catches every shape it knows, one file per shape', () => {
+  it('catches every shape it knows, at the line that carries it', () => {
     const run = check('private-information', 'test/fixtures/private-information/dirty')
 
     expect(run.status).toBe(1)
-    expect(filesReadIn(run.output)).toBe(3)
-    expect(disclosureIdsIn(run.output)).toEqual([
-      'another-repository',
-      'assigned-secret',
-      'developer-path',
-      'issued-credential',
-      'live-identifier',
-      'php-file-reference',
-      'php-namespace',
-      'reachable-address',
-      'routable-address',
-      'vendor-token',
+    expect(filesReadIn(run.output)).toBe(4)
+    expect(shapeIdsOfTheScan()).toEqual([...new Set(shapeIdsOfTheScan())])
+    expect(disclosureIdsIn(run.output)).toEqual(ruleIdsOfTheScan())
+    expect(disclosuresAtLinesIn(run.output)).toEqual([
+      'another-repository notes.md:6',
+      'another-repository notes.md:7',
+      'assigned-routing-key destinations.md:10',
+      'assigned-routing-key destinations.md:11',
+      'assigned-routing-key destinations.md:12',
+      'assigned-routing-key destinations.md:13',
+      'assigned-routing-key destinations.md:14',
+      'assigned-routing-key destinations.md:15',
+      'assigned-routing-key destinations.md:23',
+      'assigned-routing-key destinations.md:24',
+      'assigned-routing-key destinations.md:25',
+      'assigned-routing-key destinations.md:26',
+      'assigned-routing-key destinations.md:27',
+      'assigned-routing-key destinations.md:28',
+      'assigned-routing-key destinations.md:5',
+      'assigned-routing-key destinations.md:6',
+      'assigned-routing-key destinations.md:7',
+      'assigned-routing-key destinations.md:8',
+      'assigned-routing-key destinations.md:9',
+      'assigned-secret credentials.md:2',
+      'assigned-secret destinations.md:1',
+      'assigned-secret destinations.md:2',
+      'assigned-secret destinations.md:4',
+      'assigned-signing-secret destinations.md:22',
+      'assigned-signing-secret destinations.md:29',
+      'assigned-signing-secret destinations.md:3',
+      'developer-path notes.md:3',
+      'developer-path notes.md:4',
+      'discord-webhook-token destinations.md:19',
+      'discord-webhook-token destinations.md:20',
+      'discord-webhook-token destinations.md:31',
+      'issued-credential credentials.md:3',
+      'live-identifier notes.md:5',
+      'php-file-reference backend.md:1',
+      'php-file-reference backend.md:6',
+      'php-file-reference backend.md:7',
+      'php-namespace backend.md:3',
+      'php-open-tag backend.md:5',
+      'private-key-block credentials.md:4',
+      'reachable-address credentials.md:6',
+      'reachable-address notes.md:4',
+      'routable-address notes.md:6',
+      'signed-url destinations.md:16',
+      'signed-url destinations.md:17',
+      'signed-url destinations.md:30',
+      'slack-webhook-token destinations.md:18',
+      'slack-webhook-token destinations.md:21',
+      'url-credential credentials.md:5',
+      'url-credential credentials.md:6',
+      'vendor-token credentials.md:1',
     ])
-    expect(plantedIn('test/fixtures/private-information/dirty')).toHaveLength(3)
+    expect(
+      /WEBHOOK_SECRET=(\S+)/.exec(readFileSync(join(root, 'test/fixtures/private-information/dirty/destinations.md'), 'utf8'))?.[1],
+    ).toHaveLength(SIGNING_SECRET_MIN_LENGTH)
+    expect(plantedIn('test/fixtures/private-information/dirty')).toHaveLength(39)
 
     for (const value of plantedIn('test/fixtures/private-information/dirty')) {
       expect(run.output).not.toContain(value)
@@ -392,7 +475,7 @@ describe('the tarball read guard', () => {
 })
 
 describe('a release says the same thing about itself everywhere', () => {
-  it('passes a tree whose changelog, contract and manifest agree', () => {
+  it('passes a tree whose changelog, contract and manifest agree, with an older entry quoting the contract it shipped with', () => {
     const run = check('release-metadata', 'test/fixtures/release-metadata/ready')
 
     expect(problemsIn(run.output)).toEqual([])
@@ -406,7 +489,13 @@ describe('a release says the same thing about itself everywhere', () => {
     expect(run.status).toBe(1)
     expect(problems).toContain('a-change-nobody-folded-in.md — is unconsumed (minor)')
     expect(problems).toContain('its newest entry is 1.3.0 and the manifest publishes 1.4.0')
-    expect(problems).toContain('quotes contract 3.0.0 and the contract declares 3.1.0')
+    expect(problemsIn(run.output).filter((problem) => /^\w+\.md:/.test(problem))).toEqual([
+      'README.md:7 — quotes contract 2.8.0 and the contract declares 3.1.0',
+      'CHANGELOG.md:3 — quotes contract 2.9.0 and the contract declares 3.1.0',
+      'CHANGELOG.md:19 — quotes contract 3.0.0 and the contract declares 3.1.0',
+      'CHANGELOG.md:26 — quotes contract 3.0.1 and the contract declares 3.1.0',
+      'CHANGELOG.md:33 — quotes contract 3.0.2 and the contract declares 3.1.0',
+    ])
     expect(problems).toContain('fewer than five keywords')
     expect(problems).toContain('description is too short')
     expect(problems).toContain('does not carry the copyright of Somebody Else')
