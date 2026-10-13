@@ -3,7 +3,7 @@
 // table here rather than parsing the prose keeps the rules readable; the test is what keeps
 // the two from becoming separate opinions about what breaking means.
 
-const RANK = { editorial: 0, additive: 1, 'breaking-readers': 2, 'breaking-writers': 2, 'breaking-both': 3, undecidable: 4 }
+const RANK = { editorial: 0, additive: 1, 'writers-behind': 2, 'breaking-readers': 3, 'breaking-writers': 3, 'breaking-both': 4, undecidable: 5 }
 
 const VOCABULARY_MEMBERS = '/vocabularies/*/members'
 
@@ -13,13 +13,20 @@ const READ_ROWS = [
   { row: '2b', when: (tags) => tags.openness === 'closed' && tags.layer === 'client-convention', cells: { added: 'additive', removed: 'breaking-readers', changed: 'breaking-readers', reordered: 'additive' } },
 ]
 
-const WRITE_ROW = { row: '3', cells: { added: 'additive', removed: 'breaking-writers', changed: 'breaking-writers', reordered: 'additive' } }
+function writeOpennessOf(tags) {
+  return tags.writeOpenness ?? tags.openness
+}
+
+const WRITE_ROWS = [
+  { row: '3', when: (tags) => writeOpennessOf(tags) !== 'closed', cells: { added: 'additive', removed: 'breaking-writers', changed: 'breaking-writers', reordered: 'additive' } },
+  { row: '3a', when: (tags) => writeOpennessOf(tags) === 'closed', cells: { added: 'writers-behind', removed: 'breaking-writers', changed: 'breaking-writers', reordered: 'additive' } },
+]
 
 // Rows the drift watch can reach. A pointer no row below matches is undecidable, which is the
 // safe default: an unplaced difference fails rather than passing quietly.
 export const ROWS = [
   ...READ_ROWS.map((entry) => ({ ...entry, patterns: [VOCABULARY_MEMBERS], side: 'read' })),
-  { ...WRITE_ROW, patterns: [VOCABULARY_MEMBERS], side: 'write' },
+  ...WRITE_ROWS.map((entry) => ({ ...entry, patterns: [VOCABULARY_MEMBERS], side: 'write' })),
   { row: '7', patterns: ['/api/constraints/schedule.simple/allowlist'], cells: { added: 'additive', removed: 'breaking-writers', changed: 'breaking-writers', reordered: 'additive' } },
   { row: '8', patterns: ['/api/constraints/*/max*', '/**/max_value', '/**/cap_bytes'], bound: 'raised', cells: { changed: 'additive' } },
   { row: '9', patterns: ['/api/constraints/*/max*', '/**/max_value', '/**/cap_bytes'], bound: 'lowered', cells: { changed: 'breaking-writers' } },
@@ -72,7 +79,7 @@ function boundOf(before, after) {
   return undefined
 }
 
-// The union of rows 1/2a/2b and row 3, which is what row 4 says a read+write vocabulary takes.
+// The union of rows 1/2a/2b and row 3/3a, which is what row 4 says a read+write vocabulary takes.
 export function union(verdicts) {
   if (verdicts.length === 0) {
     return 'undecidable'
@@ -113,7 +120,8 @@ function rowsFor(difference, tags) {
 }
 
 // A difference is (pointer, direction, before, after); tags are the enclosing object's
-// openness / direction / layer, which rows 1 through 4 read and every other row ignores.
+// openness / write openness / direction / layer, which rows 1 through 4 read and every other
+// row ignores.
 export function classify(difference, tags = {}) {
   const rows = rowsFor(difference, tags)
 
@@ -126,7 +134,7 @@ export function classify(difference, tags = {}) {
   return { verdict: union(verdicts), rows: rows.map((row) => row.row) }
 }
 
-const VERDICTS = new Set(['additive', 'breaking-readers', 'breaking-writers', 'breaking-both', 'undecidable', 'editorial'])
+const VERDICTS = new Set(['additive', 'writers-behind', 'breaking-readers', 'breaking-writers', 'breaking-both', 'undecidable', 'editorial'])
 
 const DIRECTIONS = ['added', 'removed', 'changed', 'reordered']
 

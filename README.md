@@ -817,6 +817,10 @@ try {
 ```
 
 `error.reason` is the only way to tell a timeout from a dead socket.
+On every `api.channels` call the service's own wording is withheld, because it
+may repeat a channel's destination: `error.problem` keeps no `title`, `detail`
+or `upgradeUrl`, and `error.errors` keeps only the fields a channel request can
+carry, each with a fixed sentence in place of the service's message.
 `error.group` is the coarser cut: `'response'` is everything the server
 refused, and `'configuration'`, `'invalid-request'`, `'transport'` and
 `'hydration'` are the four ways a request failed without one.
@@ -968,6 +972,9 @@ attempt — 250 ms per attempt, against the flat 50 ms every other retry spends.
 The key reserves a row for 60 seconds, so a retry sent immediately is
 refused as a conflict while the resource was in fact created. A `409` on a
 create says so — read the resource back before deciding it was not created.
+A `409` on a channel test means something else: the documented cause there is
+that delivery for the channel's kind is switched off on the service, so nothing
+was delivered, and testing again sends a real message once it is back on.
 Rotations and channel tests are never retried at all. `CRONHEART_RETRIES` is
 read here too, and capped at 5 the same way — one bound, shared with the
 check-in transport, which neither client can raise. An idempotency key that is
@@ -1215,7 +1222,7 @@ consumer onto the package rather than by reading the code; `0.1.1` added four
 more, each of them something the package reported wrongly rather than something
 it could not do. [CHANGELOG.md](CHANGELOG.md) names all fifteen.
 
-**The wire contract.** This package is built against wire contract 3.1.0, the
+**The wire contract.** This package is built against wire contract 3.2.0, the
 machine-readable statement of the service's wire surface its checks run
 against. `cronheart --version` prints it, and it rides in the User-Agent, so a
 support request names it.

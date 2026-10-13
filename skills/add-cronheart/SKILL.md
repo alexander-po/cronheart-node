@@ -408,7 +408,7 @@ branch on `error.kind`:
 | `plan-restriction` | 402 | should not happen — every plan includes the REST API now; `error.upgradeUrl` if it somehow does | report it, or take route A |
 | `forbidden` | 403 | the monitor limit is reached, or the account's email address is unverified; on signup, signup from the API is switched off | free a monitor, or verify the address; sign up on the web |
 | `not-found` | 404 | no such resource in this key's project; a key scoped to another project reads the same | check the id and the key's project |
-| `conflict` | 409 | an idempotency key is still reserved, or reused with a different body | read the resource back before deciding it was not created |
+| `conflict` | 409 | an idempotency key is still reserved, or reused with a different body; on a channel test, the documented cause is that delivery for that kind is switched off on the service, and nothing was delivered | read the resource back before deciding it was not created; a repeated test delivers a real message once the kind is back on |
 | `validation` | 422 | `error.errors` names the fields the service refused | fix those fields |
 | `rate-limit` | 429 | the account's API limit is spent; on signup, too many signups for the address or the network, or a poll too soon; `error.retryAfterSeconds` | wait; every key of the account shares one limit |
 | `signup-expired` | 410 | the signup expired, was cancelled on the mailed page, or its key was already handed out | run `cronheart signup` again; if the account was made, take a key from its API tokens page |

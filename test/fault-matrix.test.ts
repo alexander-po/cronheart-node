@@ -143,6 +143,10 @@ describe('the fault matrix registry', () => {
   })
 })
 
+// The runtime's first time zone lookup loads its zone data, which a loaded runner can stretch
+// past the bound; it is paid here, so the SDK's own first call is still timed and checked.
+new Intl.DateTimeFormat().resolvedOptions()
+
 describe.each(ENTRY_POINTS)('$id survives', (entryPoint) => {
   describe.each(FAULTS)('$id', (fault) => {
     it.each(hosts())('while the job $id', async (host) => {

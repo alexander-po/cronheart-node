@@ -14,7 +14,7 @@ import {
   type RequestDescriptor,
   isCronheartApiError,
 } from './errors.js'
-import { EMPTY_PROBLEM, parseProblem } from './problem.js'
+import { EMPTY_PROBLEM, parseProblem, withheldText } from './problem.js'
 import { type WireRequest, exchange } from './transport.js'
 import type { RateLimitSnapshot, RequestOptions } from './types.js'
 import { idempotencyKeyFor } from './validate.js'
@@ -42,6 +42,7 @@ export interface Endpoint {
   readonly deliversDownstream?: boolean | undefined
   readonly separatelyThrottled?: boolean | undefined
   readonly signupFlow?: boolean | undefined
+  readonly problemFieldsKept?: readonly string[] | undefined
 }
 
 export interface SessionSettings {
@@ -184,7 +185,11 @@ export function createSession(settings: SessionSettings): Session {
     const rateLimit = rateLimitFrom(answered.header)
 
     if (answered.status < 200 || answered.status >= 300) {
-      const problem = parseProblem(answered.body)
+      const parsed = parseProblem(answered.body)
+      const problem =
+        endpoint.problemFieldsKept === undefined
+          ? parsed
+          : withheldText(parsed, endpoint.problemFieldsKept)
       const retryAfter = integerHeader(answered.header('retry-after'))
 
       throw errorForStatus(

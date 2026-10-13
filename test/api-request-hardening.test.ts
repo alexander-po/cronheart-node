@@ -8,17 +8,32 @@ import {
 import { createSession } from '../src/api/http.js'
 import { MAX_RETRIES } from '../src/constants.js'
 import { attemptsFor } from '../src/transport/attempts.js'
-import type { CronheartApi, CronheartApiOptions } from '../src/api/types.js'
+import type {
+  CreateChannelRequest,
+  CronheartApi,
+  CronheartApiOptions,
+} from '../src/api/types.js'
 import {
+  ALERT_JSON,
   API_KEY,
   BASE_URL,
+  CHANNEL_ID,
   CHANNEL_JSON,
   MONITOR_JSON,
+  PING_JSON,
   MONITOR_UUID,
   apiWith,
   createApiRecorder,
   streamingFetch,
 } from './support/api-recorder.js'
+import {
+  CHANNEL_KINDS,
+  REQUIRED_FIELDS,
+  channelRequest,
+  fillerFor,
+  optionNameOf,
+  requiredBy,
+} from './support/channel-requirements.js'
 import { API_RESPONSE_BODY_CAP_BYTES } from '../src/api/constants.js'
 import { ApiTransportError } from '../src/api/errors.js'
 import type { FetchLike, PingHttpResponse } from '../src/ping/types.js'
@@ -188,20 +203,6 @@ describe('the user agent', () => {
 
 describe('what the caller hands the client', () => {
   it.each([
-    ['a channel address', { kind: 'email', label: 'ops inbox', address: 1n }],
-    ['a chat id', { kind: 'telegram', label: 'ops room', chatId: { toJSON: () => ({}) } }],
-    ['a webhook url', { kind: 'webhook', label: 'ops hook', webhookUrl: 42 }],
-    ['a webhook secret', { kind: 'webhook', label: 'ops hook', secret: ['s'] }],
-  ])('is refused rather than encoded when %s is not a string', async (_id, request) => {
-    const { api, recorder } = apiWith({ status: 201, json: CHANNEL_JSON })
-
-    await expect(
-      api.channels.create(request as unknown as Parameters<typeof api.channels.create>[0]),
-    ).rejects.toBeInstanceOf(ApiInvalidRequestError)
-    expect(recorder.requests).toHaveLength(0)
-  })
-
-  it.each([
     ['a schedule kind on a create', (api: CronheartApi) => api.monitors.create({ ...CREATE, scheduleKind: 'crontab' })],
     ['a schedule kind on an update', (api: CronheartApi) => api.monitors.update(MONITOR_UUID, { scheduleKind: 'crontab' })],
     ['a channel kind', (api: CronheartApi) => api.channels.create({ kind: 'carrier-pigeon', label: 'ops inbox' })],
@@ -210,34 +211,6 @@ describe('what the caller hands the client', () => {
 
     await expect(call(api)).rejects.toBeInstanceOf(ApiInvalidRequestError)
     expect(recorder.requests).toHaveLength(0)
-  })
-
-  it.each([
-    [
-      'teams',
-      { kind: 'teams', label: 'ops room', webhookUrl: 'https://example.invalid/teams' },
-      { webhook_url: 'https://example.invalid/teams' },
-    ],
-    [
-      'google_chat',
-      { kind: 'google_chat', label: 'ops room', webhookUrl: 'https://example.invalid/chat' },
-      { webhook_url: 'https://example.invalid/chat' },
-    ],
-    [
-      'pagerduty',
-      { kind: 'pagerduty', label: 'on call', routingKey: 'a'.repeat(32) },
-      { routing_key: 'a'.repeat(32) },
-    ],
-  ] as const)('sends a %s channel with the field that kind takes', async (kind, request, sent) => {
-    const { api, recorder } = apiWith({ status: 201, json: CHANNEL_JSON })
-
-    await api.channels.create(request)
-
-    expect(JSON.parse(String(recorder.requests[0]?.body))).toEqual({
-      kind,
-      label: request.label,
-      ...sent,
-    })
   })
 
   it('sends a destination field the kind does not take, as it sends any field it was given', async () => {
@@ -256,20 +229,6 @@ describe('what the caller hands the client', () => {
       webhook_url: 'https://example.invalid/slack',
       routing_key: 'a'.repeat(32),
     })
-  })
-
-  it('refuses a routing key that is not a string, without repeating it', async () => {
-    const { api, recorder } = apiWith({ status: 201, json: CHANNEL_JSON })
-    const request = { kind: 'pagerduty', label: 'on call', routingKey: 12345 }
-
-    const refusal = await api.channels
-      .create(request as unknown as Parameters<typeof api.channels.create>[0])
-      .catch((error: unknown) => error)
-
-    expect(refusal).toBeInstanceOf(ApiInvalidRequestError)
-    expect(String((refusal as Error).message)).toMatch(/routingKey/)
-    expect(String((refusal as Error).message)).not.toContain('12345')
-    expect(recorder.requests).toHaveLength(0)
   })
 
   it('still sends the destination fields the caller did give as strings', async () => {
@@ -414,30 +373,6 @@ describe('what this client refuses before a guaranteed rejection reaches the wir
     ])
   })
 
-  it.each([
-    ['email', { kind: 'email', label: 'ops inbox' }, /address/],
-    ['telegram', { kind: 'telegram', label: 'ops chat' }, /chatId/],
-    ['slack', { kind: 'slack', label: 'ops room' }, /webhookUrl/],
-    ['discord', { kind: 'discord', label: 'ops room' }, /webhookUrl/],
-    ['teams', { kind: 'teams', label: 'ops room' }, /webhookUrl/],
-    ['google_chat', { kind: 'google_chat', label: 'ops room' }, /webhookUrl/],
-    ['pagerduty', { kind: 'pagerduty', label: 'on call' }, /routingKey/],
-    [
-      'webhook',
-      { kind: 'webhook', label: 'ops sink', webhookUrl: 'https://sink.example/hook' },
-      /secret/,
-    ],
-  ] as const)('refuses a %s channel that is missing the field that kind needs', async (
-    _kind,
-    request,
-    named,
-  ) => {
-    const { api, recorder } = apiWith({ json: CHANNEL_JSON })
-
-    await expect(api.channels.create(request)).rejects.toThrow(named)
-    expect(recorder.requests).toHaveLength(0)
-  })
-
   it('counts a name the way the service counts it, in characters and not in code units', async () => {
     const { api, recorder } = apiWith({ json: MONITOR_JSON })
     const create = (name: string) =>
@@ -467,5 +402,369 @@ describe('what this client refuses before a guaranteed rejection reaches the wir
     await monitors.get(MONITOR_UUID)
 
     expect(rateLimit()).toEqual({ limit: 120, remaining: 7, resetAt: undefined })
+  })
+})
+
+const REQUIREMENTS = [...REQUIRED_FIELDS].flatMap(([field, kinds]) =>
+  kinds.map((kind) => [kind, field] as const),
+)
+
+const NON_STRINGS = [12345, 12345n, ['12345'], { toJSON: () => '12345' }]
+
+describe('a channel create, for every field the contract says a kind requires', () => {
+  it('covers every channel kind the contract knows, from a set that is not empty', () => {
+    expect(REQUIREMENTS.length).toBeGreaterThan(0)
+    expect([...new Set(REQUIREMENTS.map(([kind]) => kind))].sort()).toEqual([...CHANNEL_KINDS].sort())
+  })
+
+  it.each(REQUIREMENTS)('refuses a %s channel without %s, naming it', async (kind, field) => {
+    const { api, recorder } = apiWith({ status: 201, json: CHANNEL_JSON })
+
+    const refusal = await api.channels.create(channelRequest(kind, field)).catch((error: unknown) => error)
+
+    expect(refusal).toBeInstanceOf(ApiInvalidRequestError)
+    expect((refusal as Error).message).toContain(optionNameOf(field))
+    expect(recorder.requests).toHaveLength(0)
+  })
+
+  it.each(REQUIREMENTS)('sends a %s channel its %s under the wire key', async (kind, field) => {
+    const { api, recorder } = apiWith({ status: 201, json: CHANNEL_JSON })
+
+    await api.channels.create(channelRequest(kind, field, fillerFor(field)))
+
+    expect(JSON.parse(String(recorder.requests[0]?.body))).toEqual({
+      kind,
+      label: 'ops room',
+      ...Object.fromEntries(requiredBy(kind).map((wireKey) => [wireKey, fillerFor(wireKey)])),
+    })
+  })
+
+  it.each(REQUIREMENTS)('refuses a %s channel whose %s is not a string, without repeating it', async (kind, field) => {
+    const { api, recorder } = apiWith({ status: 201, json: CHANNEL_JSON })
+
+    for (const value of NON_STRINGS) {
+      const refusal = await api.channels
+        .create(channelRequest(kind, field, value))
+        .catch((error: unknown) => error)
+
+      expect(refusal).toBeInstanceOf(ApiInvalidRequestError)
+      expect((refusal as Error).message).toContain(optionNameOf(field))
+      expect((refusal as Error).message).not.toContain('12345')
+    }
+
+    expect(recorder.requests).toHaveLength(0)
+  })
+})
+
+const MONITOR_REQUEST = {
+  name: 'nightly-backup',
+  scheduleKind: 'cron',
+  scheduleExpr: '0 3 * * *',
+  tz: 'UTC',
+  graceSeconds: 60,
+  channelIds: ['1'],
+} as const
+
+const CHANNEL_REQUEST = {
+  kind: 'webhook',
+  label: 'ops sink',
+  ...Object.fromEntries(
+    [...REQUIRED_FIELDS.keys()].map((wireKey) => [optionNameOf(wireKey), fillerFor(wireKey)]),
+  ),
+} as CreateChannelRequest
+
+const MONITOR_WIRE_KEYS: Readonly<Record<string, string>> = {
+  name: 'name',
+  scheduleKind: 'schedule_kind',
+  scheduleExpr: 'schedule_expr',
+  tz: 'tz',
+  graceSeconds: 'grace_seconds',
+  channelIds: 'channel_ids',
+}
+
+type Call = (api: CronheartApi, request: object, options: object) => Promise<unknown>
+
+const REQUESTS: readonly (readonly [string, object, Call, Readonly<Record<string, string>>])[] = [
+  ['monitors.create', MONITOR_REQUEST, (api, request, options) => api.monitors.create(request as never, options), MONITOR_WIRE_KEYS],
+  ['monitors.update', MONITOR_REQUEST, (api, request, options) => api.monitors.update(MONITOR_UUID, request, options), MONITOR_WIRE_KEYS],
+  [
+    'channels.create',
+    CHANNEL_REQUEST,
+    (api, request, options) => api.channels.create(request as never, options),
+    Object.fromEntries(Object.keys(CHANNEL_REQUEST).map((field) => [field, field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)])),
+  ],
+]
+
+const REQUEST_FIELDS = REQUESTS.flatMap(([route, base, call, wireKeys]) =>
+  Object.keys(base).map((field) => [route, field, base, call, wireKeys[field] as string] as const),
+)
+
+function withAccessor<T extends object>(base: T, field: string, get: () => unknown): T {
+  const copy = { ...base }
+  Object.defineProperty(copy, field, { enumerable: true, configurable: true, get })
+
+  return copy
+}
+
+function exploding(field: string): () => never {
+  return () => {
+    throw new TypeError(`the ${field} the caller passed in exploded`)
+  }
+}
+
+function answerFor(route: string) {
+  return route.startsWith('channels.') ? { status: 201, json: CHANNEL_JSON } : { json: MONITOR_JSON }
+}
+
+const OPTION_TRAP = new TypeError('an option the caller passed in exploded')
+
+function trap(): never {
+  throw OPTION_TRAP
+}
+
+const HOSTILE_OPTIONS = new Proxy({}, { get: trap, has: trap, ownKeys: trap, getOwnPropertyDescriptor: trap })
+
+const LEADING_ARGS: Readonly<Record<string, readonly unknown[]>> = {
+  'monitors.create': [MONITOR_REQUEST],
+  'monitors.update': [MONITOR_UUID, MONITOR_REQUEST],
+  'monitors.snooze': [MONITOR_UUID, '1h'],
+  'channels.create': [CHANNEL_REQUEST],
+  'channels.rename': [CHANNEL_ID, 'ops room'],
+}
+
+const IDENTIFIER_OF: Readonly<Record<string, unknown>> = { monitors: MONITOR_UUID, channels: CHANNEL_ID }
+
+function leadingArgsFor(group: string, method: string, arity: number): readonly unknown[] {
+  return LEADING_ARGS[`${group}.${method}`] ?? Array.from({ length: arity - 1 }, () => IDENTIFIER_OF[group])
+}
+
+const REFLECTED = createCronheartApi({ apiKey: API_KEY, baseUrl: BASE_URL, env: {} })
+
+const OPTION_CASES = Object.entries(REFLECTED)
+  .filter(([, member]) => typeof member === 'object' && member !== null)
+  .flatMap(([group, members]) => Object.keys(members as object).map((method) => [group, method] as const))
+
+type Method = (...args: unknown[]) => unknown
+
+function methodOf(api: CronheartApi, group: string, method: string): Method {
+  const found = (api as unknown as Record<string, Record<string, Method>>)[group]?.[method]
+
+  if (found === undefined) {
+    throw new Error(`${group}.${method} is gone`)
+  }
+
+  return found
+}
+
+function invoke(api: CronheartApi, group: string, method: string, options: object) {
+  const call = methodOf(api, group, method)
+  const returned = call(...leadingArgsFor(group, method, call.length), options) as {
+    next?: () => Promise<unknown>
+  }
+  const iterator = typeof returned.next === 'function'
+
+  return { iterator, settled: Promise.resolve(iterator ? returned.next?.() : returned) }
+}
+
+const ITERATORS = OPTION_CASES.filter(([group, method]) => {
+  const { iterator, settled } = invoke(apiWith({}).api, group, method, {})
+  settled.catch(() => undefined)
+
+  return iterator
+})
+
+const TWO_PAGES: Readonly<Record<string, readonly unknown[]>> = {
+  'monitors.iterate': [
+    { data: [{ ...MONITOR_JSON, uuid: '00000000-0000-0000-0000-000000000001' }], total: 2, limit: 1, offset: 0 },
+    { data: [{ ...MONITOR_JSON, uuid: '00000000-0000-0000-0000-000000000002' }], total: 2, limit: 1, offset: 1 },
+  ],
+  'monitors.iterateAlerts': [
+    { data: [ALERT_JSON], total: 2, limit: 1, offset: 0 },
+    { data: [{ ...ALERT_JSON, id: '78' }], total: 2, limit: 1, offset: 1 },
+  ],
+  'monitors.iteratePings': [
+    { data: [PING_JSON], next_cursor: 'b3BhcXVl' },
+    { data: [{ ...PING_JSON, id: '2' }], next_cursor: null },
+  ],
+}
+
+const OPTION_KEYS = ['limit', 'offset', 'cursor', 'timeoutMs', 'signal', 'idempotencyKey']
+
+function counting(values: Readonly<Record<string, unknown>>) {
+  const reads: Record<string, number> = {}
+  const count = (key: PropertyKey) => {
+    reads[String(key)] = (reads[String(key)] ?? 0) + 1
+  }
+  const options = new Proxy(
+    { ...Object.fromEntries(OPTION_KEYS.map((key) => [key, undefined])), ...values },
+    {
+      get: (target, key) => {
+        count(key)
+
+        return Reflect.get(target, key)
+      },
+      getOwnPropertyDescriptor: (target, key) => {
+        count(key)
+
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+      ownKeys: (target) => {
+        count('[[OwnPropertyKeys]]')
+
+        return Reflect.ownKeys(target)
+      },
+    },
+  )
+
+  return { options, reads }
+}
+
+describe('composing a request out of what the caller hands in', () => {
+  it.each(REQUEST_FIELDS)('keeps a throwing %s %s getter inside the one type a caller catches', async (route, field, base, call) => {
+    const { api, recorder } = apiWith(answerFor(route))
+
+    const failure = await call(api, withAccessor(base, field, exploding(field)), {}).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(ApiInvalidRequestError)
+    expect(failure).not.toHaveProperty('cause')
+    expect(recorder.requests).toHaveLength(0)
+  })
+
+  it.each(OPTION_CASES)('keeps %s.%s inside the one type a caller catches when every option it reads throws', async (group, method) => {
+    const { api, recorder } = apiWith(answerFor(`${group}.${method}`))
+
+    const failure = await invoke(api, group, method, HOSTILE_OPTIONS).settled.catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(ApiInvalidRequestError)
+    expect((failure as Error).message).toContain('could not be composed')
+    expect(failure).not.toHaveProperty('cause')
+    expect(recorder.requests).toHaveLength(0)
+  })
+
+  it.each(OPTION_CASES)('reads every option %s.%s uses once', async (group, method) => {
+    const { api } = apiWith(answerFor(`${group}.${method}`))
+    const { options, reads } = counting({})
+
+    await invoke(api, group, method, options).settled.catch(() => undefined)
+
+    expect(Object.keys(reads)).toEqual(expect.arrayContaining(['timeoutMs', 'signal']))
+    expect(Object.entries(reads).filter(([, count]) => count !== 1)).toEqual([])
+  })
+
+  it('finds a two-page answer for every iterator the client has', () => {
+    expect(ITERATORS.length).toBeGreaterThan(0)
+    expect(ITERATORS.map(([group, method]) => `${group}.${method}`).sort()).toEqual(
+      Object.keys(TWO_PAGES).sort(),
+    )
+  })
+
+  it.each(ITERATORS)('reads every option of %s.%s once across a two-page walk', async (group, method) => {
+    const pages = TWO_PAGES[`${group}.${method}`] ?? []
+    const { api, recorder } = apiWith((_request, attempt) => ({
+      json: pages[Math.min(attempt, pages.length) - 1],
+    }))
+    const { options, reads } = counting({ limit: 1, timeoutMs: 5000 })
+    const call = methodOf(api, group, method)
+    const walked: unknown[] = []
+
+    for await (const item of call(...leadingArgsFor(group, method, call.length), options) as AsyncIterable<unknown>) {
+      walked.push(item)
+    }
+
+    expect(recorder.requests).toHaveLength(2)
+    expect(walked).toHaveLength(2)
+    expect(Object.keys(reads)).toEqual(expect.arrayContaining(['limit', 'timeoutMs', 'signal']))
+    expect(Object.entries(reads).filter(([, count]) => count !== 1)).toEqual([])
+  })
+
+  it.each([
+    ['an object whose toString throws', { toString: () => { throw new TypeError('toString ran') } }],
+    ['an object whose Symbol.toPrimitive throws', { [Symbol.toPrimitive]: () => { throw new TypeError('toPrimitive ran') } }],
+    ['a symbol', Symbol('cursor')],
+  ])('refuses a cursor that is %s, before a request exists', async (_id, cursor) => {
+    const options = { cursor: cursor as unknown as string }
+
+    for (const call of [
+      (api: CronheartApi) => api.monitors.pings(MONITOR_UUID, options),
+      (api: CronheartApi) => api.monitors.iteratePings(MONITOR_UUID, options).next(),
+    ]) {
+      const { api, recorder } = apiWith({ json: { data: [], next_cursor: null } })
+
+      await expect(call(api)).rejects.toBeInstanceOf(ApiInvalidRequestError)
+      expect(recorder.requests).toHaveLength(0)
+    }
+  })
+
+  it.each(REQUESTS.filter(([route]) => route.startsWith('monitors.')))(
+    'sends a full %s request under exactly the wire keys it knows',
+    async (route, base, call, wireKeys) => {
+      const { api, recorder } = apiWith(answerFor(route))
+
+      await call(api, base, {})
+
+      expect(Object.keys(JSON.parse(String(recorder.requests[0]?.body))).sort()).toEqual(
+        Object.values(wireKeys).sort(),
+      )
+    },
+  )
+
+  it.each([
+    ['an own map', () => Object.assign(['1'], { map: () => { throw new TypeError('an own map ran') } })],
+    ['a subclass with its own toJSON', () => {
+      class Ids extends Array<string> {
+        toJSON() {
+          return ['999']
+        }
+      }
+      const ids = new Ids()
+      ids.push('1')
+
+      return ids
+    }],
+  ] as const)('sends channel ids held in an array with %s as the plain ids it holds', async (_id, channelIds) => {
+    const { api, recorder } = apiWith({ json: MONITOR_JSON })
+
+    await api.monitors.create({ ...MONITOR_REQUEST, channelIds: channelIds() })
+
+    expect(JSON.parse(String(recorder.requests[0]?.body))['channel_ids']).toEqual(['1'])
+  })
+
+  it('refuses channel ids with a hole in them rather than sending one', async () => {
+    const { api, recorder } = apiWith({ json: MONITOR_JSON })
+    const holed = new Array<string>(2)
+    holed[1] = '1'
+
+    await expect(api.monitors.create({ ...MONITOR_REQUEST, channelIds: holed })).rejects.toBeInstanceOf(
+      ApiInvalidRequestError,
+    )
+    expect(recorder.requests).toHaveLength(0)
+  })
+
+  it.each(REQUEST_FIELDS)('reads the %s %s once, and sends the value it validated', async (route, field, base, call, wireKey) => {
+    const { api, recorder } = apiWith(answerFor(route))
+    const valid = (base as Record<string, unknown>)[field]
+    let reads = 0
+
+    await call(api, withAccessor(base, field, () => (reads++ === 0 ? valid : Symbol('changed'))), {})
+
+    expect(reads).toBe(1)
+    expect(JSON.parse(String(recorder.requests[0]?.body))[wireKey]).toEqual(valid)
+  })
+
+  it.each([
+    ['monitors.create', (api: CronheartApi, options: object) => api.monitors.create(MONITOR_REQUEST, options)],
+    ['channels.create', (api: CronheartApi, options: object) => api.channels.create(CHANNEL_REQUEST, options)],
+  ] as const)('reads the %s idempotency key once, and sends the value it validated', async (route, call) => {
+    const { api, recorder } = apiWith(answerFor(route))
+    let reads = 0
+
+    await call(api, withAccessor({}, 'idempotencyKey', () => (reads++ === 0 ? 'job-1' : 'job\r\n2')))
+
+    expect(reads).toBe(1)
+    expect(recorder.requests[0]?.headers['Idempotency-Key']).toBe('job-1')
   })
 })

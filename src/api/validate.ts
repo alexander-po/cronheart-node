@@ -75,7 +75,14 @@ export function channelIdsFor(values: readonly (string | number)[]): readonly st
     refuse('channelIds must be an array. A value of another shape is rejected, not ignored.')
   }
 
-  return values.map(channelIdFor)
+  const length = values.length
+  const ids: string[] = []
+
+  for (let index = 0; index < length; index += 1) {
+    ids.push(channelIdFor(values[index] as string | number))
+  }
+
+  return ids
 }
 
 // Visible ASCII with no space, which is what the header may carry and the service store.
@@ -323,6 +330,14 @@ export function pageOffset(value: number | undefined): number {
 
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
     refuse('offset must be a whole number of at least 0.')
+  }
+
+  return value
+}
+
+export function pageCursor(value: unknown): string | undefined {
+  if (value !== undefined && typeof value !== 'string') {
+    refuse('cursor must be a string, exactly as the previous page handed it back.')
   }
 
   return value

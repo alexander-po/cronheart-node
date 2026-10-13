@@ -197,7 +197,12 @@ function tagsFor(contract, pointer) {
     return {}
   }
 
-  return { openness: owner.openness, direction: owner.direction, layer: owner.layer ?? 'server' }
+  return {
+    openness: owner.openness,
+    writeOpenness: owner.write_openness,
+    direction: owner.direction,
+    layer: owner.layer ?? 'server',
+  }
 }
 
 export function compare(contract, facts) {

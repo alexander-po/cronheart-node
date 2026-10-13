@@ -20,13 +20,16 @@ tags. The verdict is a function of all three.
 | Verdict | Meaning |
 | --- | --- |
 | `additive` | An up-to-date SDK keeps working unchanged. |
+| `writers-behind` | An SDK that validates requests against a closed list refuses a member the service now accepts. Nothing it sends breaks; it needs an SDK release, not a breaking contract bump. |
 | `breaking-readers` | Code that parses a server response may now be wrong. |
 | `breaking-writers` | Code that constructs a request may now be rejected. |
 | `breaking-both` | Both halves. |
 | `undecidable` | The rules cannot decide. A human names the verdict in the PR; CI fails until they do. |
 
 `breaking-*` requires a major bump of `contract_version` and a coordinated SDK
-release. `additive` requires a minor bump. Editorial changes (see the last table)
+release. `writers-behind` requires a minor bump and an SDK release that accepts the
+new member, and the drift watch fails on it so that release is not forgotten.
+`additive` requires a minor bump. Editorial changes (see the last table)
 are a patch bump.
 
 ## Directions
@@ -65,8 +68,9 @@ Pointer patterns use `*` for one path segment and `**` for any number.
 | 1 | `/vocabularies/*/members` where `openness: open` **and** `direction: read` | `additive` | `breaking-readers` | `breaking-readers` | `additive` |
 | 2a | `/vocabularies/*/members` where `openness: closed`, `direction: read` **and** `layer: server` | `breaking-readers` | `breaking-readers` | `breaking-readers` | `additive` |
 | 2b | the same where `layer: client-convention` | `additive` — the vocabulary is ours, so a member reaches a consumer only in an SDK release that already knows it | `breaking-readers` | `breaking-readers` | `additive` |
-| 3 | `/vocabularies/*/members` where `direction: write` (any openness) | `additive` | `breaking-writers` | `breaking-writers` | `additive` |
-| 4 | `/vocabularies/*/members` where `direction: read+write` | apply rows 1, 2a and 2b for the read half **and** row 3 for the write half; take the union | union | union | `additive` |
+| 3 | `/vocabularies/*/members` where `direction: write` and the write half is open — `write_openness`, or `openness` where it states none | `additive` | `breaking-writers` | `breaking-writers` | `additive` |
+| 3a | the same where the write half is closed | `writers-behind` — a writer refuses the new member until it is released knowing it | `breaking-writers` | `breaking-writers` | `additive` |
+| 4 | `/vocabularies/*/members` where `direction: read+write` | apply rows 1, 2a and 2b for the read half **and** row 3 or 3a for the write half; take the union | union | union | `additive` |
 | 5 | `/vocabularies/*/openness` (`open` → `closed`) | — | — | `breaking-readers` | — |
 | 6 | `/vocabularies/*/openness` (`closed` → `open`) | — | — | `additive` | — |
 | 6a | `/vocabularies/*/layer` (`client-convention` → `server`) | — | — | `breaking-readers` — a vocabulary we owned is now the service's, so a member we never shipped can arrive on the wire | — |
@@ -132,13 +136,14 @@ alongside a change elsewhere is classified by that other change.
 1. Diff the two contract documents into a flat list of `(pointer, direction, before, after)`.
 2. Match each pointer against the classes above, **most specific pattern first**. The
    editorial table is consulted last, so an editorial pattern never shadows a rule.
-3. For rows 1 through 6b and 24, read the enclosing object's `openness`, `direction` and
-   `layer` tags **from the new document**, and re-read them from the old one; if a tag
+3. For rows 1 through 6b and 24, read the enclosing object's `openness`, `write_openness`,
+   `direction` and `layer` tags **from the new document**, and re-read them from the old one; if a tag
    itself changed, emit both the tag-change verdict (rows 5–6b) and the member verdict.
    `layer` is inherited: an object without its own tag takes the nearest one above it, and
    a pointer with none above it is read as `server`.
 4. Union all verdicts. `undecidable` present ⇒ the whole change is `undecidable`.
-   Otherwise `breaking-*` wins over `additive`, which wins over `editorial`.
+   Otherwise `breaking-*` wins over `writers-behind`, which wins over `additive`, which
+   wins over `editorial`.
 5. Compare against the `contract_version` bump in the same diff and fail on a mismatch.
 
 ## What these rules cannot decide

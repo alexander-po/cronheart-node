@@ -201,6 +201,8 @@ const UNANCHORED = {
     'ASCTIME',
     'BUILT_IN_SECRETS',
     'CANONICAL_SHAPE',
+    'CHANNEL_DESTINATIONS',
+    'CHANNEL_FIELDS',
     'CHANNEL_ID',
     'CONFIGURED_MONITOR',
     'DELTA_SECONDS',
@@ -283,6 +285,7 @@ const UNANCHORED = {
     'SIGNUP_HELP',
     'SYNC_HELP',
     'UNREACHABLE',
+    'WITHHELD',
     'WOULD_ALERT_NOBODY',
   ],
   'keys and markers internal to this package': [
