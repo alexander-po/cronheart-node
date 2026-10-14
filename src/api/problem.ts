@@ -9,7 +9,7 @@ export const EMPTY_PROBLEM: ProblemDetails = {
   retryAfterSeconds: undefined,
 }
 
-const WITHHELD = "The service's message is withheld, because it may repeat a channel's destination."
+const WITHHELD = "The service's message is withheld, because on this route it may repeat a credential or an address."
 
 function textOf(source: Record<string, unknown>, key: string): string | undefined {
   const value = source[key]
@@ -69,11 +69,17 @@ export function parseProblem(body: string): ProblemDetails {
   }
 }
 
-// A destination is a credential in all but name, and the service's prose about one may quote
-// it back in any spelling and in any position, a field name included, so on those routes none
-// of that prose is kept and only field names this client could have sent survive.
+function isKept(field: string, kept: readonly string[]): boolean {
+  const named = /^(.+?)(?:\.[0-9]{1,6}|\[[0-9]{1,6}\])?$/.exec(field)?.[1] ?? field
+
+  return kept.includes(named)
+}
+
+// A destination, a monitor identifier, an address or a device code may be quoted back in any
+// spelling and in any position, a field name included, so on the routes that carry one none of
+// the service's prose is kept and only field names this client could have sent survive.
 export function withheldText(problem: ProblemDetails, kept: readonly string[]): ProblemDetails {
-  const fields = Object.keys(problem.errors ?? {}).filter((field) => kept.includes(field))
+  const fields = Object.keys(problem.errors ?? {}).filter((field) => isKept(field, kept))
 
   return {
     status: problem.status,

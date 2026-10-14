@@ -817,10 +817,13 @@ try {
 ```
 
 `error.reason` is the only way to tell a timeout from a dead socket.
-On every `api.channels` call the service's own wording is withheld, because it
-may repeat a channel's destination: `error.problem` keeps no `title`, `detail`
-or `upgradeUrl`, and `error.errors` keeps only the fields a channel request can
-carry, each with a fixed sentence in place of the service's message.
+On every `api.channels` call, on every `api.monitors` call that names a
+monitor's uuid, and on both signup calls, the service's own wording is
+withheld, because it may repeat a channel's destination, the uuid, the address
+or the device code: `error.problem` keeps no `title`, `detail` or
+`upgradeUrl`, and `error.errors` keeps only the fields such a request can
+carry, each with a fixed sentence in place of the service's message, so a
+validation error's message names only those fields.
 `error.group` is the coarser cut: `'response'` is everything the server
 refused, and `'configuration'`, `'invalid-request'`, `'transport'` and
 `'hydration'` are the four ways a request failed without one.

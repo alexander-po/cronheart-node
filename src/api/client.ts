@@ -26,8 +26,9 @@ import {
   pingPageFrom,
   rotatedSecretFrom,
 } from './hydrate.js'
+import { composed, plainOptions } from './compose.js'
 import { type Endpoint, type Session, createSession } from './http.js'
-import { ApiConfigurationError, ApiInvalidRequestError, isCronheartApiError } from './errors.js'
+import { ApiConfigurationError, isCronheartApiError } from './errors.js'
 import { cursorWalk, offsetWalk } from './paginate.js'
 import type {
   Account,
@@ -76,18 +77,36 @@ import {
 
 const API_KEY_OPTION = 'the apiKey option'
 
+const MONITOR_WIRE_KEYS = {
+  name: 'name',
+  scheduleKind: 'schedule_kind',
+  scheduleExpr: 'schedule_expr',
+  tz: 'tz',
+  graceSeconds: 'grace_seconds',
+  channelIds: 'channel_ids',
+} as const
+
+const MONITOR_FIELDS: readonly string[] = [
+  ...Object.values(MONITOR_WIRE_KEYS),
+  'duration',
+  'confirm',
+  'limit',
+  'offset',
+  'cursor',
+]
+
 function monitorBodyFrom(request: CreateMonitorRequest | UpdateMonitorRequest, partial: boolean) {
   const { name, scheduleKind, scheduleExpr, tz, graceSeconds, channelIds } = request
   const body: Record<string, unknown> = {}
 
   if (!partial || name !== undefined) {
     assertMonitorName(name)
-    body['name'] = name
+    body[MONITOR_WIRE_KEYS.name] = name
   }
 
   if (!partial || scheduleKind !== undefined) {
     assertScheduleKind(scheduleKind)
-    body['schedule_kind'] = scheduleKind
+    body[MONITOR_WIRE_KEYS.scheduleKind] = scheduleKind
   }
 
   if (!partial || scheduleExpr !== undefined) {
@@ -99,22 +118,22 @@ function monitorBodyFrom(request: CreateMonitorRequest | UpdateMonitorRequest, p
       assertScheduleExpression(scheduleKind, scheduleExpr)
     }
 
-    body['schedule_expr'] = scheduleExpr
+    body[MONITOR_WIRE_KEYS.scheduleExpr] = scheduleExpr
   }
 
   if (tz !== undefined) {
-    body['tz'] = canonicalTimezone(tz)
+    body[MONITOR_WIRE_KEYS.tz] = canonicalTimezone(tz)
   }
 
   if (graceSeconds !== undefined) {
     assertGraceSeconds(graceSeconds)
-    body['grace_seconds'] = graceSeconds
+    body[MONITOR_WIRE_KEYS.graceSeconds] = graceSeconds
   }
 
   if (channelIds !== undefined) {
     // Written as the decimal string the listing reports, which the service casts to an
     // integer. Sending a JavaScript number instead would round a 64-bit identifier.
-    body['channel_ids'] = channelIdsFor(channelIds)
+    body[MONITOR_WIRE_KEYS.channelIds] = channelIdsFor(channelIds)
   }
 
   return body
@@ -157,24 +176,12 @@ function channelBodyFrom(request: CreateChannelRequest) {
   return body
 }
 
-function composed<T>(compose: () => T): T {
-  try {
-    return compose()
-  } catch (error) {
-    throw isCronheartApiError(error)
-      ? error
-      : new ApiInvalidRequestError(
-          'This request could not be composed: reading a value it was given threw, so nothing was sent.',
-        )
-  }
-}
-
-function plainOptions(options: RequestOptions | undefined): RequestOptions {
-  return { timeoutMs: options?.timeoutMs, signal: options?.signal }
-}
-
 function channelRoute(endpoint: () => Endpoint): () => Endpoint {
   return () => ({ ...endpoint(), problemFieldsKept: CHANNEL_FIELDS })
+}
+
+function monitorRoute(endpoint: () => Endpoint): () => Endpoint {
+  return () => ({ ...endpoint(), problemFieldsKept: MONITOR_FIELDS })
 }
 
 // A property is an accessor as readily as a value, and one that throws would leave this
@@ -247,14 +254,14 @@ function build(configuration: CronheartApiOptions): CronheartApi {
     body?: unknown,
   ) {
     return read<Monitor>(
-      () => ({
+      monitorRoute(() => ({
         method: 'POST',
         path: monitorAt(uuid, `/${action}`),
         // A rotate leaves a different identifier behind every time it runs, so a repeat is
         // a second rotation and the first one's new address is lost before anyone read it.
         retry: action === 'rotate-uuid' ? 'never' : 'safe',
         body,
-      }),
+      })),
       options,
       monitorFrom,
     )
@@ -278,7 +285,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
 
   function alertPage(uuid: string, options: ListOptions | undefined): Promise<AlertPage> {
     return read(
-      () => ({
+      monitorRoute(() => ({
         method: 'GET',
         path: monitorAt(uuid, '/alerts'),
         retry: 'safe',
@@ -286,7 +293,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
           limit: pageLimit(options?.limit, API_PAGE_LIMIT_DEFAULT),
           offset: pageOffset(options?.offset),
         },
-      }),
+      })),
       options,
       alertPageFrom,
     )
@@ -294,7 +301,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
 
   function pingPage(uuid: string, options: CursorOptions | undefined): Promise<PingPage> {
     return read(
-      () => ({
+      monitorRoute(() => ({
         method: 'GET',
         path: monitorAt(uuid, '/pings'),
         retry: 'safe',
@@ -302,7 +309,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
           limit: pageLimit(options?.limit, API_PAGE_LIMIT_DEFAULT),
           cursor: pageCursor(options?.cursor),
         },
-      }),
+      })),
       options,
       pingPageFrom,
     )
@@ -362,7 +369,7 @@ function build(configuration: CronheartApiOptions): CronheartApi {
     list: async (options) => monitorPage(options),
     iterate: (options) => walkMonitors(options),
     get: async (uuid, options) =>
-      read(() => ({ method: 'GET', path: monitorAt(uuid), retry: 'safe' }), options, monitorFrom),
+      read(monitorRoute(() => ({ method: 'GET', path: monitorAt(uuid), retry: 'safe' })), options, monitorFrom),
     create: async (request, options) =>
       read(
         () => ({
@@ -377,17 +384,17 @@ function build(configuration: CronheartApiOptions): CronheartApi {
       ),
     update: async (uuid, request, options) =>
       read(
-        () => ({
+        monitorRoute(() => ({
           method: 'PATCH',
           path: monitorAt(uuid),
           retry: 'safe',
           body: monitorBodyFrom(request, true),
-        }),
+        })),
         options,
         monitorFrom,
       ),
     delete: async (uuid, options) => {
-      await send(() => ({ method: 'DELETE', path: monitorAt(uuid), retry: 'safe' }), options)
+      await send(monitorRoute(() => ({ method: 'DELETE', path: monitorAt(uuid), retry: 'safe' })), options)
     },
     pause: async (uuid, options) => monitorAction(uuid, 'pause', options),
     resume: async (uuid, options) => monitorAction(uuid, 'resume', options),

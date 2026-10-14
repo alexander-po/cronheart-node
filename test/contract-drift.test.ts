@@ -5,7 +5,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error — a plain script, deliberately not part of the typed source tree
-import { classify } from '../contract/classify.mjs'
+import { ROWS, SPLIT, TAG_FALLBACKS, classify, disagreements } from '../contract/classify.mjs'
+// @ts-expect-error — a plain script, deliberately not part of the typed source tree
+import { tagsFor } from '../contract/drift.mjs'
 
 const root = new URL('../', import.meta.url)
 
@@ -63,12 +65,207 @@ describe('the classifier reads the write half of a vocabulary on its own', () =>
   const added = { pointer: '/vocabularies/any.kind/members', direction: 'added', before: ['a'], after: ['a', 'b'] }
 
   it.each([
-    ['stated open', { direction: 'write', openness: 'closed', writeOpenness: 'open' }, 'additive', ['3']],
-    ['stated closed', { direction: 'write', openness: 'open', writeOpenness: 'closed' }, 'writers-behind', ['3a']],
+    ['stated open', { direction: 'write', openness: 'closed', write_openness: 'open' }, 'additive', ['3']],
+    ['stated closed', { direction: 'write', openness: 'open', write_openness: 'closed' }, 'writers-behind', ['3a']],
     ['not stated, under a closed vocabulary', { direction: 'write', openness: 'closed' }, 'writers-behind', ['3a']],
     ['not stated, under an open vocabulary', { direction: 'write', openness: 'open' }, 'additive', ['3']],
   ])('classifies a member added to a write half %s', (_id, tags, verdict, rows) => {
     expect(classify(added, tags)).toEqual({ verdict, rows })
+  })
+
+  it('reads a closed read vocabulary that states no layer as the service’s', () => {
+    expect(classify(added, { direction: 'read', openness: 'closed' })).toEqual({ verdict: 'breaking-readers', rows: ['2a'] })
+  })
+
+  it('leaves a read and write vocabulary undecided when one half matches no row', () => {
+    expect(classify(added, { direction: 'read+write', openness: 'closed', write_openness: 'open', layer: 'edge' })).toEqual({
+      verdict: 'undecidable',
+      rows: [],
+    })
+  })
+})
+
+interface Vocabulary {
+  readonly openness?: string
+  readonly write_openness?: string
+  readonly direction?: string
+  readonly layer?: string
+}
+
+const VERDICTS_BY_DIRECTION: Readonly<Record<string, readonly string[]>> = {
+  'alert.kind': ['additive', 'breaking-readers', 'breaking-readers', 'additive'],
+  'channel.kind': ['writers-behind', 'breaking-both', 'breaking-both', 'additive'],
+  'incident.kind': ['additive', 'breaking-readers', 'breaking-readers', 'additive'],
+  'monitor.status': ['additive', 'breaking-readers', 'breaking-readers', 'additive'],
+  'ping.action': ['writers-behind', 'breaking-writers', 'breaking-writers', 'additive'],
+  'ping.kind': ['additive', 'breaking-readers', 'breaking-readers', 'additive'],
+  'ping.outcome': ['additive', 'breaking-readers', 'breaking-readers', 'additive'],
+  'plan.key': ['additive', 'breaking-readers', 'breaking-readers', 'additive'],
+  'schedule.kind': ['breaking-readers', 'breaking-both', 'breaking-both', 'additive'],
+  'snooze.duration': ['writers-behind', 'breaking-writers', 'breaking-writers', 'additive'],
+}
+
+describe('every vocabulary the contract states keeps the verdicts its tags select', () => {
+  const contract = JSON.parse(readFileSync(CONTRACT, 'utf8')) as { vocabularies: Record<string, unknown> }
+  const vocabularies = Object.entries(contract.vocabularies).filter(
+    (entry): entry is [string, Vocabulary] => typeof entry[1] === 'object' && entry[1] !== null,
+  )
+
+  it('names each one', () => {
+    expect(vocabularies.map(([name]) => name).sort()).toEqual(Object.keys(VERDICTS_BY_DIRECTION).sort())
+  })
+
+  it.each(vocabularies)('classifies %s by the tags the drift watch reads for it', (name) => {
+    const pointer = `/vocabularies/${name}/members`
+    const verdicts = ['added', 'removed', 'changed', 'reordered'].map(
+      (change) =>
+        (classify({ pointer, direction: change, before: ['a'], after: ['a', 'b'] }, tagsFor(contract, pointer)) as {
+          verdict: string
+        }).verdict,
+    )
+
+    expect(verdicts).toEqual(VERDICTS_BY_DIRECTION[name])
+  })
+})
+
+const RULE_TABLE = readFileSync(new URL('contract/CLASSIFICATION.md', root), 'utf8')
+
+const OPPOSITE_BOUND: Readonly<Record<string, string>> = {
+  raised: 'lowered',
+  lowered: 'raised',
+  widened: 'narrowed',
+  narrowed: 'widened',
+}
+
+function withCell(text: string, row: string, cell: number, edit: (content: string) => string): string {
+  const lines = text.split('\n')
+  const at = lines.findIndex((line) => new RegExp(`^\\|\\s*${row}\\s*\\|`).test(line))
+
+  if (at === -1) {
+    throw new Error(`the rule table has no row ${row}`)
+  }
+
+  const parts = (lines[at] as string).split('|')
+  parts[cell + 2] = ` ${edit((parts[cell + 2] ?? '').trim())} `
+  lines[at] = parts.join('|')
+
+  return lines.join('\n')
+}
+
+function pointerCellOf(row: string): string {
+  let content = ''
+  withCell(RULE_TABLE, row, 0, (cell) => (content = cell))
+
+  return content
+}
+
+const QUALIFIERS = ['or', 'unless', 'except', 'not', 'when the vocabulary is deprecated']
+
+function firstVerdictCellOf(row: string): number {
+  let found = -1
+
+  for (const index of [1, 2, 3, 4]) {
+    withCell(RULE_TABLE, row, index, (content) => {
+      if (found === -1 && /`(additive|writers-behind|breaking-[a-z]+|undecidable)`/.test(content)) {
+        found = index
+      }
+
+      return content
+    })
+  }
+
+  return found
+}
+
+function mutationsOf(row: string): (readonly [string, string])[] {
+  const cell = pointerCellOf(row)
+  const bound = /\b(raised|lowered|widened|narrowed)\b/.exec(cell)?.[1]
+  const pairs = [...cell.matchAll(/`([a-z_]+): (\S+)`/g)]
+  const patterns = [...cell.matchAll(/`(\/[^`]+)`/g)].map(([held]) => held)
+  const verdictCell = firstVerdictCellOf(row)
+
+  return [
+    ['adds a tag pair', withCell(RULE_TABLE, row, 0, (content) => `${content} **and** \`zz_tag: on\``)],
+    ['adds a quoted qualifier', withCell(RULE_TABLE, row, 0, (content) => `${content} **and** \`not deprecated\``)],
+    ['adds a pattern', withCell(RULE_TABLE, row, 0, (content) => `${content} and \`/zz/*\``)],
+    ...QUALIFIERS.map(
+      (words) => [`qualifies it with "${words}"`, withCell(RULE_TABLE, row, 0, (content) => `${content} ${words}`)] as const,
+    ),
+    ...patterns.map(
+      (held) => [`drops ${held}`, withCell(RULE_TABLE, row, 0, (content) => content.replace(held, '').replace(/(,|and)\s*$/, ''))] as const,
+    ),
+    ...(verdictCell === -1
+      ? []
+      : ([
+          ['adds a second verdict', withCell(RULE_TABLE, row, verdictCell, (content) => `${content} or \`breaking-both\``)],
+          ['adds a condition to a verdict', withCell(RULE_TABLE, row, verdictCell, (content) => `${content} where \`layer: server\``)],
+          ['qualifies a verdict in words', withCell(RULE_TABLE, row, verdictCell, (content) => `${content.split(' — ')[0] ?? content} unless deprecated`)],
+        ] as const)),
+    bound === undefined
+      ? ['adds a bound', withCell(RULE_TABLE, row, 0, (content) => `${content} — bound **raised**`)]
+      : ['swaps its bound', withCell(RULE_TABLE, row, 0, (content) => content.replace(bound, OPPOSITE_BOUND[bound] ?? bound))],
+    ...pairs.flatMap(([held, tag, value]) => [
+      [`flips ${tag}`, withCell(RULE_TABLE, row, 0, (content) => content.replace(held, `\`${tag}: zz-${value}\``))] as const,
+      [`drops ${tag}`, withCell(RULE_TABLE, row, 0, (content) => content.replace(held, ''))] as const,
+      [`states ${tag} twice`, withCell(RULE_TABLE, row, 0, (content) => `${content} **and** \`${tag}: ${value}\``)] as const,
+    ]),
+  ]
+}
+
+const MUTATED_ROWS = [...(ROWS as { row: string }[]).map((entry) => entry.row), SPLIT.row as string]
+
+const MUTATIONS = MUTATED_ROWS.flatMap((row) =>
+  mutationsOf(row).map(([what, text]) => [row, what, text] as const),
+)
+
+describe('the classifier and the documented rule table agree on what each row covers', () => {
+  it('agrees on the committed table', () => {
+    expect(disagreements(RULE_TABLE)).toEqual([])
+  })
+
+  it('mutates every row it holds, and states a condition on the member rows', () => {
+    expect([...new Set(MUTATIONS.map(([row]) => row))].sort()).toEqual([...MUTATED_ROWS].sort())
+    expect(
+      [...new Set(MUTATIONS.filter(([, what]) => what.startsWith('flips')).map(([row]) => row))].sort(),
+    ).toEqual(['1', '2a', '2b', '3', '3a', '4'])
+  })
+
+  it.each(MUTATIONS)('reports row %s when the table %s', (row, _what, text) => {
+    expect(text).not.toBe(RULE_TABLE)
+    expect(disagreements(text)).toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^rule ${row} — `))]))
+  })
+
+  it.each([
+    ['stops combining row 2b', 1, (content: string) => content.replace('2b', ''), 'the rule table does not combine row 2b'],
+    ['also combines row 7', 1, (content: string) => `${content} and row 7`, 'the rule table combines row 7, which this does not'],
+    ['stops taking the union on removed', 2, () => 'intersection', 'on removed the rule table says nothing and this holds union'],
+    ['reads a reordering as breaking', 4, () => '`breaking-readers`', 'on reordered the rule table says breaking-readers and this holds additive'],
+  ] as const)('reports row 4 when the table %s', (_what, cell, edit, reported) => {
+    const text = withCell(RULE_TABLE, SPLIT.row as string, cell, edit)
+
+    expect(text).not.toBe(RULE_TABLE)
+    expect(disagreements(text)).toEqual(expect.arrayContaining([`rule ${SPLIT.row as string} — ${reported}`]))
+  })
+
+  it.each((TAG_FALLBACKS as { tag: string }[]).map((entry) => entry.tag))('reports the fallback of %s when the table changes or drops it', (tag) => {
+    const row = new RegExp(`^\\| \`${tag}\` \\|.*$`, 'm')
+
+    for (const [text, reported] of [
+      [RULE_TABLE.replace(row, `| \`${tag}\` | \`zz\` |`), /^tag fallback — the rule table reads /],
+      [RULE_TABLE.replace(row, ''), /^tag fallback — the rule table does not read /],
+    ] as const) {
+      expect(text).not.toBe(RULE_TABLE)
+      expect(disagreements(text)).toEqual(expect.arrayContaining([expect.stringMatching(reported)]))
+    }
+  })
+
+  it('reports a fallback the table states and this does not hold', () => {
+    const text = RULE_TABLE.replace('| `layer` | `server` |', '| `layer` | `server` |\n| `zz_tag` | `on` |')
+
+    expect(text).not.toBe(RULE_TABLE)
+    expect(disagreements(text)).toEqual(
+      expect.arrayContaining(['tag fallback — the rule table reads zz_tag as the value on, which this does not']),
+    )
   })
 })
 

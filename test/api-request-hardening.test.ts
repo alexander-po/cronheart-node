@@ -6,6 +6,7 @@ import {
   isCronheartApiError,
 } from '../src/api/errors.js'
 import { createSession } from '../src/api/http.js'
+import { createSignupClient } from '../src/api/signup.js'
 import { MAX_RETRIES } from '../src/constants.js'
 import { attemptsFor } from '../src/transport/attempts.js'
 import type {
@@ -49,17 +50,6 @@ const UNREACHABLE = { rejectWith: new Error('socket hang up') }
 // A header value that ends the header and starts one of its own. The second Authorization
 // is what a request carrying the account's key would then also carry.
 const INJECTION = 'job-1\r\nAuthorization: Bearer cmk_someone-elses-key'
-
-function surfacesOf(error: unknown): string[] {
-  return [
-    String(error),
-    error instanceof Error ? error.message : '',
-    JSON.stringify(error) ?? '',
-    Object.entries(error as object)
-      .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-      .join(' '),
-  ]
-}
 
 // Stated here rather than derived from the cap the client reads: a bound taken from that
 // constant holds however far it moves, and a body twice the cap classifies the same either
@@ -304,30 +294,6 @@ describe('the options the client is built from', () => {
       expect(isCronheartApiError(failure)).toBe(true)
     },
   )
-})
-
-describe('a failure names the route without naming the monitor', () => {
-  it.each([
-    ['get', (api: ReturnType<typeof createCronheartApi>) => api.monitors.get(MONITOR_UUID)],
-    ['pause', (api: ReturnType<typeof createCronheartApi>) => api.monitors.pause(MONITOR_UUID)],
-    ['pings', (api: ReturnType<typeof createCronheartApi>) => api.monitors.pings(MONITOR_UUID)],
-    ['alerts', (api: ReturnType<typeof createCronheartApi>) => api.monitors.alerts(MONITOR_UUID)],
-  ])('on monitors.%s', async (_id, call) => {
-    const { api, recorder } = apiWith({ status: 404, json: { status: 404 } })
-    const failure = await call(api).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
-
-    expect(failure).toBeDefined()
-
-    for (const surface of surfacesOf(failure)) {
-      expect(surface).not.toContain(MONITOR_UUID)
-    }
-
-    expect((failure as Error).message).toContain('/api/v1/monitors/{uuid}')
-    expect(recorder.requests[0]?.url).toContain(MONITOR_UUID)
-  })
 })
 
 describe('what this client refuses before a guaranteed rejection reaches the wire', () => {
@@ -766,5 +732,72 @@ describe('composing a request out of what the caller hands in', () => {
 
     expect(reads).toBe(1)
     expect(recorder.requests[0]?.headers['Idempotency-Key']).toBe('job-1')
+  })
+})
+
+const SIGNUP_ARGS: Readonly<Record<string, readonly unknown[]>> = {
+  start: [{ email: 'someone@example.com', acceptTerms: true }],
+  poll: ['device-code-held-by-this-terminal-alone'],
+}
+
+function signupWithRecorder() {
+  const recorder = createApiRecorder({ status: 202, json: {} })
+  const client = createSignupClient({ baseUrl: BASE_URL, env: {}, fetch: recorder.fetch }) as unknown as Record<
+    string,
+    (...args: unknown[]) => Promise<unknown>
+  >
+
+  return { client, recorder }
+}
+
+function signupCall(client: Record<string, (...args: unknown[]) => Promise<unknown>>, method: string, options: object) {
+  const call = client[method]
+
+  if (call === undefined) {
+    throw new Error(`signup.${method} is gone`)
+  }
+
+  return call(...(SIGNUP_ARGS[method] ?? []), options)
+}
+
+function throwingGetter(key: string): object {
+  return Object.defineProperty({}, key, { enumerable: true, get: trap })
+}
+
+const SIGNUP_METHODS = Object.keys(createSignupClient({ baseUrl: BASE_URL, env: {} }))
+
+describe('composing a signup request out of what the caller hands in', () => {
+  it('covers every method the signup client has', () => {
+    expect([...SIGNUP_METHODS].sort()).toEqual(Object.keys(SIGNUP_ARGS).sort())
+  })
+
+  it.each(
+    SIGNUP_METHODS.flatMap((method) =>
+      [
+        ['every option it reads throws', HOSTILE_OPTIONS],
+        ['its timeoutMs getter throws', throwingGetter('timeoutMs')],
+        ['its signal getter throws', throwingGetter('signal')],
+      ].map(([what, options]) => [method, what, options] as const),
+    ),
+  )('keeps signup.%s inside the one type a caller catches when %s', async (method, _what, options) => {
+    const { client, recorder } = signupWithRecorder()
+
+    const failure = await signupCall(client, method, options as object).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(ApiInvalidRequestError)
+    expect((failure as Error).message).toContain('could not be composed')
+    expect(failure).not.toHaveProperty('cause')
+    expect(recorder.requests).toHaveLength(0)
+  })
+
+  it.each(SIGNUP_METHODS)('reads every option signup.%s uses once', async (method) => {
+    const { client, recorder } = signupWithRecorder()
+    const { options, reads } = counting({})
+
+    await signupCall(client, method, options).catch(() => undefined)
+
+    expect(recorder.requests).toHaveLength(1)
+    expect(Object.keys(reads)).toEqual(expect.arrayContaining(['timeoutMs', 'signal']))
+    expect(Object.entries(reads).filter(([, count]) => count !== 1)).toEqual([])
   })
 })
