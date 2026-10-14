@@ -1,4 +1,5 @@
 import { RETRY_FLOOR_DELAY_MS } from '../constants.js'
+import { hideIdentifierSegments } from '../identifier-shape.js'
 import { positiveOr } from '../numbers.js'
 import { type Attempts } from '../transport/attempts.js'
 import { countdown } from '../timer.js'
@@ -99,11 +100,8 @@ function queryOf(query: Endpoint['query']): string {
 
 // The monitor identifier is the check-in capability, and a descriptor is read back through
 // a message, a log record and JSON.stringify alike. The address sent to is built separately.
-const IDENTIFIER_SEGMENT =
-  /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/gi
-
 function forDisplay(path: string): string {
-  return path.replace(IDENTIFIER_SEGMENT, '/{uuid}')
+  return hideIdentifierSegments(path)
 }
 
 function encode(body: unknown): string | undefined {

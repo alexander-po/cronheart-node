@@ -1,3 +1,4 @@
+import { withForbiddenSpelledOut } from '../api/validate.js'
 import { CronheartConfigurationError } from '../wiring/errors.js'
 import { monitorLabel } from './label.js'
 
@@ -28,6 +29,10 @@ export function isSyncConfigurationError(value: unknown): value is SyncConfigura
   } catch {
     return false
   }
+}
+
+export function quoted(value: unknown): string {
+  return JSON.stringify(withForbiddenSpelledOut(String(value)))
 }
 
 export function refuse(message: string, monitor?: string): never {
