@@ -59,17 +59,28 @@ whoever reads it either way; on a `client-convention` vocabulary that reader is 
 consumer of the SDK rather than of the server, so the coordinated release the verdict
 demands is a fleet release, not a server one.
 
+## Tags a vocabulary does not state
+
+A row's condition is a conjunction of tag pairs and nothing else. A tag the vocabulary
+neither states nor inherits is read as below before any condition is tested, so an
+unstated write half is as open as the vocabulary.
+
+| Tag | Read as |
+| --- | --- |
+| `layer` | `server` |
+| `write_openness` | as `openness` |
+
 ## Rule table
 
 Pointer patterns use `*` for one path segment and `**` for any number.
 
 | # | Pointer class | `added` | `removed` | `changed` | `reordered` |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `/vocabularies/*/members` where `openness: open` **and** `direction: read` | `additive` | `breaking-readers` | `breaking-readers` | `additive` |
-| 2a | `/vocabularies/*/members` where `openness: closed`, `direction: read` **and** `layer: server` | `breaking-readers` | `breaking-readers` | `breaking-readers` | `additive` |
+| 1 | `/vocabularies/*/members` where `direction: read` **and** `openness: open` | `additive` | `breaking-readers` | `breaking-readers` | `additive` |
+| 2a | `/vocabularies/*/members` where `direction: read`, `openness: closed` **and** `layer: server` | `breaking-readers` | `breaking-readers` | `breaking-readers` | `additive` |
 | 2b | the same where `layer: client-convention` | `additive` — the vocabulary is ours, so a member reaches a consumer only in an SDK release that already knows it | `breaking-readers` | `breaking-readers` | `additive` |
-| 3 | `/vocabularies/*/members` where `direction: write` and the write half is open — `write_openness`, or `openness` where it states none | `additive` | `breaking-writers` | `breaking-writers` | `additive` |
-| 3a | the same where the write half is closed | `writers-behind` — a writer refuses the new member until it is released knowing it | `breaking-writers` | `breaking-writers` | `additive` |
+| 3 | `/vocabularies/*/members` where `direction: write` **and** `write_openness: open` | `additive` | `breaking-writers` | `breaking-writers` | `additive` |
+| 3a | the same where `write_openness: closed` | `writers-behind` — a writer refuses the new member until it is released knowing it | `breaking-writers` | `breaking-writers` | `additive` |
 | 4 | `/vocabularies/*/members` where `direction: read+write` | apply rows 1, 2a and 2b for the read half **and** row 3 or 3a for the write half; take the union | union | union | `additive` |
 | 5 | `/vocabularies/*/openness` (`open` → `closed`) | — | — | `breaking-readers` | — |
 | 6 | `/vocabularies/*/openness` (`closed` → `open`) | — | — | `additive` | — |

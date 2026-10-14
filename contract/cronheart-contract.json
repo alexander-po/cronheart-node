@@ -448,6 +448,12 @@
           "severity": "high",
           "statement": "A channel's destination (an address, a chat id, a webhook URL, a webhook secret, a routing key) is a credential in all but name, and a problem response on any channel route may repeat it, in any spelling and in any position: in title, in detail, in upgrade_url, in an errors message or as an errors key.",
           "sdk_rule": "On every channel route and for every problem status, keep none of the service's free text: drop title, detail and upgrade_url, and of errors keep only the keys a channel request can carry (kind, label and the destination fields), each with one fixed client-written sentence in place of the service's message. Strip rather than match the value sent, since a match misses a changed spelling."
+        },
+        {
+          "id": "request-value-echo",
+          "severity": "high",
+          "statement": "A monitor's uuid is the whole check-in capability, a signup's email address is personal data and its device code claims the account's first key, and a problem response on a route whose request carries one of them may repeat it, in any spelling and in any position, as destination-echo describes for a channel's destination.",
+          "sdk_rule": "Apply the destination-echo rule on every route whose request carries a monitor uuid, keeping of errors only the keys some such request can carry (one set for all of those routes), and on the two signup routes, keeping only the keys that route's request carries. An errors key naming an item of a kept field, the field followed by a dot and one to six ASCII digits or by one to six ASCII digits in brackets, is kept as that field's item; any other key is dropped."
         }
       ]
     },

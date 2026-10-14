@@ -190,7 +190,7 @@ function differencesAt(pointer, shape, believed, published) {
     : [{ pointer, direction: 'changed', before: believed, after: published, members: [] }]
 }
 
-function tagsFor(contract, pointer) {
+export function tagsFor(contract, pointer) {
   const owner = resolve(contract, pointer.split('/').slice(0, -1).join('/'))
 
   if (owner === UNRESOLVED || owner === null || typeof owner !== 'object') {
@@ -199,9 +199,9 @@ function tagsFor(contract, pointer) {
 
   return {
     openness: owner.openness,
-    writeOpenness: owner.write_openness,
+    write_openness: owner.write_openness,
     direction: owner.direction,
-    layer: owner.layer ?? 'server',
+    layer: owner.layer,
   }
 }
 

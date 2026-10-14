@@ -405,11 +405,11 @@ branch on `error.kind`:
 | `transport` | — | `error.reason` is `timeout`, `aborted`, `network-error`, `unparseable`, `unbounded` or `unexpected` | the network, or a response that is not JSON |
 | `hydration` | 2xx | the response is not the shape this client reads | report it |
 | `authentication` | 401 | the key was rejected; a key is shown once and cannot be read back | check the value `CRONHEART_API_KEY` holds |
-| `plan-restriction` | 402 | should not happen — every plan includes the REST API now; `error.upgradeUrl` if it somehow does | report it, or take route A |
+| `plan-restriction` | 402 | should not happen — every plan includes the REST API now; `error.upgradeUrl` if it somehow does, except on a route that names a monitor's uuid or a channel, or a signup route | report it, or take route A |
 | `forbidden` | 403 | the monitor limit is reached, or the account's email address is unverified; on signup, signup from the API is switched off | free a monitor, or verify the address; sign up on the web |
 | `not-found` | 404 | no such resource in this key's project; a key scoped to another project reads the same | check the id and the key's project |
 | `conflict` | 409 | an idempotency key is still reserved, or reused with a different body; on a channel test, the documented cause is that delivery for that kind is switched off on the service, and nothing was delivered | read the resource back before deciding it was not created; a repeated test delivers a real message once the kind is back on |
-| `validation` | 422 | `error.errors` names the fields the service refused | fix those fields |
+| `validation` | 422 | `error.errors` names the fields the service refused; on a channel, a monitor-uuid or a signup route only the fields that request can carry, with a fixed sentence | fix those fields |
 | `rate-limit` | 429 | the account's API limit is spent; on signup, too many signups for the address or the network, or a poll too soon; `error.retryAfterSeconds` | wait; every key of the account shares one limit |
 | `signup-expired` | 410 | the signup expired, was cancelled on the mailed page, or its key was already handed out | run `cronheart signup` again; if the account was made, take a key from its API tokens page |
 | `channel-delivery` | 502 | a channel test reached the destination and the destination refused it | the destination, not the API |

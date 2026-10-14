@@ -368,3 +368,71 @@ describe('the device code and the token stay out of every surface a failure is r
     }
   })
 })
+
+const SUBMITTED: Readonly<
+  Record<string, { readonly kept: readonly string[]; readonly dropped: string; readonly spellings: readonly string[] }>
+> = {
+  start: {
+    kept: ['accept_terms', 'email'],
+    dropped: 'device_code',
+    spellings: [ADDRESS, ADDRESS.toUpperCase(), encodeURIComponent(ADDRESS), ADDRESS.split('@')[0] as string],
+  },
+  poll: {
+    kept: ['device_code'],
+    dropped: 'email',
+    spellings: [DEVICE_CODE, DEVICE_CODE.toUpperCase(), DEVICE_CODE.slice(0, FRAGMENT)],
+  },
+}
+
+function echoingWhatWasSent(status: number, route: string): ApiStub {
+  const { kept, dropped, spellings } = SUBMITTED[route] as {
+    kept: readonly string[]
+    dropped: string
+    spellings: readonly string[]
+  }
+  const spelled = spellings.join(' / ')
+
+  return {
+    status,
+    json: {
+      type: 'about:blank',
+      title: `Refused ${spelled}`,
+      status,
+      detail: `The signup for ${spelled} was refused.`,
+      upgrade_url: `https://example.invalid/upgrade?for=${spelled}`,
+      retry_after: 30,
+      errors: {
+        ...Object.fromEntries(kept.map((field) => [field, `${spelled} is not valid.`])),
+        ...Object.fromEntries(spellings.map((spelling) => [spelling, 'This value is not valid.'])),
+        [dropped]: 'A field this route does not carry.',
+      },
+    },
+  }
+}
+
+describe('the service’s own wording on a signup route', () => {
+  it('is checked on every route the signup client has', () => {
+    expect(Object.keys(SUBMITTED).sort()).toEqual(Object.keys(CALLS).sort())
+  })
+
+  it.each(Object.keys(CALLS).flatMap((route) => [403, 410, 422, 429, 500].map((status) => [route, status] as const)))(
+    'is withheld on %s answering %i with an echo of what was sent',
+    async (route, status) => {
+      const { client, requests } = signupWith(echoingWhatWasSent(status, route))
+      const error = await failureOf((CALLS[route] as (client: SignupClient) => Promise<unknown>)(client))
+      const { kept, spellings } = SUBMITTED[route] as { kept: readonly string[]; spellings: readonly string[] }
+
+      expect(requests).toHaveLength(1)
+      expect(isCronheartApiError(error)).toBe(true)
+
+      for (const surface of describeQuietly(error)) {
+        for (const spelling of spellings) {
+          expect(surface).not.toContain(spelling)
+        }
+      }
+
+      expect(Object.keys((error as { problem?: { errors?: object } }).problem?.errors ?? {}).sort()).toEqual([...kept])
+      expect((error as { problem?: { retryAfterSeconds?: number } }).problem?.retryAfterSeconds).toBe(30)
+    },
+  )
+})

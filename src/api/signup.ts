@@ -5,19 +5,43 @@ import { attemptsFor } from '../transport/attempts.js'
 import { userAgent } from '../version.js'
 import { assertApiBaseUrl, assertUserAgent } from './config.js'
 import { DEFAULT_API_TIMEOUT_MS } from './constants.js'
-import { ApiConfigurationError, ApiInvalidRequestError, isCronheartApiError } from './errors.js'
+import { composed, plainOptions } from './compose.js'
+import { ApiConfigurationError, isCronheartApiError } from './errors.js'
 import { signupPollFrom, signupStartedFrom } from './hydrate.js'
-import { createSession } from './http.js'
+import { type Endpoint, createSession } from './http.js'
 import type { SignupClient, SignupClientOptions, StartSignupRequest } from './types.js'
 import { assertDeviceCode, assertSignupEmail, assertTermsAccepted } from './validate.js'
 
-function fieldsOf(request: StartSignupRequest): { email: unknown; acceptTerms: unknown } {
-  try {
-    const { email, acceptTerms } = request
+const START_FIELDS: readonly string[] = ['email', 'accept_terms']
 
-    return { email, acceptTerms }
-  } catch {
-    throw new ApiInvalidRequestError('The signup request could not be read.')
+const POLL_FIELDS: readonly string[] = ['device_code']
+
+function startEndpoint(request: StartSignupRequest): Endpoint {
+  const { email, acceptTerms } = request
+
+  assertSignupEmail(email)
+  assertTermsAccepted(acceptTerms)
+
+  return {
+    method: 'POST',
+    path: '/signup',
+    retry: 'never',
+    signupFlow: true,
+    body: { email, accept_terms: true },
+    problemFieldsKept: START_FIELDS,
+  }
+}
+
+function pollEndpoint(deviceCode: string): Endpoint {
+  assertDeviceCode(deviceCode)
+
+  return {
+    method: 'POST',
+    path: '/signup/token',
+    retry: 'never',
+    signupFlow: true,
+    body: { device_code: deviceCode },
+    problemFieldsKept: POLL_FIELDS,
   }
 }
 
@@ -58,37 +82,13 @@ function build(configuration: SignupClientOptions): SignupClient {
 
   return {
     start: async (request, options) => {
-      const { email, acceptTerms } = fieldsOf(request)
+      const composition = composed(() => ({ endpoint: startEndpoint(request), options: plainOptions(options) }))
 
-      assertSignupEmail(email)
-      assertTermsAccepted(acceptTerms)
-
-      return signupStartedFrom(
-        await session.send(
-          {
-            method: 'POST',
-            path: '/signup',
-            retry: 'never',
-            signupFlow: true,
-            body: { email, accept_terms: true },
-          },
-          options,
-        ),
-      )
+      return signupStartedFrom(await session.send(composition.endpoint, composition.options))
     },
     poll: async (deviceCode, options) => {
-      assertDeviceCode(deviceCode)
-
-      const answered = await session.answer(
-        {
-          method: 'POST',
-          path: '/signup/token',
-          retry: 'never',
-          signupFlow: true,
-          body: { device_code: deviceCode },
-        },
-        options,
-      )
+      const composition = composed(() => ({ endpoint: pollEndpoint(deviceCode), options: plainOptions(options) }))
+      const answered = await session.answer(composition.endpoint, composition.options)
 
       return signupPollFrom(answered.status, answered.value)
     },

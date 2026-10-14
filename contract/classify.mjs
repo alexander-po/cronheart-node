@@ -7,26 +7,26 @@ const RANK = { editorial: 0, additive: 1, 'writers-behind': 2, 'breaking-readers
 
 const VOCABULARY_MEMBERS = '/vocabularies/*/members'
 
-const READ_ROWS = [
-  { row: '1', when: (tags) => tags.openness === 'open', cells: { added: 'additive', removed: 'breaking-readers', changed: 'breaking-readers', reordered: 'additive' } },
-  { row: '2a', when: (tags) => tags.openness === 'closed' && tags.layer !== 'client-convention', cells: { added: 'breaking-readers', removed: 'breaking-readers', changed: 'breaking-readers', reordered: 'additive' } },
-  { row: '2b', when: (tags) => tags.openness === 'closed' && tags.layer === 'client-convention', cells: { added: 'additive', removed: 'breaking-readers', changed: 'breaking-readers', reordered: 'additive' } },
+export const TAG_FALLBACKS = [
+  { tag: 'layer', value: 'server' },
+  { tag: 'write_openness', from: 'openness' },
 ]
 
-function writeOpennessOf(tags) {
-  return tags.writeOpenness ?? tags.openness
-}
-
-const WRITE_ROWS = [
-  { row: '3', when: (tags) => writeOpennessOf(tags) !== 'closed', cells: { added: 'additive', removed: 'breaking-writers', changed: 'breaking-writers', reordered: 'additive' } },
-  { row: '3a', when: (tags) => writeOpennessOf(tags) === 'closed', cells: { added: 'writers-behind', removed: 'breaking-writers', changed: 'breaking-writers', reordered: 'additive' } },
+const MEMBER_ROWS = [
+  { row: '1', condition: { direction: 'read', openness: 'open' }, cells: { added: 'additive', removed: 'breaking-readers', changed: 'breaking-readers', reordered: 'additive' } },
+  { row: '2a', condition: { direction: 'read', openness: 'closed', layer: 'server' }, cells: { added: 'breaking-readers', removed: 'breaking-readers', changed: 'breaking-readers', reordered: 'additive' } },
+  { row: '2b', condition: { direction: 'read', openness: 'closed', layer: 'client-convention' }, cells: { added: 'additive', removed: 'breaking-readers', changed: 'breaking-readers', reordered: 'additive' } },
+  { row: '3', condition: { direction: 'write', write_openness: 'open' }, cells: { added: 'additive', removed: 'breaking-writers', changed: 'breaking-writers', reordered: 'additive' } },
+  { row: '3a', condition: { direction: 'write', write_openness: 'closed' }, cells: { added: 'writers-behind', removed: 'breaking-writers', changed: 'breaking-writers', reordered: 'additive' } },
 ]
+
+// Row 4: a vocabulary both read and written takes the member rows of each half, and the union.
+export const SPLIT = { row: '4', patterns: [VOCABULARY_MEMBERS], condition: { direction: 'read+write' }, halves: ['read', 'write'], combine: union }
 
 // Rows the drift watch can reach. A pointer no row below matches is undecidable, which is the
 // safe default: an unplaced difference fails rather than passing quietly.
 export const ROWS = [
-  ...READ_ROWS.map((entry) => ({ ...entry, patterns: [VOCABULARY_MEMBERS], side: 'read' })),
-  ...WRITE_ROWS.map((entry) => ({ ...entry, patterns: [VOCABULARY_MEMBERS], side: 'write' })),
+  ...MEMBER_ROWS.map((entry) => ({ ...entry, patterns: [VOCABULARY_MEMBERS] })),
   { row: '7', patterns: ['/api/constraints/schedule.simple/allowlist'], cells: { added: 'additive', removed: 'breaking-writers', changed: 'breaking-writers', reordered: 'additive' } },
   { row: '8', patterns: ['/api/constraints/*/max*', '/**/max_value', '/**/cap_bytes'], bound: 'raised', cells: { changed: 'additive' } },
   { row: '9', patterns: ['/api/constraints/*/max*', '/**/max_value', '/**/cap_bytes'], bound: 'lowered', cells: { changed: 'breaking-writers' } },
@@ -98,30 +98,46 @@ export function union(verdicts) {
   return distinct.reduce((worst, verdict) => (RANK[verdict] > RANK[worst] ? verdict : worst))
 }
 
+function withFallbacks(tags) {
+  const read = { ...tags }
+
+  for (const { tag, value, from } of TAG_FALLBACKS) {
+    read[tag] ??= from === undefined ? value : read[from]
+  }
+
+  return read
+}
+
+function holds(condition, tags) {
+  return Object.entries(condition).every(([tag, value]) => tags[tag] === value)
+}
+
+function halvesOf(tags) {
+  return holds(SPLIT.condition, tags) ? SPLIT.halves.map((direction) => ({ ...tags, direction })) : [tags]
+}
+
+// Every half a difference is read in must be placed by a row, or none is: a half no
+// conditioned row matches would otherwise drop out of the union and soften the verdict.
 function rowsFor(difference, tags) {
-  const applicable = ROWS.filter((row) => row.patterns.some((pattern) => matches(pattern, difference.pointer)))
   const bound = boundOf(difference.before, difference.after)
+  const applicable = ROWS.filter(
+    (row) =>
+      row.patterns.some((pattern) => matches(pattern, difference.pointer)) &&
+      (row.bound === undefined || row.bound === bound),
+  )
+  const conditioned = applicable.filter((row) => row.condition !== undefined)
+  const placed = halvesOf(withFallbacks(tags)).map((half) => conditioned.filter((row) => holds(row.condition, half)))
 
-  return applicable.filter((row) => {
-    if (row.bound !== undefined && row.bound !== bound) {
-      return false
-    }
+  if (conditioned.length > 0 && placed.some((rows) => rows.length === 0)) {
+    return []
+  }
 
-    if (row.side === 'read' && !String(tags.direction ?? '').includes('read')) {
-      return false
-    }
-
-    if (row.side === 'write' && !String(tags.direction ?? '').includes('write')) {
-      return false
-    }
-
-    return row.when === undefined || row.when(tags)
-  })
+  return applicable.filter((row) => row.condition === undefined || placed.some((rows) => rows.includes(row)))
 }
 
 // A difference is (pointer, direction, before, after); tags are the enclosing object's
-// openness / write openness / direction / layer, which rows 1 through 4 read and every other
-// row ignores.
+// openness, write_openness, direction and layer as the contract states them, which rows 1
+// through 4 read and every other row ignores.
 export function classify(difference, tags = {}) {
   const rows = rowsFor(difference, tags)
 
@@ -131,7 +147,7 @@ export function classify(difference, tags = {}) {
 
   const verdicts = rows.map((row) => row.cells[difference.direction] ?? 'undecidable')
 
-  return { verdict: union(verdicts), rows: rows.map((row) => row.row) }
+  return { verdict: SPLIT.combine(verdicts), rows: rows.map((row) => row.row) }
 }
 
 const VERDICTS = new Set(['additive', 'writers-behind', 'breaking-readers', 'breaking-writers', 'breaking-both', 'undecidable', 'editorial'])
@@ -140,12 +156,31 @@ const DIRECTIONS = ['added', 'removed', 'changed', 'reordered']
 
 const RULE_ROW = /^\|\s*(\d+[ab]?)\s*\|(.+)\|\s*$/
 
+const FALLBACK_ROW = /^\|\s*`([a-z_]+)`\s*\|\s*(as\s+)?`([^`]+)`\s*\|\s*$/
+
+const TAG_PAIR = /^([a-z_]+): (\S+)$/
+
+const BOUND = /\b(raised|lowered|widened|narrowed)\b/
+
+// A condition is a conjunction of tag pairs, so any word in a pointer class beyond its
+// patterns, its pairs, its bound and these connectives is one this transcription cannot hold.
+const CONNECTIVES = /\*\*|—|,|\b(?:where|and|the|same|bound|bounds|raised|lowered|widened|narrowed)\b/g
+
 function quoted(cell) {
   return [...cell.matchAll(/`([^`]+)`/g)].map((held) => held[1])
 }
 
-function verdictIn(cell) {
-  return quoted(cell).find((held) => VERDICTS.has(held))
+function pairsIn(cell) {
+  return Object.fromEntries(
+    quoted(cell)
+      .map((held) => TAG_PAIR.exec(held))
+      .filter((pair) => pair !== null)
+      .map((pair) => [pair[1], pair[2]]),
+  )
+}
+
+function verdictsIn(cell) {
+  return quoted(cell).filter((held) => VERDICTS.has(held))
 }
 
 export function parseRuleTable(markdown) {
@@ -161,13 +196,125 @@ export function parseRuleTable(markdown) {
     }
 
     const stated = quoted(cells[0]).filter((held) => held.startsWith('/'))
-    const patterns = stated.length > 0 ? stated : (previous?.patterns ?? [])
+    const inherits = /^the same\b/.test(cells[0]) && previous !== undefined
+    const verdictCells = cells.slice(1)
 
-    previous = { patterns, cells: Object.fromEntries(DIRECTIONS.map((direction, index) => [direction, verdictIn(cells[index + 1])])) }
+    previous = {
+      patterns: stated.length > 0 || !inherits ? stated : previous.patterns,
+      condition: { ...(inherits ? previous.condition : {}), ...pairsIn(cells[0]) },
+      bound: BOUND.exec(cells[0])?.[1] ?? (inherits ? previous.bound : undefined),
+      stray: [
+        ...cells[0].replace(/`[^`]*`/g, ' ').replace(CONNECTIVES, ' ').trim().split(/\s+/).filter((word) => word !== ''),
+        ...quoted(cells[0]).filter((held) => !held.startsWith('/') && TAG_PAIR.exec(held) === null),
+        ...Object.keys(pairsIn(cells[0])).filter(
+          (tag) => quoted(cells[0]).filter((held) => TAG_PAIR.exec(held)?.[1] === tag).length > 1,
+        ),
+      ],
+      crowded: DIRECTIONS.filter(
+        (_direction, index) =>
+          verdictsIn(verdictCells[index]).length > 1 ||
+          Object.keys(pairsIn(verdictCells[index])).length > 0 ||
+          (verdictsIn(verdictCells[index]).length === 1 && !/^`[^`]+`(\s+—.*)?$/.test(verdictCells[index])),
+      ),
+      combines: [...new Set(verdictCells[0].replace(/`[^`]*`/g, '').match(/\b\d+[ab]?\b/g) ?? [])],
+      cells: Object.fromEntries(DIRECTIONS.map((direction, index) => [direction, verdictsIn(verdictCells[index])[0]])),
+      combining: DIRECTIONS.filter((_direction, index) => /\bunion\b/.test(verdictCells[index].replace(/`[^`]*`/g, ''))),
+    }
     rows.set(matched[1], previous)
   }
 
   return rows
+}
+
+export function parseFallbacks(markdown) {
+  return markdown
+    .split('\n')
+    .map((line) => FALLBACK_ROW.exec(line))
+    .filter((matched) => matched !== null)
+    .map(([, tag, as, named]) => (as === undefined ? { tag, value: named } : { tag, from: named }))
+}
+
+function described(condition) {
+  const pairs = Object.entries(condition ?? {}).map(([tag, value]) => `${tag}: ${value}`).sort()
+
+  return pairs.length === 0 ? 'nothing' : pairs.join(', ')
+}
+
+function oneWay(listed, against) {
+  return listed.filter((held) => !against.includes(held))
+}
+
+function shapeDisagreements(row, stated) {
+  return [
+    ...oneWay(row.patterns, stated.patterns).map((pattern) => `rule ${row.row} — the rule table does not name ${pattern}`),
+    ...oneWay(stated.patterns, row.patterns).map((pattern) => `rule ${row.row} — the rule table names ${pattern}, which this does not hold`),
+    ...(described(row.condition) === described(stated.condition)
+      ? []
+      : [`rule ${row.row} — the rule table conditions it on ${described(stated.condition)} and this holds ${described(row.condition)}`]),
+    ...(row.bound === stated.bound
+      ? []
+      : [`rule ${row.row} — the rule table bounds it ${stated.bound ?? 'nowhere'} and this holds ${row.bound ?? 'no bound'}`]),
+    ...(stated.stray.length === 0
+      ? []
+      : [`rule ${row.row} — the rule table words its condition with "${stated.stray.join(' ')}", which a conjunction of tags cannot hold`]),
+  ]
+}
+
+function crowdedDisagreements(row, stated) {
+  return stated.crowded.map((direction) => `rule ${row.row} — on ${direction} the rule table states more than one verdict, or a condition`)
+}
+
+function rowDisagreements(row, stated) {
+  if (stated === undefined) {
+    return [`rule ${row.row} — the rule table documents no row by that number`]
+  }
+
+  return [
+    ...shapeDisagreements(row, stated),
+    ...crowdedDisagreements(row, stated),
+    ...DIRECTIONS.filter((direction) => (row.cells[direction] ?? undefined) !== stated.cells[direction]).map(
+      (direction) =>
+        `rule ${row.row} — on ${direction} the rule table says ${stated.cells[direction] ?? 'nothing'} and this holds ${row.cells[direction] ?? 'nothing'}`,
+    ),
+  ]
+}
+
+function splitDisagreements(stated) {
+  if (stated === undefined) {
+    return [`rule ${SPLIT.row} — the rule table documents no row by that number`]
+  }
+
+  const combinedRows = MEMBER_ROWS.filter((row) => SPLIT.halves.includes(row.condition.direction))
+  const combined = combinedRows.map((row) => row.row)
+  const held = (direction) => {
+    const verdicts = [...new Set(combinedRows.map((row) => row.cells[direction]))]
+
+    return verdicts.length === 1 ? verdicts[0] : SPLIT.combine.name
+  }
+  const says = (direction) =>
+    stated.cells[direction] ?? (stated.combining.includes(direction) ? 'union' : undefined)
+
+  return [
+    ...shapeDisagreements(SPLIT, stated),
+    ...crowdedDisagreements(SPLIT, stated),
+    ...oneWay(combined, stated.combines).map((row) => `rule ${SPLIT.row} — the rule table does not combine row ${row}`),
+    ...oneWay(stated.combines, combined).map((row) => `rule ${SPLIT.row} — the rule table combines row ${row}, which this does not`),
+    ...DIRECTIONS.filter((direction) => held(direction) !== says(direction)).map(
+      (direction) =>
+        `rule ${SPLIT.row} — on ${direction} the rule table says ${says(direction) ?? 'nothing'} and this holds ${held(direction)}`,
+    ),
+  ]
+}
+
+function fallbackDisagreements(documented) {
+  const named = (entry) => (entry.from === undefined ? `${entry.tag} as the value ${entry.value}` : `${entry.tag} as its ${entry.from}`)
+  const ours = TAG_FALLBACKS.map(named)
+  const theirs = documented.map(named)
+
+  return [
+    ...oneWay(ours, theirs).map((fallback) => `tag fallback — the rule table does not read ${fallback}`),
+    ...oneWay(theirs, ours).map((fallback) => `tag fallback — the rule table reads ${fallback}, which this does not`),
+  ]
 }
 
 // The rows above are a transcription, and a transcription is only worth what checking it
@@ -175,21 +322,9 @@ export function parseRuleTable(markdown) {
 export function disagreements(markdown) {
   const documented = parseRuleTable(markdown)
 
-  return ROWS.flatMap((row) => {
-    const stated = documented.get(row.row)
-
-    if (stated === undefined) {
-      return [`rule ${row.row} — the rule table documents no row by that number`]
-    }
-
-    return [
-      ...row.patterns
-        .filter((pattern) => !stated.patterns.includes(pattern))
-        .map((pattern) => `rule ${row.row} — the rule table does not name ${pattern}`),
-      ...DIRECTIONS.filter((direction) => (row.cells[direction] ?? undefined) !== stated.cells[direction]).map(
-        (direction) =>
-          `rule ${row.row} — on ${direction} the rule table says ${stated.cells[direction] ?? 'nothing'} and this holds ${row.cells[direction] ?? 'nothing'}`,
-      ),
-    ]
-  })
+  return [
+    ...ROWS.flatMap((row) => rowDisagreements(row, documented.get(row.row))),
+    ...splitDisagreements(documented.get(SPLIT.row)),
+    ...fallbackDisagreements(parseFallbacks(markdown)),
+  ]
 }
