@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1
+
+### Patch Changes
+
+- **`cronheart sync` no longer prints a refused schedule raw.** A schedule it refuses is quoted with any control, line-break or direction-override character spelled out by code point, as a refused name already was, so the refusal cannot reach your terminal carrying one. Nothing the package sends, accepts or refuses changes.
+
 ## 0.7.0
 
 ### Minor Changes
