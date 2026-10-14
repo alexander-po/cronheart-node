@@ -560,7 +560,7 @@ describe('a channel label or reference holding a refused character', () => {
       env: envFor(),
     })
 
-    expect(ran.stdout).toContain('no channel of this account is named "noU+2028such"')
+    expect(ran.stdout).toContain('no channel of this account is named "no<U+2028>such"')
     expect(`${ran.stdout}${ran.stderr}`).not.toContain('\u2028')
   })
 
@@ -570,7 +570,7 @@ describe('a channel label or reference holding a refused character', () => {
     })
 
     expect(ran.status).toBe(1)
-    expect(ran.stderr).toContain('"opsU+2028inbox" is not something channels can be')
+    expect(ran.stderr).toContain('"ops<U+2028>inbox" is not something channels can be')
     expect(`${ran.stdout}${ran.stderr}`).not.toContain('\u2028')
   })
 })

@@ -464,6 +464,30 @@ describe('the drift watch compares the contract against what the server publishe
     expect(raised.status).toBe(0)
   })
 
+  it('reads a destination limit a kind states for itself, in both directions', () => {
+    const pointer = '/api/constraints/channel.webhook_url/max_length_by_kind/slack'
+    const lowered = drift(['--snapshot', mutated((facts) => { facts[pointer] = 100 })])
+    const raised = drift(['--snapshot', mutated((facts) => { facts[pointer] = 300 })])
+
+    expect(shipped().facts[pointer]).toBe(255)
+    expect(lowered.output).toContain('breaking-writers')
+    expect(lowered.status).toBe(1)
+    expect(raised.output).toContain('additive')
+    expect(raised.status).toBe(0)
+  })
+
+  it('states a webhook destination limit for every kind that needs one, and none for another', () => {
+    const kinds = Object.keys(shipped().facts)
+      .filter((pointer) => pointer.startsWith('/api/constraints/channel.webhook_url/max_length_by_kind/'))
+      .map((pointer) => pointer.split('/').at(-1))
+      .sort()
+    const needing = (JSON.parse(readFileSync(CONTRACT, 'utf8')) as {
+      api: { constraints: Record<string, { required_for_kinds: string[] }> }
+    }).api.constraints['channel.webhook_url']?.required_for_kinds
+
+    expect(kinds).toEqual([...(needing ?? [])].sort())
+  })
+
   it('fails on a difference the rules cannot place rather than passing it quietly', () => {
     const path = mutated((facts) => {
       facts['/api/identifiers/monitor/format'] = 'ulid'

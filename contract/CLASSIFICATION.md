@@ -87,7 +87,7 @@ Pointer patterns use `*` for one path segment and `**` for any number.
 | 6a | `/vocabularies/*/layer` (`client-convention` → `server`) | — | — | `breaking-readers` — a vocabulary we owned is now the service's, so a member we never shipped can arrive on the wire | — |
 | 6b | `/vocabularies/*/layer` (`server` → `client-convention`) | — | — | `undecidable` — the claim is that the service does not enforce this after all, which nothing offline can confirm, and every later verdict on that vocabulary turns on the answer | — |
 | 7 | `/api/constraints/schedule.simple/allowlist` | `additive` | `breaking-writers` | `breaking-writers` | `additive` |
-| 8 | `/api/constraints/*/max*` and `/**/max_value`, `/**/cap_bytes` — bound **raised** | — | — | `additive` | — |
+| 8 | `/api/constraints/*/max*`, `/api/constraints/*/max_length_by_kind/*` and `/**/max_value`, `/**/cap_bytes` — bound **raised** | — | — | `additive` | — |
 | 9 | the same bounds — **lowered** | — | — | `breaking-writers` | — |
 | 10 | `/api/constraints/*/min*` — bound **lowered** | — | — | `additive` | — |
 | 11 | the same bounds — **raised** | — | — | `breaking-writers` | — |

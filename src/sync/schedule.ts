@@ -6,6 +6,7 @@ import {
   SIMPLE_SCHEDULES,
 } from '../api/constants.js'
 import type { ScheduleKind } from '../api/types.js'
+import { codePointName, withForbiddenSpelledOutBetween } from '../api/validate.js'
 import { quoted, refuse } from './errors.js'
 
 export interface NormalisedSchedule {
@@ -22,6 +23,8 @@ const CRON_FIELDS = 'minute, hour, day of month, month, day of week'
 // The only words a cron field may carry. Everything else in one is digits and punctuation,
 // which is what separates a wrong field count from something that was never cron at all.
 const CRON_WORDS = /JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|SUN|MON|TUE|WED|THU|FRI|SAT/gi
+
+const NOT_A_FIELD_SEPARATOR = /[^\S \t]/u
 
 const CRON_FIELD = /^[0-9*,\-/?LW#]*$/
 
@@ -50,6 +53,15 @@ function asCron(expression: string, monitor: string): NormalisedSchedule {
   if (expression.startsWith('@')) {
     refuse(
       `${quoted(expression)} is not a schedule alias this service knows. The seven it accepts are ${CRON_ALIASES.join(', ')}; @reboot is not among them, because nothing here ever sees your machine start.`,
+      monitor,
+    )
+  }
+
+  const separator = NOT_A_FIELD_SEPARATOR.exec(expression)?.[0]?.codePointAt(0)
+
+  if (separator !== undefined) {
+    refuse(
+      `${quoted(expression)} separates its fields with ${codePointName(separator)}. Separate the fields of a cron expression with spaces or tabs.`,
       monitor,
     )
   }
@@ -186,5 +198,7 @@ export function normaliseSchedule(schedule: unknown, monitor: string): Normalise
 }
 
 export function describeSchedule(kind: string, expr: string): string {
-  return kind === 'interval' ? `every ${expr}s` : `${kind} ${expr}`
+  const written = withForbiddenSpelledOutBetween(expr)
+
+  return kind === 'interval' ? `every ${written}s` : `${kind} ${written}`
 }

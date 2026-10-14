@@ -149,7 +149,26 @@ function isForbidden(codePoint: number): boolean {
   return NAME_FORBIDDEN_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high)
 }
 
-function codePointName(codePoint: number): string {
+// Invisible, direction-marking and look-alike space characters a name may hold but a terminal may not be handed raw.
+const UNPRINTED_RANGES = [
+  [0x00a0, 0x00a0],
+  [0x061c, 0x061c],
+  [0x1680, 0x1680],
+  [0x2000, 0x200b],
+  [0x200e, 0x200f],
+  [0x202f, 0x202f],
+  [0x205f, 0x205f],
+  [0x2060, 0x2064],
+  [0x3000, 0x3000],
+  [0xfeff, 0xfeff],
+  [0xe0000, 0xe007f],
+] as const
+
+function isPrintedEscaped(codePoint: number): boolean {
+  return isForbidden(codePoint) || UNPRINTED_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high)
+}
+
+export function codePointName(codePoint: number): string {
   return `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`
 }
 
@@ -166,13 +185,14 @@ function forbiddenIn(value: string): number | undefined {
 }
 
 // A refused name is still the label a refusal is written under, so the characters that
-// refused it are spelled out rather than handed to a terminal or a log line raw.
+// refused it, and the invisible ones beside them, are spelled out rather than handed to a
+// terminal or a log line raw.
 function withForbidden(value: string, written: (codePoint: number) => string): string {
   return [...value]
     .map((character) => {
       const codePoint = character.codePointAt(0) ?? 0
 
-      return isForbidden(codePoint) ? written(codePoint) : character
+      return isPrintedEscaped(codePoint) ? written(codePoint) : character
     })
     .join('')
 }
@@ -181,8 +201,12 @@ export function withForbiddenSpelledOut(value: string): string {
   return withForbidden(value, codePointName)
 }
 
+export function withForbiddenSpelledOutBetween(value: string): string {
+  return withForbidden(value, (codePoint) => `<${codePointName(codePoint)}>`)
+}
+
 export function withForbiddenRemoved(value: string): string {
-  return withForbidden(value, () => '')
+  return withForbidden(value.replace(/[\u200C\u200D]/g, ''), () => '')
 }
 
 // Counted in characters, as the service counts them: a string's length here is code units,

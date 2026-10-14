@@ -1533,7 +1533,15 @@
           "webhook_url": {
             "type": "string",
             "format": "uri",
-            "description": "Required for slack (https://hooks.slack.com/services/…), discord (https://discord.com/api/webhooks/<id>/<token>), teams (https://<…>.environment.api.powerplatform.com/…, the URL of a Teams Workflows flow), google_chat (https://chat.googleapis.com/v1/spaces/<space>/messages?key=…&token=…) and webhook (https on a public host name; IP addresses in any spelling and localhost are refused)."
+            "description": "Required for slack (https://hooks.slack.com/services/…), discord (https://discord.com/api/webhooks/<id>/<token>), teams (https://<…>.environment.api.powerplatform.com/…, the URL of a Teams Workflows flow), google_chat (https://chat.googleapis.com/v1/spaces/<space>/messages?key=…&token=…) and webhook (https on a public host name; IP addresses in any spelling and localhost are refused).",
+            "maxLength": 1000,
+            "x-max-length-by-kind": {
+              "slack": 255,
+              "discord": 255,
+              "teams": 1000,
+              "google_chat": 500,
+              "webhook": 500
+            }
           },
           "secret": {
             "type": "string",

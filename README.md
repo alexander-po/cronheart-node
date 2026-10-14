@@ -1236,7 +1236,7 @@ consumer onto the package rather than by reading the code; `0.1.1` added four
 more, each of them something the package reported wrongly rather than something
 it could not do. [CHANGELOG.md](CHANGELOG.md) names all fifteen.
 
-**The wire contract.** This package is built against wire contract 3.3.0, the
+**The wire contract.** This package is built against wire contract 4.0.0, the
 machine-readable statement of the service's wire surface its checks run
 against. `cronheart --version` prints it, and it rides in the User-Agent, so a
 support request names it.
