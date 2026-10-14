@@ -824,6 +824,11 @@ or the device code: `error.problem` keeps no `title`, `detail` or
 `upgradeUrl`, and `error.errors` keeps only the fields such a request can
 carry, each with a fixed sentence in place of the service's message, so a
 validation error's message names only those fields.
+As defence in depth on every other route, a `title`, `detail` or `upgradeUrl`,
+or an `errors` entry by its key or its message, is dropped whole when its text
+holds an id spelled in ASCII hex digits, either hyphenated 8-4-4-4-12 wherever
+it stands or as a bare run of exactly 32 with no hex digit next to it; an id
+spelled any other way is not recognised.
 `error.group` is the coarser cut: `'response'` is everything the server
 refused, and `'configuration'`, `'invalid-request'`, `'transport'` and
 `'hydration'` are the four ways a request failed without one.
@@ -846,8 +851,14 @@ message that names the field the value came from: a channel missing the key its
 kind needs, a time zone the runtime cannot name — the service reports that one
 against the schedule expression — and a name or label outside its bounds,
 counted in characters as the service counts them rather than in UTF-16 code
-units, so one emoji is one. Every one of those bounds is exported from
-`cronheart/api`, so a form you validate yourself can read the same numbers.
+units, so one emoji is one. This client also refuses, before sending, a name or
+a label holding a character of the class the service describes as control
+characters, line breaks and direction-override characters, which it reads as
+U+0000-001F, U+007F-009F, U+2028-2029, U+202A-202E and U+2066-2069, the ranges
+`NAME_FORBIDDEN_RANGES` holds: the refusal names the field and the first such
+code point as `U+XXXX`, and a configuration's refusal labels the monitor with
+those characters spelled out the same way. Every one of those bounds is exported
+from `cronheart/api`, so a form you validate yourself can read the same numbers.
 
 `api.rateLimit()` is what the last answered request reported, and it is a
 function so that it keeps working when it is destructured off the client the way
@@ -1225,7 +1236,7 @@ consumer onto the package rather than by reading the code; `0.1.1` added four
 more, each of them something the package reported wrongly rather than something
 it could not do. [CHANGELOG.md](CHANGELOG.md) names all fifteen.
 
-**The wire contract.** This package is built against wire contract 3.2.0, the
+**The wire contract.** This package is built against wire contract 3.3.0, the
 machine-readable statement of the service's wire surface its checks run
 against. `cronheart --version` prints it, and it rides in the User-Agent, so a
 support request names it.

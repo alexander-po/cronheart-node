@@ -33,10 +33,10 @@ throws now rejects with `ApiInvalidRequestError` rather than as an
 - **The signup client composes each request inside the one error type a
   caller catches.** An option whose accessor throws rejects with
   `ApiInvalidRequestError` and sends nothing, and each option is read once.
-- **The wire contract stays at 3.2.0.** It gains, for ports, the rule that
-  withholds the service's wording on the monitor-uuid and signup routes, an
-  editorial change. Its rule table and the classifier the drift watch runs
-  are now checked against each other row by row, conditions included.
+- **No wire change.** The contract gains, for ports, the rule that withholds
+  the service's wording on the monitor-uuid and signup routes, an editorial
+  change. Its rule table and the classifier the drift watch runs are now
+  checked against each other row by row, conditions included.
 
 ## 0.5.0
 

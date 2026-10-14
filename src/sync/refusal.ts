@@ -1,3 +1,4 @@
+import { plainFieldNames } from '../api/classify.js'
 import { isCronheartApiError } from '../api/errors.js'
 import { PLAN_RESTRICTION_NOTICE } from '../api/tier.js'
 
@@ -24,7 +25,7 @@ export function describeApiRefusal(error: unknown, what: string): string {
   }
 
   if (error.kind === 'validation') {
-    const fields = Object.keys(error.errors)
+    const fields = plainFieldNames(error.errors)
 
     return fields.length === 0
       ? 'the service refused this request.'

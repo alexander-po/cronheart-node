@@ -33,8 +33,12 @@ function where(request: RequestDescriptor): string {
 // The names come from the response and end up on a terminal, so only plain ones are repeated.
 const FIELD_NAME = /^[\w.-]{1,64}$/
 
+export function plainFieldNames(errors: Readonly<Record<string, string>> | undefined): readonly string[] {
+  return errors === undefined ? [] : Object.keys(errors).filter((field) => FIELD_NAME.test(field))
+}
+
 function listed(errors: Readonly<Record<string, string>> | undefined): string {
-  const fields = errors === undefined ? [] : Object.keys(errors).filter((field) => FIELD_NAME.test(field))
+  const fields = plainFieldNames(errors)
 
   return fields.length === 0 ? '' : `: ${fields.join(', ')}`
 }

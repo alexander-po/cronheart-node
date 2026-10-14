@@ -14,7 +14,7 @@ import {
   type RequestDescriptor,
   isCronheartApiError,
 } from './errors.js'
-import { EMPTY_PROBLEM, parseProblem, withheldText } from './problem.js'
+import { EMPTY_PROBLEM, parseProblem, withheldText, withoutIdentifiers } from './problem.js'
 import { type WireRequest, exchange } from './transport.js'
 import type { RateLimitSnapshot, RequestOptions } from './types.js'
 import { idempotencyKeyFor } from './validate.js'
@@ -188,7 +188,7 @@ export function createSession(settings: SessionSettings): Session {
       const parsed = parseProblem(answered.body)
       const problem =
         endpoint.problemFieldsKept === undefined
-          ? parsed
+          ? withoutIdentifiers(parsed)
           : withheldText(parsed, endpoint.problemFieldsKept)
       const retryAfter = integerHeader(answered.header('retry-after'))
 

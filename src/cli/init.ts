@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs'
 import { dirname } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
+import { isCronheartApiError } from '../api/errors.js'
+import { assertMonitorName, withForbiddenSpelledOut } from '../api/validate.js'
 import { outcomeLine } from '../ping/describe.js'
 import { envVarFor, isMonitorId } from '../ping/resolve.js'
 import { isSyncConfigurationError } from '../sync/errors.js'
@@ -12,6 +14,7 @@ import { type ParsedArgs, readFlag, readText, unknownFlags } from './args.js'
 import {
   environment,
   hasApiKey,
+  nameFlagRefusal,
   openClient,
   readMonitorId,
   readMonitorName,
@@ -156,6 +159,26 @@ type Created =
   | { readonly kind: 'usage'; readonly problem: string }
   | { readonly kind: 'degraded'; readonly notice: string }
 
+function nameRefusal(name: string | undefined): string | undefined {
+  if (name === undefined) {
+    return undefined
+  }
+
+  const idShaped = nameFlagRefusal(name)
+
+  if (idShaped !== undefined) {
+    return idShaped
+  }
+
+  try {
+    assertMonitorName(name)
+  } catch (error) {
+    return isCronheartApiError(error) ? error.message : String(error)
+  }
+
+  return undefined
+}
+
 async function named(api: CronheartApi, name: string): Promise<readonly Monitor[]> {
   const found: Monitor[] = []
 
@@ -169,7 +192,7 @@ async function named(api: CronheartApi, name: string): Promise<readonly Monitor[
 }
 
 function describeChannels(channels: readonly { kind: string; label: string }[]): string {
-  return channels.map((channel) => `${channel.label} (${channel.kind})`).join(', ')
+  return channels.map((channel) => `${withForbiddenSpelledOut(channel.label)} (${channel.kind})`).join(', ')
 }
 
 function alertsOf(
@@ -232,6 +255,12 @@ async function createThroughTheApi(
 
   if (name === '') {
     return { kind: 'usage', problem: 'init needs a monitor name — pass --name=<name> or answer the prompt' }
+  }
+
+  const refusedName = nameRefusal(name)
+
+  if (refusedName !== undefined) {
+    return { kind: 'usage', problem: refusedName }
   }
 
   let request
@@ -343,6 +372,13 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
 
   const given = name.ok ? name.value : undefined
   const pasted = uuid.ok ? uuid.value : undefined
+  const refusedName = nameRefusal(given)
+
+  if (refusedName !== undefined) {
+    io.err(`cronheart: ${refusedName}\n`)
+
+    return EXIT_USAGE
+  }
 
   io.out('cronheart init\n')
 
@@ -397,6 +433,14 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
 
   if (answers.name === undefined || answers.name === '') {
     io.err('cronheart: init needs a monitor name — pass --name=<name> or answer the prompt\n')
+
+    return EXIT_USAGE
+  }
+
+  const refusedAnswer = nameRefusal(answers.name)
+
+  if (refusedAnswer !== undefined) {
+    io.err(`cronheart: ${refusedAnswer}\n`)
 
     return EXIT_USAGE
   }

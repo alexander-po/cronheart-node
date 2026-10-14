@@ -11,6 +11,9 @@ export const EMPTY_PROBLEM: ProblemDetails = {
 
 const WITHHELD = "The service's message is withheld, because on this route it may repeat a credential or an address."
 
+const IDENTIFIER_SHAPED =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/i
+
 function textOf(source: Record<string, unknown>, key: string): string | undefined {
   const value = source[key]
 
@@ -66,6 +69,26 @@ export function parseProblem(body: string): ProblemDetails {
     errors: fieldErrorsOf(source),
     upgradeUrl: textOf(source, 'upgrade_url'),
     retryAfterSeconds: integerOf(source, 'retry_after'),
+  }
+}
+
+function unlessIdentifier(text: string | undefined): string | undefined {
+  return text === undefined || IDENTIFIER_SHAPED.test(text) ? undefined : text
+}
+
+// A field holding something shaped like an id is dropped whole rather than rewritten, since a
+// rewrite can leave a broken address or two errors under one key.
+export function withoutIdentifiers(problem: ProblemDetails): ProblemDetails {
+  const errors = Object.entries(problem.errors ?? {}).filter(
+    ([field, message]) => !IDENTIFIER_SHAPED.test(field) && !IDENTIFIER_SHAPED.test(message),
+  )
+
+  return {
+    ...problem,
+    title: unlessIdentifier(problem.title),
+    detail: unlessIdentifier(problem.detail),
+    upgradeUrl: unlessIdentifier(problem.upgradeUrl),
+    errors: errors.length === 0 ? undefined : Object.fromEntries(errors),
   }
 }
 

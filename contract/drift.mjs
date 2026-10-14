@@ -75,6 +75,8 @@ const FACTS = [
   ['/api/signup/routes/1/statuses', 'members', (doc) => statusesOf(doc, '/api/v1/signup/token')],
 ]
 
+export const COMPARED_POINTERS = FACTS.map(([pointer]) => pointer)
+
 function schema(document, name) {
   return document?.components?.schemas?.[name]
 }
@@ -271,7 +273,7 @@ async function main(argv) {
   const contract = JSON.parse(readFileSync(contractPath, 'utf8'))
   const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8'))
   const live = argv.includes('--live')
-  const drifted = disagreements(readFileSync(rulesPath, 'utf8'))
+  const drifted = disagreements(readFileSync(rulesPath, 'utf8'), COMPARED_POINTERS)
 
   if (drifted.length > 0) {
     throw new Error(`the classifier and the documented rule table disagree:\n  - ${drifted.join('\n  - ')}`)

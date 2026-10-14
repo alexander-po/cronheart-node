@@ -75,6 +75,14 @@ export const CHANNEL_LABEL_MIN_LENGTH = 2
 
 export const CHANNEL_LABEL_MAX_LENGTH = 80
 
+export const NAME_FORBIDDEN_RANGES = [
+  [0x0000, 0x001f],
+  [0x007f, 0x009f],
+  [0x2028, 0x2029],
+  [0x202a, 0x202e],
+  [0x2066, 0x2069],
+] as const
+
 export const CHANNEL_ADDRESS_KINDS = ['email'] as const
 
 export const CHANNEL_CHAT_ID_KINDS = ['telegram'] as const

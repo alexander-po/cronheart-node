@@ -154,7 +154,15 @@ const VERDICTS = new Set(['additive', 'writers-behind', 'breaking-readers', 'bre
 
 const DIRECTIONS = ['added', 'removed', 'changed', 'reordered']
 
-const RULE_ROW = /^\|\s*(\d+[ab]?)\s*\|(.+)\|\s*$/
+const RULE_ROW = /^\|\s*(\d+[ab]?)\s*\|(.+)(?<!\\)\|\s*$/
+
+const UNESCAPED_PIPE = /(?<!\\)\|/
+
+const DELIMITER_ROW = /^\|(?:\s*:?-{3,}:?\s*\|)+\s*$/
+
+const ROW_NUMBER = /^[1-9][0-9]*[ab]?$/
+
+const SECTION_HEADING = '## Rule table'
 
 const FALLBACK_ROW = /^\|\s*`([a-z_]+)`\s*\|\s*(as\s+)?`([^`]+)`\s*\|\s*$/
 
@@ -183,13 +191,54 @@ function verdictsIn(cell) {
   return quoted(cell).filter((held) => VERDICTS.has(held))
 }
 
+function cellsOf(row) {
+  return row.split(UNESCAPED_PIPE).map((cell) => cell.trim())
+}
+
+// Fenced blocks and HTML comments render as something other than the table, so a line inside
+// one is never read as a heading or a row.
+function linesOf(markdown) {
+  let fenced = false
+  let commented = false
+
+  return markdown.split('\n').map((text, index) => {
+    const fence = /^\s*(?:```|~~~)/.test(text)
+    const line = { text, number: index + 1, hidden: fenced || commented || fence, opensFence: fence && !fenced }
+
+    fenced = fence ? !fenced : fenced
+    commented = commented ? !text.includes('-->') : text.includes('<!--') && !text.slice(text.indexOf('<!--')).includes('-->')
+
+    return line
+  })
+}
+
+// The section runs to the next heading of level one or two, so the editorial table under its
+// own third-level heading is read as part of it.
+function locate(markdown) {
+  const lines = linesOf(markdown)
+  const headings = lines.filter((line) => !line.hidden && line.text === SECTION_HEADING)
+
+  if (headings.length === 0) {
+    return undefined
+  }
+
+  const section = lines.slice(headings[0].number)
+  const end = section.findIndex((line) => !line.hidden && /^#{1,2}\s/.test(line.text))
+
+  return { section: end === -1 ? section : section.slice(0, end), headings: headings.length }
+}
+
+function visibleSection(markdown) {
+  return (locate(markdown)?.section ?? []).filter((line) => !line.hidden).map((line) => line.text)
+}
+
 export function parseRuleTable(markdown) {
   const rows = new Map()
   let previous
 
-  for (const line of markdown.split('\n')) {
+  for (const line of visibleSection(markdown)) {
     const matched = RULE_ROW.exec(line)
-    const cells = matched === null ? [] : matched[2].split('|').map((cell) => cell.trim())
+    const cells = matched === null ? [] : cellsOf(matched[2])
 
     if (matched === null || cells.length !== 5) {
       continue
@@ -317,14 +366,120 @@ function fallbackDisagreements(documented) {
   ]
 }
 
+function isEditorialRow(line) {
+  const cells = cellsOf(line).slice(1, -1)
+
+  return cells.length === 2 && quoted(cells[0]).some((held) => held.startsWith('/')) && quoted(cells[1])[0] === 'editorial'
+}
+
+function rowDisagreementsOf(line) {
+  const number = /^\s*\|([^|]*)/.exec(line)?.[1]?.trim() ?? ''
+  const matched = RULE_ROW.exec(line)
+
+  if (/^[0-9]/.test(number) && !ROW_NUMBER.test(number)) {
+    return [`rule ${number} — the rule table numbers a row in a shape this does not read: digits with no leading zero, then at most an a or a b`]
+  }
+
+  if (/^[0-9]/.test(number)) {
+    return matched === null || cellsOf(matched[2]).length !== 5
+      ? [`rule ${number} — the rule table states a row this cannot read as five cells`]
+      : []
+  }
+
+  return isEditorialRow(line) ? [] : [`rule table — a line of the section this cannot read: ${JSON.stringify(line)}`]
+}
+
+function lineDisagreements(section) {
+  return section.flatMap((line, index) => {
+    if (!/^\s*\|/.test(line)) {
+      return UNESCAPED_PIPE.test(line)
+        ? [`rule table — a line of the section holds a pipe and does not open with one: ${JSON.stringify(line)}`]
+        : []
+    }
+
+    return DELIMITER_ROW.test(line) || DELIMITER_ROW.test(section[index + 1] ?? '') ? [] : rowDisagreementsOf(line)
+  })
+}
+
+function duplicateDisagreements(section) {
+  const counted = new Map()
+
+  for (const line of section) {
+    const number = RULE_ROW.exec(line)?.[1]
+
+    if (number !== undefined) {
+      counted.set(number, (counted.get(number) ?? 0) + 1)
+    }
+  }
+
+  return [...counted]
+    .filter(([, count]) => count > 1)
+    .map(([row]) => `rule ${row} — the rule table documents it more than once`)
+}
+
+function commentDisagreements(markdown) {
+  return markdown
+    .split('\n')
+    .flatMap((line, index) =>
+      line.includes('<!--')
+        ? [`rule table — line ${index + 1} opens an HTML comment, which hides what it holds from a reader of the rendered document`]
+        : [],
+    )
+}
+
+function sectionDisagreements(markdown) {
+  const located = locate(markdown)
+
+  if (located === undefined) {
+    return [`rule table — the document has no "${SECTION_HEADING}" heading, so it states no row this can read`]
+  }
+
+  const visible = located.section.filter((line) => !line.hidden).map((line) => line.text)
+
+  return [
+    ...(located.headings > 1 ? [`rule table — the document has more than one "${SECTION_HEADING}" heading`] : []),
+    ...located.section
+      .filter((line) => line.opensFence)
+      .map((line) => `rule table — line ${line.number} opens a fenced block inside the section`),
+    ...duplicateDisagreements(visible),
+    ...lineDisagreements(visible),
+  ]
+}
+
+// A row the table documents and this does not hold is safe only while no difference the job
+// can find would land on it: the job would skip it and classify by the rows it does hold.
+function documentedOnlyDisagreements(documented, compared) {
+  const held = [...ROWS, SPLIT]
+  const heldRows = new Set(held.map((row) => row.row))
+
+  return [...documented]
+    .filter(([row]) => !heldRows.has(row))
+    .flatMap(([row, stated]) => {
+      if (stated.patterns.length === 0) {
+        return [`rule ${row} — the rule table states no pointer for it and it inherits none`]
+      }
+
+      return compared.flatMap((pointer) => {
+        const owners = [...new Set(held.filter((entry) => entry.patterns.some((pattern) => matches(pattern, pointer))).map((entry) => entry.row))]
+
+        return owners.length > 0 && stated.patterns.some((pattern) => matches(pattern, pointer))
+          ? [`rule ${row} — the rule table places ${pointer}, which the drift watch compares and rule ${owners.join(', ')} classifies, and this holds no row ${row}`]
+          : []
+      })
+    })
+}
+
 // The rows above are a transcription, and a transcription is only worth what checking it
 // costs. Anything the job classifies is classified by a row this reports agreement on.
-export function disagreements(markdown) {
+export function disagreements(markdown, compared) {
   const documented = parseRuleTable(markdown)
 
   return [
+    ...sectionDisagreements(markdown),
+    ...commentDisagreements(markdown),
     ...ROWS.flatMap((row) => rowDisagreements(row, documented.get(row.row))),
     ...splitDisagreements(documented.get(SPLIT.row)),
+    ...documentedOnlyDisagreements(documented, compared),
     ...fallbackDisagreements(parseFallbacks(markdown)),
   ]
 }

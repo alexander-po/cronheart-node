@@ -41,12 +41,19 @@ code and covered by the test suite; if you can break one, that is a
 vulnerability rather than a bug.
 
 - **A monitor id is a credential.** It is the whole capability on the check-in
-  route: anyone holding it can mark the monitor up. It never reaches a log line,
-  a warning, an error message, an exception property or the `sync` plan table;
-  where a monitor has to be named in one of those, it is named by its label, and
-  an id given where a label belongs is cut to its last four characters.
-  `cronheart doctor` reports which environment variable answered for a monitor
-  and never the value.
+  route: anyone holding it can mark the monitor up. An id this client sends or
+  is configured with never reaches a log line, a warning, an error message, an
+  exception property or the `sync` plan table; where a monitor has to be named
+  in one of those, it is named by its label, and an id given where a label
+  belongs is cut to its last four characters. On a route whose request carries
+  an id, none of the service's own wording is kept, so the service cannot repeat
+  the id into one either. `cronheart doctor` reports which environment variable
+  answered for a monitor and never the value. As defence in depth on every other
+  route, a `title`, `detail` or `upgradeUrl`, or an `errors` entry by its key or
+  its message, is dropped whole when its text holds an id spelled in ASCII hex
+  digits, either hyphenated 8-4-4-4-12 wherever it stands or as a bare run of
+  exactly 32 with no hex digit next to it; an id spelled any other way is not
+  recognised.
 - **An API key travels in the `Authorization` header and nowhere else.** Never a
   query string, never a redirect target. It appears in no message, no `toJSON`,
   no error `cause`, and this package refuses to send it over plain `http` to

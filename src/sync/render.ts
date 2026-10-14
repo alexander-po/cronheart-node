@@ -1,4 +1,6 @@
+import { withForbiddenSpelledOut } from '../api/validate.js'
 import { envVarFor } from '../ping/resolve.js'
+import { monitorLabel } from './label.js'
 import { describeSchedule } from './schedule.js'
 import type {
   AlertSuppression,
@@ -67,7 +69,7 @@ function alertsOf(
 
   return alerts.length === 0
     ? NOBODY
-    : alerts.map((channel) => `${channel.label} (${channel.kind})`).join(', ')
+    : alerts.map((channel) => `${withForbiddenSpelledOut(channel.label)} (${channel.kind})`).join(', ')
 }
 
 function field(name: string, value: string): string {
@@ -102,7 +104,7 @@ function linesFor(row: PlanRow): readonly string[] {
   const marked = row.action !== 'conflict' && row.action !== 'refused' && row.alertsNobody
 
   return [
-    `${marked ? SILENT_MARK : QUIET_MARK}${row.action.padEnd(ACTION_WIDTH)}${row.name}`,
+    `${marked ? SILENT_MARK : QUIET_MARK}${row.action.padEnd(ACTION_WIDTH)}${monitorLabel(row.name)}`,
     ...detailsOf(row),
   ]
 }
@@ -149,7 +151,7 @@ export function renderPlan(plan: SyncPlan, view: PlanView = {}): string {
 }
 
 function namesOf(applied: readonly AppliedMonitor[]): string {
-  return applied.map((entry) => entry.name).join(', ')
+  return applied.map((entry) => monitorLabel(entry.name)).join(', ')
 }
 
 // What failed is written above what was applied. A run that deleted something prints a line
@@ -158,7 +160,7 @@ export function renderResult(result: SyncResult): string {
   const lines: string[] = []
 
   for (const failure of result.failures) {
-    lines.push(`  ${failure.action} ${failure.name} — ${failure.message}`)
+    lines.push(`  ${failure.action} ${monitorLabel(failure.name)} — ${failure.message}`)
   }
 
   if (result.stopped) {
