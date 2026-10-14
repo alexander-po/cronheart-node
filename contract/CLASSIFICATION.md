@@ -29,8 +29,8 @@ tags. The verdict is a function of all three.
 `breaking-*` requires a major bump of `contract_version` and a coordinated SDK
 release. `writers-behind` requires a minor bump and an SDK release that accepts the
 new member, and the drift watch fails on it so that release is not forgotten.
-`additive` requires a minor bump. Editorial changes (see the last table)
-are a patch bump.
+`additive` requires a minor bump. An editorial-only change (see the last table) is a
+patch bump, never more.
 
 ## Directions
 
@@ -129,8 +129,10 @@ Pointer patterns use `*` for one path segment and `**` for any number.
 | 47 | `/ping_retry/max_retries` raised, or `/ping_retry/floor_delay_ms` lowered | — | — | `breaking-writers` — more traffic per job than the fleet was sized for | — |
 | 48 | the same, in the direction of less traffic | — | — | `additive` | — |
 | 49 | `/api/idempotency/max_key_length` | `additive` — a bound the service always enforced, now stated | `breaking-writers` — a writer that trusted the bound loses it | `additive` when raised, `breaking-writers` when lowered | — |
+| 50 | `/api/constraints/*/forbidden_ranges` — **widened** | `undecidable` — a newly stated set is `additive` when the service always refused it and `breaking-writers` when it is new, and nothing offline tells which | `writers-behind` — the refusal is gone, so a writer built on the old set refuses what the service now accepts | `breaking-writers` — a code point the service used to accept is now refused | — |
+| 51 | the same — **narrowed** | — | — | `writers-behind` — a writer built on the old set refuses a code point the service now accepts, and nothing it sends breaks | — |
 
-### Editorial: never a version-bumping verdict on its own
+### Editorial: never more than a patch
 
 | Pointer class | Verdict |
 | --- | --- |
@@ -182,6 +184,14 @@ with a documented hole:
   `additive` and `breaking-readers` separately, and the union happens to be right here,
   but the rules carry no general notion of interaction. Anything touching more than
   three pointer classes at once should be read by a human regardless of the verdict.
+- **The refused code points of a name or a label** (rows 50, 51). The service publishes
+  them as prose only, so the drift watch cannot compare them against it: `contract:check`
+  holds the anchored value against the SDK constant, and that check, not the drift watch,
+  is what fails when row 51's release is missing. Widened and narrowed mean the set of code
+  points, which a comparison of pairs cannot compute, and a change to the array is
+  `changed` on the whole value; so this pair is not transcribed into the classifier as rows
+  26 and 27 are. A change to the value also moves the two anchors that state it, which row
+  40 rules `breaking-both`.
 - **Whether a `layer` tag is true.** The rules now read the tag (rows 2b, 6a, 6b, 24),
   which makes it load-bearing: calling a fact a `client-convention` downgrades every
   future widening of it. Nothing offline can observe that the service really does not
