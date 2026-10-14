@@ -28,8 +28,8 @@ export const SPLIT = { row: '4', patterns: [VOCABULARY_MEMBERS], condition: { di
 export const ROWS = [
   ...MEMBER_ROWS.map((entry) => ({ ...entry, patterns: [VOCABULARY_MEMBERS] })),
   { row: '7', patterns: ['/api/constraints/schedule.simple/allowlist'], cells: { added: 'additive', removed: 'breaking-writers', changed: 'breaking-writers', reordered: 'additive' } },
-  { row: '8', patterns: ['/api/constraints/*/max*', '/**/max_value', '/**/cap_bytes'], bound: 'raised', cells: { changed: 'additive' } },
-  { row: '9', patterns: ['/api/constraints/*/max*', '/**/max_value', '/**/cap_bytes'], bound: 'lowered', cells: { changed: 'breaking-writers' } },
+  { row: '8', patterns: ['/api/constraints/*/max*', '/api/constraints/*/max_length_by_kind/*', '/**/max_value', '/**/cap_bytes'], bound: 'raised', cells: { changed: 'additive' } },
+  { row: '9', patterns: ['/api/constraints/*/max*', '/api/constraints/*/max_length_by_kind/*', '/**/max_value', '/**/cap_bytes'], bound: 'lowered', cells: { changed: 'breaking-writers' } },
   { row: '10', patterns: ['/api/constraints/*/min*'], bound: 'lowered', cells: { changed: 'additive' } },
   { row: '11', patterns: ['/api/constraints/*/min*'], bound: 'raised', cells: { changed: 'breaking-writers' } },
   { row: '13', patterns: ['/api/constraints/*/required_for_kinds', '/api/constraints/*/not_blank', '/api/constraints/*/required'], cells: { added: 'breaking-writers', removed: 'additive', changed: 'breaking-writers', reordered: 'additive' } },

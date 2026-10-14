@@ -59,10 +59,15 @@ function changed(field: string, from: unknown, to: unknown): FieldChange | undef
 // One field to the configuration and two on the wire, so both halves travel whenever either
 // differs — which is also what gives the management client the kind its dialect check needs.
 function scheduleChange(monitor: DefinedMonitor, existing: Monitor): FieldChange | undefined {
-  const from = describeSchedule(existing.scheduleKind, existing.scheduleExpr)
-  const to = describeSchedule(monitor.scheduleKind, monitor.scheduleExpr)
+  if (existing.scheduleKind === monitor.scheduleKind && existing.scheduleExpr === monitor.scheduleExpr) {
+    return undefined
+  }
 
-  return from === to ? undefined : { field: 'schedule', from, to }
+  return {
+    field: 'schedule',
+    from: describeSchedule(existing.scheduleKind, existing.scheduleExpr),
+    to: describeSchedule(monitor.scheduleKind, monitor.scheduleExpr),
+  }
 }
 
 function labelsFor(ids: readonly string[], channels: readonly Channel[]): string {

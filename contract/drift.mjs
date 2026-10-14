@@ -21,6 +21,12 @@ const FACTS = [
   ['/api/constraints/monitor.grace_seconds/default', 'value', (doc) => property(doc, 'MonitorCreate', 'grace_seconds')?.default],
   ['/api/constraints/channel.label/min_length', 'value', (doc) => property(doc, 'ChannelCreate', 'label')?.minLength],
   ['/api/constraints/channel.label/max_length', 'value', (doc) => property(doc, 'ChannelCreate', 'label')?.maxLength],
+  ['/api/constraints/channel.webhook_url/max_length', 'value', (doc) => property(doc, 'ChannelCreate', 'webhook_url')?.maxLength],
+  ...['slack', 'discord', 'teams', 'google_chat', 'webhook'].map((kind) => [
+    `/api/constraints/channel.webhook_url/max_length_by_kind/${kind}`,
+    'value',
+    (doc) => property(doc, 'ChannelCreate', 'webhook_url')?.['x-max-length-by-kind']?.[kind],
+  ]),
   ['/api/constraints/channel.secret/min_length', 'value', (doc) => property(doc, 'ChannelCreate', 'secret')?.minLength],
   ['/api/constraints/channel.secret/max_length', 'value', (doc) => property(doc, 'ChannelCreate', 'secret')?.maxLength],
   ['/api/constraints/channel.routing_key/format', 'value', (doc) => property(doc, 'ChannelCreate', 'routing_key')?.pattern],
