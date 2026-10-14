@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.6.0
+
+### Minor Changes
+
+The management client and the signup client withhold more of what a refusal
+from the service can carry, and the signup client reads what the caller hands
+it the way the management client already does. **Upgrading from `0.5.0`
+changes three things a caller can see**: on the monitor routes that name a
+uuid and on both signup routes, `error.problem` no longer carries the
+service's `title`, `detail` or `upgradeUrl`; a validation error there names
+only the fields such a request can carry; and a signup option whose accessor
+throws now rejects with `ApiInvalidRequestError` rather than as an
+`unexpected` transport error. Nothing the package sends changes.
+
+- **A refusal that may repeat a monitor's uuid or a signup's values withholds
+  the service's wording.** A monitor's uuid is the whole check-in capability,
+  a signup's email address is personal data, and its device code claims the
+  account's first key. On `get`, `update`, `delete`, `pause`, `resume`,
+  `snooze`, `unsnooze`, `rotateUuid`, `pings`, `iteratePings`, `alerts` and
+  `iterateAlerts` of `api.monitors`, and on `start` and `poll` of the signup
+  client, `error.problem` keeps its status and retry guidance only, and
+  `error.errors` keeps only the fields a request on those routes can carry,
+  an item of one of them included, each with a fixed sentence in place of the
+  service's message. `list`, `iterate`, `create` and `account.get` send no
+  such value and keep the service's text. The fixed sentence is now the same
+  on the channel routes.
+- **This is hardening, not a vulnerability fix.** No release of the service is
+  known to repeat a uuid, an address or a device code in a refusal; the change
+  makes the package's stated security properties hold even if one did, so no
+  advisory accompanies it.
+- **The signup client composes each request inside the one error type a
+  caller catches.** An option whose accessor throws rejects with
+  `ApiInvalidRequestError` and sends nothing, and each option is read once.
+- **The wire contract stays at 3.2.0.** It gains, for ports, the rule that
+  withholds the service's wording on the monitor-uuid and signup routes, an
+  editorial change. Its rule table and the classifier the drift watch runs
+  are now checked against each other row by row, conditions included.
+
 ## 0.5.0
 
 ### Minor Changes
