@@ -1,3 +1,4 @@
+import { IDENTIFIER_SHAPED } from '../identifier-shape.js'
 import type { ProblemDetails } from './types.js'
 
 export const EMPTY_PROBLEM: ProblemDetails = {
@@ -10,9 +11,6 @@ export const EMPTY_PROBLEM: ProblemDetails = {
 }
 
 const WITHHELD = "The service's message is withheld, because on this route it may repeat a credential or an address."
-
-const IDENTIFIER_SHAPED =
-  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/i
 
 function textOf(source: Record<string, unknown>, key: string): string | undefined {
   const value = source[key]

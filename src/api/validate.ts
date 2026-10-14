@@ -20,10 +20,9 @@ import {
   SNOOZE_DURATIONS,
   TIMEZONE_MAX_LENGTH,
 } from './constants.js'
+import { UUID_WHOLE } from '../identifier-shape.js'
 import { ApiInvalidRequestError } from './errors.js'
 import type { ChannelKind, ScheduleKind, SnoozeDuration } from './types.js'
-
-const MONITOR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // The identifier is 64-bit and arrives as a decimal string on every read. A value that is
 // not digits is coerced to zero on the write side, which then fails an ownership check
@@ -46,7 +45,7 @@ function oneOf(members: readonly string[]): string {
 }
 
 export function assertMonitorUuid(value: unknown): asserts value is string {
-  if (typeof value !== 'string' || !MONITOR_UUID.test(value)) {
+  if (typeof value !== 'string' || !UUID_WHOLE.test(value)) {
     refuse(
       'That is not a monitor identifier. An identifier is 36 characters, hexadecimal in groups of 8-4-4-4-12, and appears on the monitor’s page.',
     )

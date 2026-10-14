@@ -6,7 +6,7 @@ import {
   SIMPLE_SCHEDULES,
 } from '../api/constants.js'
 import type { ScheduleKind } from '../api/types.js'
-import { refuse } from './errors.js'
+import { quoted, refuse } from './errors.js'
 
 export interface NormalisedSchedule {
   readonly kind: ScheduleKind
@@ -49,7 +49,7 @@ function asCron(expression: string, monitor: string): NormalisedSchedule {
 
   if (expression.startsWith('@')) {
     refuse(
-      `${JSON.stringify(expression)} is not a schedule alias this service knows. The seven it accepts are ${CRON_ALIASES.join(', ')}; @reboot is not among them, because nothing here ever sees your machine start.`,
+      `${quoted(expression)} is not a schedule alias this service knows. The seven it accepts are ${CRON_ALIASES.join(', ')}; @reboot is not among them, because nothing here ever sees your machine start.`,
       monitor,
     )
   }
@@ -64,7 +64,7 @@ function asCron(expression: string, monitor: string): NormalisedSchedule {
 
   if (inWords !== undefined) {
     refuse(
-      `${JSON.stringify(expression)} is not a cron expression — ${JSON.stringify(inWords)} is not a field of one. ${OTHER_FORMS}`,
+      `${quoted(expression)} is not a cron expression — ${quoted(inWords)} is not a field of one. ${OTHER_FORMS}`,
       monitor,
     )
   }
@@ -95,7 +95,7 @@ function secondsFrom(value: string | number, monitor: string): number {
 
   if (match === null) {
     refuse(
-      `${JSON.stringify(String(value))} is not an interval. Write it as a whole number of seconds, or with a unit: 90s, 5m, 2h, 1d.`,
+      `${quoted(value)} is not an interval. Write it as a whole number of seconds, or with a unit: 90s, 5m, 2h, 1d.`,
       monitor,
     )
   }
@@ -121,7 +121,7 @@ function asInterval(value: string | number, monitor: string): NormalisedSchedule
 function asSimple(value: unknown, monitor: string): NormalisedSchedule {
   if (typeof value !== 'string' || !isSimple(value)) {
     refuse(
-      `${JSON.stringify(String(value))} is not one of the twelve schedules this service names: ${SIMPLE_SCHEDULES.join(', ')}.`,
+      `${quoted(value)} is not one of the twelve schedules this service names: ${SIMPLE_SCHEDULES.join(', ')}.`,
       monitor,
     )
   }
@@ -144,7 +144,7 @@ function fromText(text: string, monitor: string): NormalisedSchedule {
     return asInterval(expression, monitor)
   }
 
-  refuse(`${JSON.stringify(expression)} is not a cron expression. ${OTHER_FORMS}`, monitor)
+  refuse(`${quoted(expression)} is not a cron expression. ${OTHER_FORMS}`, monitor)
 }
 
 export function normaliseSchedule(schedule: unknown, monitor: string): NormalisedSchedule {

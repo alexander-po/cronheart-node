@@ -1,6 +1,5 @@
+import { UUID_WHOLE } from '../identifier-shape.js'
 import type { EnvSource } from './env.js'
-
-const CANONICAL_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const OPENS_LIKE_AN_ID = /^[0-9a-fA-F]{8}-/
 
@@ -20,7 +19,7 @@ export interface Resolution {
 }
 
 export function isMonitorId(value: unknown): value is string {
-  return typeof value === 'string' && CANONICAL_SHAPE.test(value)
+  return typeof value === 'string' && UUID_WHOLE.test(value)
 }
 
 // Shaped like an identifier the whole way through, one edit from a real one. Nobody names
