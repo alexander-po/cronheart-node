@@ -4,6 +4,7 @@ import { applySync } from '../sync/apply.js'
 import { defineMonitors } from '../sync/define.js'
 import { planSync } from '../sync/plan.js'
 import { destructionNotice, whyPruningIsUnsafe } from '../sync/prune.js'
+import { monitorLabel } from '../sync/label.js'
 import { describeApiRefusal } from '../sync/refusal.js'
 import { envLinesFor, renderPlan, renderResult } from '../sync/render.js'
 import type { AppliedMonitor, MonitorConfig, SyncPlan, SyncResult } from '../sync/types.js'
@@ -89,7 +90,7 @@ function printEnv(
   }
 
   const named = new Set(monitors.map((monitor) => monitor.name))
-  const pending = plan.rows.map((row) => row.name).filter((name) => !named.has(name))
+  const pending = plan.rows.map((row) => row.name).filter((name) => !named.has(name)).map(monitorLabel)
 
   if (pending.length === 0) {
     return

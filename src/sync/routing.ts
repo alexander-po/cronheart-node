@@ -1,3 +1,4 @@
+import { withForbiddenSpelledOut } from '../api/validate.js'
 import { refuse } from './errors.js'
 import type {
   ChannelReference,
@@ -23,7 +24,7 @@ export function routingFrom(value: unknown, monitor: string): DefinedRouting {
 
   if (!Array.isArray(value)) {
     refuse(
-      `${JSON.stringify(String(value))} is not something channels can be. Write a list of channel labels or identifiers, 'none' to say this monitor alerts nobody, or leave channels out to leave whatever is attached alone.`,
+      `${JSON.stringify(withForbiddenSpelledOut(String(value)))} is not something channels can be. Write a list of channel labels or identifiers, 'none' to say this monitor alerts nobody, or leave channels out to leave whatever is attached alone.`,
       monitor,
     )
   }
@@ -78,7 +79,7 @@ function matching(
 }
 
 function ambiguity(reference: ChannelReference, found: readonly ApiChannel[], labelled: number): string {
-  const written = JSON.stringify(String(reference))
+  const written = JSON.stringify(withForbiddenSpelledOut(String(reference)))
 
   return labelled === found.length
     ? `${found.length} channels of this account are labelled ${written}, so there is no way to tell which was meant — give this monitor's channels by identifier instead`
@@ -97,7 +98,7 @@ export function resolveChannels(
     if (found.length === 0) {
       return {
         ok: false,
-        reason: `no channel of this account is named ${JSON.stringify(String(reference))}`,
+        reason: `no channel of this account is named ${JSON.stringify(withForbiddenSpelledOut(String(reference)))}`,
       }
     }
 

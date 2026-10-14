@@ -136,6 +136,7 @@ import {
   API_RESPONSE_BODY_CAP_BYTES,
   CronheartApiError,
   CHANNEL_ROUTING_KEY_KINDS,
+  NAME_FORBIDDEN_RANGES,
   SIGNUP_EMAIL_MAX_LENGTH,
   SNOOZE_DURATIONS,
   createCronheartApi,
@@ -323,6 +324,14 @@ export function monitorRegistry(registry: SchedulerRegistry): MonitoredSchedule 
   const held: ScheduledJobs = registry
 
   return monitorScheduledJobs(held, { jobs: { nightlyDigest: 'nightly-backup' } })
+}
+
+export function nameIsSendable(name: string): boolean {
+  return ![...name].some((character) => {
+    const codePoint: number = character.codePointAt(0) ?? 0
+
+    return NAME_FORBIDDEN_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high)
+  })
 }
 
 // The signup flow the way a consumer drives it: the acceptance is the literal true, and the

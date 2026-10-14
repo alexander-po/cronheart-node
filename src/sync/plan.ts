@@ -6,6 +6,7 @@ import type {
   RequestOptions,
   UpdateMonitorRequest,
 } from '../api/types.js'
+import { withForbiddenSpelledOut } from '../api/validate.js'
 import { defineMonitors } from './define.js'
 import { idempotencyKeyFor } from './key.js'
 import { NO_CHANNELS, resolveChannels, routingKeys, verifiedAmong } from './routing.js'
@@ -41,7 +42,7 @@ function nobodyReason(routing: ResolvedRouting, channels: readonly Channel[]): s
 
   const named = channels
     .filter((channel) => routing.ids.includes(channel.id))
-    .map((channel) => channel.label)
+    .map((channel) => withForbiddenSpelledOut(channel.label))
 
   return `would alert nobody: ${named.join(', ')} ${named.length === 1 ? 'is named here but is not verified on this account' : 'are named here and none of them is verified on this account'}, and the service skips an unverified channel when it sends an alert. ${SAY_SO_INSTEAD}`
 }
@@ -65,7 +66,7 @@ function scheduleChange(monitor: DefinedMonitor, existing: Monitor): FieldChange
 }
 
 function labelsFor(ids: readonly string[], channels: readonly Channel[]): string {
-  const named = ids.map((id) => channels.find((channel) => channel.id === id)?.label ?? id)
+  const named = ids.map((id) => withForbiddenSpelledOut(channels.find((channel) => channel.id === id)?.label ?? id))
 
   return named.length === 0 ? NO_CHANNELS : named.join(', ')
 }
@@ -75,7 +76,7 @@ function channelChange(
   existing: Monitor,
   channels: readonly Channel[],
 ): FieldChange {
-  const attached = existing.channels.map((channel) => channel.label)
+  const attached = existing.channels.map((channel) => withForbiddenSpelledOut(channel.label))
 
   return {
     field: 'channels',

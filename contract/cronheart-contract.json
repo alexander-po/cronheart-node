@@ -1,5 +1,5 @@
 {
-  "contract_version": "3.2.0",
+  "contract_version": "3.3.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -453,7 +453,7 @@
           "id": "request-value-echo",
           "severity": "high",
           "statement": "A monitor's uuid is the whole check-in capability, a signup's email address is personal data and its device code claims the account's first key, and a problem response on a route whose request carries one of them may repeat it, in any spelling and in any position, as destination-echo describes for a channel's destination.",
-          "sdk_rule": "Apply the destination-echo rule on every route whose request carries a monitor uuid, keeping of errors only the keys some such request can carry (one set for all of those routes), and on the two signup routes, keeping only the keys that route's request carries. An errors key naming an item of a kept field, the field followed by a dot and one to six ASCII digits or by one to six ASCII digits in brackets, is kept as that field's item; any other key is dropped."
+          "sdk_rule": "Apply the destination-echo rule on every route whose request carries a monitor uuid, keeping of errors only the keys some such request can carry (one set for all of those routes), and on the two signup routes, keeping only the keys that route's request carries. An errors key naming an item of a kept field, the field followed by a dot and one to six ASCII digits or by one to six ASCII digits in brackets, is kept as that field's item; any other key is dropped. On every other route, as defence in depth, drop any title, detail or upgrade_url whose text holds an identifier, and any errors entry whose key or message holds one, rather than rewriting it: an identifier is a run of ASCII hex digits, case-insensitive, either hyphenated 8-4-4-4-12 wherever it stands, or exactly 32 digits with no hex digit immediately before or after it. Every other spelling is not recognised."
         }
       ]
     },
@@ -636,7 +636,14 @@
       ]
     },
     "constraints": {
-      "monitor.name": { "type": "string", "min_length": 2, "max_length": 120, "not_blank": true },
+      "monitor.name": {
+        "type": "string",
+        "min_length": 2,
+        "max_length": 120,
+        "not_blank": true,
+        "forbidden_ranges": [[0, 31], [127, 159], [8232, 8233], [8234, 8238], [8294, 8297]],
+        "note": "Inclusive pairs of Unicode code points: U+0000-001F, U+007F-009F, U+2028-2029, U+202A-202E and U+2066-2069. The published document describes the class in prose only, as control characters, line breaks and direction-override characters. Everything outside this set is left to the service."
+      },
       "monitor.schedule_kind": { "type": "string", "vocabulary": "schedule.kind", "not_blank": true },
       "monitor.schedule_expr": { "type": "string", "max_length": 120, "not_blank": true },
       "monitor.tz": {
@@ -707,7 +714,14 @@
           "sdk_rule": "Expose the allowlist as a closed union so a wrong token is a compile-time or wiring-time error."
         }
       },
-      "channel.label": { "type": "string", "min_length": 2, "max_length": 80, "not_blank": true },
+      "channel.label": {
+        "type": "string",
+        "min_length": 2,
+        "max_length": 80,
+        "not_blank": true,
+        "forbidden_ranges": [[0, 31], [127, 159], [8232, 8233], [8234, 8238], [8294, 8297]],
+        "note": "The same set as monitor.name."
+      },
       "channel.kind": { "type": "string", "vocabulary": "channel.kind", "not_blank": true },
       "channel.address": { "type": "string", "max_length": 254, "format": "email", "required_for_kinds": ["email"] },
       "channel.chat_id": { "type": "string", "max_length": 32, "format": "^-?[0-9]+$", "required_for_kinds": ["telegram"] },
@@ -852,6 +866,7 @@
       "does_not_cover": [
         "anything about /ping: no route, no action mapping, no dedup rule, no body cap, no runtime header",
         "the 12-token simple-schedule allowlist",
+        "the characters a monitor name and a channel label may not hold, which the document carries as prose only",
         "the interval second bounds",
         "the 5-field cron dialect",
         "monitor.tz maximum length",
@@ -955,6 +970,8 @@
     { "id": "constraints.tz.max", "pointer": "/api/constraints/monitor.tz/max_length", "value": 64 },
     { "id": "constraints.channel.label.min", "pointer": "/api/constraints/channel.label/min_length", "value": 2 },
     { "id": "constraints.channel.label.max", "pointer": "/api/constraints/channel.label/max_length", "value": 80 },
+    { "id": "constraints.monitor.name.forbidden_ranges", "pointer": "/api/constraints/monitor.name/forbidden_ranges", "value": [[0, 31], [127, 159], [8232, 8233], [8234, 8238], [8294, 8297]] },
+    { "id": "constraints.channel.label.forbidden_ranges", "pointer": "/api/constraints/channel.label/forbidden_ranges", "value": [[0, 31], [127, 159], [8232, 8233], [8234, 8238], [8294, 8297]] },
     { "id": "constraints.channel.address.required_for", "pointer": "/api/constraints/channel.address/required_for_kinds", "value": ["email"] },
     { "id": "constraints.channel.chat_id.required_for", "pointer": "/api/constraints/channel.chat_id/required_for_kinds", "value": ["telegram"] },
     { "id": "constraints.channel.webhook_url.required_for", "pointer": "/api/constraints/channel.webhook_url/required_for_kinds", "value": ["slack", "discord", "webhook", "teams", "google_chat"] },

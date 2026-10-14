@@ -185,6 +185,10 @@ const UUID_ROUTES = [
 
 const UUID_SPELLINGS = [MONITOR_UUID, MONITOR_UUID.replaceAll('-', ''), `https://ping.example/ping/${MONITOR_UUID}`]
 
+const OPEN_ROUTES = EVERY_CALL.map((call) => call.id).filter(
+  (id) => !UUID_ROUTES.includes(id) && !id.startsWith('channels.') && id !== 'rateLimit',
+)
+
 function carriedBy(request: RecordedRequest): string[] {
   const body: unknown = request.body === undefined ? {} : JSON.parse(request.body)
 
@@ -239,11 +243,7 @@ describe('the service’s own wording on a route that names a monitor', () => {
     expect(carrying.sort()).toEqual(UUID_ROUTES)
   })
 
-  it.each(
-    EVERY_CALL.map((call) => call.id).filter(
-      (id) => !UUID_ROUTES.includes(id) && !id.startsWith('channels.') && id !== 'rateLimit',
-    ),
-  )('is kept on %s, which names no monitor', async (id) => {
+  it.each(OPEN_ROUTES)('is kept on %s, which names no monitor', async (id) => {
     const { api } = apiWith({ status: 422, json: { title: 'Refused', detail: 'Kept as the service wrote it.' } })
 
     const failure = await callNamed(id).run(api).then(
@@ -337,5 +337,170 @@ describe('the service’s own wording on a route that names a monitor', () => {
 
     expect(carried.length).toBeGreaterThan(1)
     expect(Object.keys((failure as { errors: Record<string, string> }).errors).sort()).toEqual(carried)
+  })
+})
+
+const HEX_RUN = `${'0'.repeat(31)}3`
+
+const LETTERED = ['f'.repeat(8), 'e'.repeat(4), 'd'.repeat(4), 'c'.repeat(4), 'b'.repeat(12)].join('-')
+
+const IDENTIFIER_SHAPED = [
+  ['a hyphenated id', '00000000-0000-0000-0000-000000000001'],
+  ['a hyphenated id in upper case', LETTERED.toUpperCase()],
+  ['a hyphenated id in lower case', LETTERED],
+  ['a bare run of 32 hex digits', HEX_RUN],
+  ['a bare run of 32 hex digits in mixed case', `${'aB'.repeat(8)}${'0'.repeat(16)}`],
+  ['an id after an underscore', `monitor_${MONITOR_UUID}`],
+  ['an id before an underscore', `${HEX_RUN}_x`],
+  ['an id after a letter that is not hex', `g${HEX_RUN}`],
+  ['a hyphenated id after another hex digit', 'a00000000-0000-0000-0000-000000000002'],
+  ['a hyphenated id before another hex digit', '00000000-0000-0000-0000-0000000000003'],
+  ['a hyphenated id after a percent-escaped solidus', `%2F${LETTERED}`],
+  ['a hyphenated id after a percent-escaped equals sign', '%3D00000000-0000-0000-0000-000000000001'],
+] as const
+
+const NOT_IDENTIFIER_SHAPED = [
+  ['36 characters grouped 8-4-4-4-12 that are not hex', ['g'.repeat(8), 'h'.repeat(4), 'i'.repeat(4), 'j'.repeat(4), 'k'.repeat(12)].join('-')],
+  ['a run of 64 hex digits', `${'0'.repeat(63)}2`],
+  ['32 hex digits after another hex digit', `f${HEX_RUN}`],
+  ['32 hex digits before another hex digit', `${HEX_RUN}a`],
+  ['32 hex digits after a percent-escaped solidus', `%2F${HEX_RUN}`],
+] as const
+
+const POSITIONS = ['title', 'detail', 'upgrade_url', 'an errors key', 'an errors message'] as const
+
+type Position = (typeof POSITIONS)[number]
+
+interface Kept {
+  readonly title: string | undefined
+  readonly detail: string | undefined
+  readonly upgradeUrl: string | undefined
+  readonly errors: Readonly<Record<string, string>> | undefined
+}
+
+const PLAIN: Kept = {
+  title: 'Refused',
+  detail: 'Kept as the service wrote it.',
+  upgradeUrl: 'https://example.invalid/upgrade',
+  errors: { name: 'Too short.', schedule_expr: 'Not a schedule.' },
+}
+
+function carrying(text: string, position: Position): Kept {
+  switch (position) {
+    case 'title':
+      return { ...PLAIN, title: `Refused ${text}` }
+    case 'detail':
+      return { ...PLAIN, detail: `The monitor ${text} was refused.` }
+    case 'upgrade_url':
+      return { ...PLAIN, upgradeUrl: `https://example.invalid/upgrade?for=${text}` }
+    case 'an errors key':
+      return { ...PLAIN, errors: { ...PLAIN.errors, [`channel_ids.${text}`]: 'Unknown channel.' } }
+    case 'an errors message':
+      return { ...PLAIN, errors: { ...PLAIN.errors, name: `${text} is too short.` } }
+  }
+}
+
+function withoutIt(position: Position): Kept {
+  switch (position) {
+    case 'title':
+      return { ...PLAIN, title: undefined }
+    case 'detail':
+      return { ...PLAIN, detail: undefined }
+    case 'upgrade_url':
+      return { ...PLAIN, upgradeUrl: undefined }
+    case 'an errors key':
+      return PLAIN
+    case 'an errors message':
+      return { ...PLAIN, errors: { schedule_expr: 'Not a schedule.' } }
+  }
+}
+
+function answering(status: number, held: Kept) {
+  return {
+    status,
+    json: { type: 'about:blank', status, title: held.title, detail: held.detail, upgrade_url: held.upgradeUrl, errors: held.errors },
+  }
+}
+
+async function failureOn(id: string, status: number, held: Kept): Promise<Error & { problem: Kept }> {
+  const { api } = apiWith(answering(status, held))
+  const failure = await callNamed(id).run(api).then(
+    () => undefined,
+    (error: unknown) => error,
+  )
+
+  expect(failure).toBeInstanceOf(Error)
+
+  return failure as Error & { problem: Kept }
+}
+
+function keptOf(failure: { problem: Kept }): Kept {
+  const { title, detail, upgradeUrl, errors } = failure.problem
+
+  return { title, detail, upgradeUrl, errors }
+}
+
+const OPEN_CASES = OPEN_ROUTES.flatMap((id) =>
+  [402, 403, 409, 422, 429, 500].flatMap((status) => POSITIONS.map((position) => [id, status, position] as const)),
+)
+
+describe('identifier-shaped text on a route that sends no id', () => {
+  it('is checked on exactly the routes that send no id and are not channel routes', () => {
+    expect([...OPEN_ROUTES].sort()).toEqual(['account.get', 'monitors.create', 'monitors.iterate', 'monitors.list'])
+  })
+
+  it.each(OPEN_CASES)('drops the field on %s answering %i with an id in %s, and keeps the rest', async (id, status, position) => {
+    for (const [, text] of IDENTIFIER_SHAPED) {
+      const failure = await failureOn(id, status, carrying(text, position))
+
+      expect(keptOf(failure)).toEqual(withoutIt(position))
+      expect(failure.stack ?? '').not.toContain(text)
+
+      for (const surface of surfacesOf(failure)) {
+        expect(surface).not.toContain(text)
+      }
+    }
+  })
+
+  it.each(OPEN_CASES)('keeps the field on %s answering %i with text in %s that is not an id', async (id, status, position) => {
+    for (const [, text] of NOT_IDENTIFIER_SHAPED) {
+      const held = carrying(text, position)
+      const failure = await failureOn(id, status, held)
+
+      expect(keptOf(failure)).toEqual(held)
+    }
+  })
+
+  it.each(IDENTIFIER_SHAPED)('recognises %s', async (_what, text) => {
+    const failure = await failureOn('monitors.create', 422, carrying(text, 'detail'))
+
+    expect(failure.problem.detail).toBeUndefined()
+  })
+
+  it.each(NOT_IDENTIFIER_SHAPED)('does not recognise %s', async (_what, text) => {
+    const failure = await failureOn('monitors.create', 422, carrying(text, 'detail'))
+
+    expect(failure.problem.detail).toBe(`The monitor ${text} was refused.`)
+  })
+
+  it('reads the errors on the error itself the same way as on its problem', async () => {
+    const failure = await failureOn('monitors.create', 422, carrying(HEX_RUN, 'an errors message'))
+
+    expect((failure as unknown as { errors: unknown }).errors).toEqual({ schedule_expr: 'Not a schedule.' })
+    expect(failure.message).toContain('schedule_expr')
+    expect(failure.message).not.toContain(HEX_RUN)
+  })
+
+  it.each(['%2F', '%3D'])('drops an upgrade address that carries a hyphenated id after %s', async (escape) => {
+    const failure = await failureOn('account.get', 402, { ...PLAIN, upgradeUrl: `https://example.invalid/upgrade?for${escape}${MONITOR_UUID}` })
+
+    expect(keptOf(failure)).toEqual({ ...PLAIN, upgradeUrl: undefined })
+  })
+
+  it('reads the upgrade address on the error itself the same way as on its problem', async () => {
+    const failure = await failureOn('monitors.create', 402, carrying(LETTERED, 'upgrade_url'))
+
+    expect((failure as unknown as { upgradeUrl?: unknown }).upgradeUrl).toBeUndefined()
+    expect(failure.problem.title).toBe('Refused')
   })
 })

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 // @ts-expect-error — a plain script, deliberately not part of the typed source tree
 import { ROWS, SPLIT, TAG_FALLBACKS, classify, disagreements } from '../contract/classify.mjs'
 // @ts-expect-error — a plain script, deliberately not part of the typed source tree
-import { tagsFor } from '../contract/drift.mjs'
+import { COMPARED_POINTERS, tagsFor } from '../contract/drift.mjs'
 
 const root = new URL('../', import.meta.url)
 
@@ -220,7 +220,7 @@ const MUTATIONS = MUTATED_ROWS.flatMap((row) =>
 
 describe('the classifier and the documented rule table agree on what each row covers', () => {
   it('agrees on the committed table', () => {
-    expect(disagreements(RULE_TABLE)).toEqual([])
+    expect(disagreements(RULE_TABLE, COMPARED_POINTERS)).toEqual([])
   })
 
   it('mutates every row it holds, and states a condition on the member rows', () => {
@@ -232,7 +232,7 @@ describe('the classifier and the documented rule table agree on what each row co
 
   it.each(MUTATIONS)('reports row %s when the table %s', (row, _what, text) => {
     expect(text).not.toBe(RULE_TABLE)
-    expect(disagreements(text)).toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^rule ${row} — `))]))
+    expect(disagreements(text, COMPARED_POINTERS)).toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^rule ${row} — `))]))
   })
 
   it.each([
@@ -244,7 +244,7 @@ describe('the classifier and the documented rule table agree on what each row co
     const text = withCell(RULE_TABLE, SPLIT.row as string, cell, edit)
 
     expect(text).not.toBe(RULE_TABLE)
-    expect(disagreements(text)).toEqual(expect.arrayContaining([`rule ${SPLIT.row as string} — ${reported}`]))
+    expect(disagreements(text, COMPARED_POINTERS)).toEqual(expect.arrayContaining([`rule ${SPLIT.row as string} — ${reported}`]))
   })
 
   it.each((TAG_FALLBACKS as { tag: string }[]).map((entry) => entry.tag))('reports the fallback of %s when the table changes or drops it', (tag) => {
@@ -255,7 +255,7 @@ describe('the classifier and the documented rule table agree on what each row co
       [RULE_TABLE.replace(row, ''), /^tag fallback — the rule table does not read /],
     ] as const) {
       expect(text).not.toBe(RULE_TABLE)
-      expect(disagreements(text)).toEqual(expect.arrayContaining([expect.stringMatching(reported)]))
+      expect(disagreements(text, COMPARED_POINTERS)).toEqual(expect.arrayContaining([expect.stringMatching(reported)]))
     }
   })
 
@@ -263,9 +263,91 @@ describe('the classifier and the documented rule table agree on what each row co
     const text = RULE_TABLE.replace('| `layer` | `server` |', '| `layer` | `server` |\n| `zz_tag` | `on` |')
 
     expect(text).not.toBe(RULE_TABLE)
-    expect(disagreements(text)).toEqual(
+    expect(disagreements(text, COMPARED_POINTERS)).toEqual(
       expect.arrayContaining(['tag fallback — the rule table reads zz_tag as the value on, which this does not']),
     )
+  })
+})
+
+function lineOf(row: string): string {
+  const line = RULE_TABLE.split('\n').find((candidate) => new RegExp(`^\\|\\s*${row}\\s*\\|`).test(candidate))
+
+  if (line === undefined) {
+    throw new Error(`the rule table has no row ${row}`)
+  }
+
+  return line
+}
+
+function withLine(text: string, before: string, line: string): string {
+  if (!text.includes(`${before}\n`)) {
+    throw new Error(`the rule table has no line ${before}`)
+  }
+
+  return text.replace(`${before}\n`, `${before}\n${line}\n`)
+}
+
+const ROW_8 = lineOf('8')
+
+const ROW_7 = lineOf('7')
+
+const ROW_49 = lineOf('49')
+
+const ROW_15 = lineOf('15')
+
+const EDITORIAL_LAST = RULE_TABLE.split('\n').find((line) => line.startsWith('| `/title`')) ?? ''
+
+const DOCUMENTED_ONLY = (pattern: string) => `| 50 | \`${pattern}\` | \`additive\` | \`breaking-readers\` | \`breaking-readers\` | \`additive\` |`
+
+describe('the rule table states each row once, in a shape this reads', () => {
+  it.each([
+    ['a second row 8 before the real one', withLine(RULE_TABLE, ROW_7, ROW_8.replace('`additive`', '`breaking-both`')), /^rule 8 — the rule table documents it more than once$/],
+    ['a second row 8 after the real one', withLine(RULE_TABLE, ROW_8, ROW_8.replace('`additive`', '`breaking-both`')), /^rule 8 — the rule table documents it more than once$/],
+    ['a second row 8 with a sixth cell', withLine(RULE_TABLE, ROW_7, `${ROW_8} \`additive\` |`), /^rule 8 — the rule table documents it more than once$/],
+    ['a row 8 with a sixth cell', withLine(RULE_TABLE, ROW_7, `${ROW_8} \`additive\` |`), /^rule 8 — the rule table states a row this cannot read as five cells$/],
+    ['a row numbered 08', withLine(RULE_TABLE, ROW_7, ROW_8.replace('| 8 |', '| 08 |')), /^rule 08 — the rule table numbers a row in a shape this does not read: /],
+    ['a row numbered 8c', withLine(RULE_TABLE, ROW_7, ROW_8.replace('| 8 |', '| 8c |')), /^rule 8c — the rule table numbers a row in a shape this does not read: /],
+    ['a pipe-led row with no closing pipe', withLine(RULE_TABLE, ROW_49, ROW_49.replace('| 49 |', '| 50 |').replace(/\|\s*$/, '')), /^rule 50 — the rule table states a row this cannot read as five cells$/],
+    ['a pipe-led row with four cells', withLine(RULE_TABLE, ROW_49, '| 50 | `/zz/*` | `additive` | — | — |'), /^rule 50 — the rule table states a row this cannot read as five cells$/],
+    ['a row of its own on a pointer the drift watch compares and row 15 classifies', withLine(RULE_TABLE, ROW_49, DOCUMENTED_ONLY('/api/read_shapes/*/keys')), /^rule 50 — .*\/api\/read_shapes\/monitor\/keys.*rule 15/],
+    ['a row of its own under a wider pattern over a pointer row 8 classifies', withLine(RULE_TABLE, ROW_49, DOCUMENTED_ONLY('/api/constraints/**')), /^rule 50 — .*\/api\/constraints\/monitor\.name\/max_length.*rule 8/],
+    ['a row of its own with no pointer and nothing to inherit', withLine(RULE_TABLE, ROW_49, '| 50 | every bound | `additive` | — | — | — |'), /^rule 50 — the rule table states no pointer for it/],
+    ['a renamed heading', RULE_TABLE.replace('## Rule table\n', '## Rules\n'), /^rule table — the document has no "## Rule table" heading/],
+    ['a malformed row after the editorial heading', withLine(RULE_TABLE, EDITORIAL_LAST, '| 50 | `/zz/*` | `additive` |'), /^rule 50 — the rule table states a row this cannot read as five cells$/],
+    ['a duplicate row after the editorial heading', withLine(RULE_TABLE, EDITORIAL_LAST, ROW_8), /^rule 8 — the rule table documents it more than once$/],
+    ['a row without its leading pipe', withLine(RULE_TABLE, ROW_49, ROW_49.replace(/^\| 49 /, '50 ')), /^rule table — a line of the section holds a pipe and does not open with one: "50 \|/],
+    ['an HTML comment', withLine(RULE_TABLE, ROW_49, `<!--\n${ROW_49.replace('| 49 |', '| 50 |')}\n-->`), /^rule table — line \d+ opens an HTML comment/],
+    ['a pipe escaped inside a verdict cell, read as content of that cell', RULE_TABLE.replace(ROW_15, ROW_15.replace('| `additive` |', '| `additive` \\| `breaking-both` |')), /^rule 15 — on added the rule table states more than one verdict, or a condition$/],
+    ['a row whose number is bold', withLine(RULE_TABLE, ROW_49, ROW_49.replace('| 49 |', '| **50** |')), /^rule table — a line of the section this cannot read: "\| \*\*50\*\*/],
+    ['a row whose number is quoted as code', withLine(RULE_TABLE, ROW_49, ROW_49.replace('| 49 |', '| `50` |')), /^rule table — a line of the section this cannot read: /],
+    ['a row whose number is written in fullwidth digits', withLine(RULE_TABLE, ROW_49, ROW_49.replace('| 49 |', '| \uFF15\uFF10 |')), /^rule table — a line of the section this cannot read: /],
+    ['a row whose number follows a zero-width space', withLine(RULE_TABLE, ROW_49, ROW_49.replace('| 49 |', '| \u200B50 |')), /^rule table — a line of the section this cannot read: /],
+    ['a second rule table heading', `${RULE_TABLE}\n## Rule table\n`, /^rule table — the document has more than one "## Rule table" heading$/],
+    ['a fenced block inside the section', withLine(RULE_TABLE, ROW_49, '```\n| 50 | `/zz/*` | `additive` | — | — | — |\n```'), /^rule table — line \d+ opens a fenced block inside the section$/],
+  ])('reports %s', (_what, text, reported) => {
+    expect(text).not.toBe(RULE_TABLE)
+    expect(disagreements(text, COMPARED_POINTERS)).toEqual(expect.arrayContaining([expect.stringMatching(reported)]))
+  })
+
+  it.each([
+    ['a row of its own on a pointer nothing compares', withLine(RULE_TABLE, ROW_49, DOCUMENTED_ONLY('/zz/disjoint/*'))],
+    ['a row of its own on a compared pointer no classifier row holds', withLine(RULE_TABLE, ROW_49, DOCUMENTED_ONLY('/api/signup/user_code_pattern'))],
+    ['a row of its own that inherits the pointer of the row before it', withLine(RULE_TABLE, ROW_49, '| 50 | the same — lowered | — | — | `breaking-writers` | — |')],
+    ['a row numbered 8 outside the rule table section', withLine(RULE_TABLE, '| Verdict | Meaning |', '| 8 | x |')],
+    ['a fenced copy of the heading before the real one', RULE_TABLE.replace('## Rule table\n', '```\n## Rule table\n| 8 | x |\n```\n\n## Rule table\n')],
+  ])('stays silent on %s', (_what, text) => {
+    expect(text).not.toBe(RULE_TABLE)
+    expect(disagreements(text, COMPARED_POINTERS)).toEqual([])
+  })
+
+  it('finds the heading past a commented-out copy of it, and reports only the comment', () => {
+    const text = RULE_TABLE.replace('## Rule table\n', '<!--\n## Rule table\n| 8 | x |\n-->\n\n## Rule table\n')
+
+    expect(disagreements(text, COMPARED_POINTERS)).toEqual([expect.stringMatching(/^rule table — line \d+ opens an HTML comment/)])
+  })
+
+  it('reads the pointers the drift watch compares, not a list of its own', () => {
+    expect([...COMPARED_POINTERS].sort()).toEqual(Object.keys(shipped().facts).sort())
   })
 })
 

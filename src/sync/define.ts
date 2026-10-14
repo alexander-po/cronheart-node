@@ -7,6 +7,7 @@ import {
 } from '../api/validate.js'
 import { envVarFor } from '../ping/resolve.js'
 import { refuse } from './errors.js'
+import { isIdShaped, monitorLabel } from './label.js'
 import { routingFrom } from './routing.js'
 import { normaliseSchedule } from './schedule.js'
 import type {
@@ -102,7 +103,7 @@ function refuseRepeats(monitors: readonly DefinedMonitor[]): void {
   for (const [name, count] of byName) {
     if (count > 1) {
       refuse(
-        `This configuration defines ${count} monitors named ${JSON.stringify(name)}. A name is how sync tells one monitor from another and the service enforces no uniqueness on one, so there would be no way to say which row each of them meant.`,
+        `This configuration defines ${count} monitors named ${JSON.stringify(monitorLabel(name))}. A name is how sync tells one monitor from another and the service enforces no uniqueness on one, so there would be no way to say which row each of them meant.`,
       )
     }
   }
@@ -110,7 +111,7 @@ function refuseRepeats(monitors: readonly DefinedMonitor[]): void {
   for (const [variable, names] of byVariable) {
     if (names.length > 1) {
       refuse(
-        `${names.map((name) => JSON.stringify(name)).join(' and ')} both resolve to ${variable}, so only one of them could ever be addressed by name.`,
+        `${names.map((name) => JSON.stringify(monitorLabel(name))).join(' and ')} both resolve to ${names.some(isIdShaped) ? 'one environment variable' : variable}, so only one of them could ever be addressed by name.`,
       )
     }
   }

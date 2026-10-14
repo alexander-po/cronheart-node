@@ -52,7 +52,71 @@ afterEach(async () => {
   rmSync(workspace, { recursive: true, force: true })
 })
 
+const REFUSED_IN_A_NAME = [
+  ['a line separator', '\u2028', 'U+2028'],
+  ['a direction override', '\u202E', 'U+202E'],
+  ['a bell', '\u0007', 'U+0007'],
+] as const
+
 describe('cronheart init on the free path', () => {
+  it.each(
+    REFUSED_IN_A_NAME.flatMap(([what, character, named]) => [
+      [what, 'with the id answered on stdin', character, named, [] as string[], `${MONITOR_ID}\n`],
+      [what, 'with the id passed as --uuid', character, named, [`--uuid=${MONITOR_ID}`], ''],
+    ] as const),
+  )('refuses a name holding %s %s, writing nothing and sending nothing', async (_what, _how, character, named, extra, input) => {
+    const ran = await runCli(['init', `--name=night${character}ly`, ...extra, `--env-path=${envFile()}`], {
+      env: envFor(),
+      input,
+    })
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain(`cronheart: name holds ${named}.`)
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(character)
+    expect(() => readFileSync(envFile(), 'utf8')).toThrow()
+    expect(server.requests).toEqual([])
+  })
+
+  it('refuses a name typed at the prompt that holds a direction override, writing nothing and sending nothing', async () => {
+    const ran = await runCli(['init', `--env-path=${envFile()}`], {
+      env: envFor(),
+      input: `night\u202Ely\n${MONITOR_ID}\n`,
+    })
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain('cronheart: name holds U+202E.')
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain('\u202E')
+    expect(() => readFileSync(envFile(), 'utf8')).toThrow()
+    expect(server.requests).toEqual([])
+  })
+
+  it('refuses an id typed at the name prompt as it refuses one passed as --name, writing nothing and sending nothing', async () => {
+    const ran = await runCli(['init', `--env-path=${envFile()}`], {
+      env: envFor(),
+      input: `${MONITOR_ID}\n${MONITOR_ID}\n`,
+    })
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain(`reads as a monitor id rather than a name, so it is shown cut`)
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(MONITOR_ID)
+    expect(() => readFileSync(envFile(), 'utf8')).toThrow()
+    expect(server.requests).toEqual([])
+  })
+
+  it.each([
+    ['one character', 'x'],
+    ['130 characters', 'x'.repeat(130)],
+  ])('refuses a name of %s alongside a pasted id, as the service would, writing nothing and sending nothing', async (_what, name) => {
+    const ran = await runCli(['init', `--name=${name}`, `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`], {
+      env: envFor(),
+    })
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain('cronheart: name must be between 2 and 120 characters.')
+    expect(() => readFileSync(envFile(), 'utf8')).toThrow()
+    expect(server.requests).toEqual([])
+  })
+
   it('writes the variable, checks in and reports both', async () => {
     const ran = await runCli(
       ['init', '--name=nightly-backup', `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`],
@@ -220,6 +284,48 @@ describe('cronheart init and the API-key path', () => {
     expect(ran.status).toBe(64)
     expect(ran.stderr).toContain('seconds')
     expect(store.monitors).toEqual([])
+  })
+
+  it.each(REFUSED_IN_A_NAME)('refuses a name holding %s before it sends anything', async (_what, character, named) => {
+    const ran = await runCli(
+      ['init', `--name=night${character}ly`, '--schedule=@daily', `--env-path=${envFile()}`],
+      { env: keyedEnv() },
+    )
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain(`cronheart: name holds ${named}.`)
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(character)
+    expect(store.requests).toEqual([])
+    expect(() => readFileSync(envFile(), 'utf8')).toThrow()
+  })
+
+  it.each([
+    ['an id', MONITOR_ID, 'reads as a monitor id rather than a name, so it is shown cut'],
+    ['a name holding a direction override', 'night\u202Ely', 'cronheart: name holds U+202E.'],
+  ])('refuses %s typed at the name prompt before it creates anything', async (_what, typed, said) => {
+    const ran = await runCli(['init', '--schedule=@daily', `--env-path=${envFile()}`], {
+      env: keyedEnv(),
+      input: `${typed}\n`,
+    })
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain(said)
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(typed)
+    expect(store.requests.map((request) => request.method)).toEqual(['GET'])
+    expect(store.monitors).toEqual([])
+    expect(() => readFileSync(envFile(), 'utf8')).toThrow()
+  })
+
+  it('spells out a refused character in the label of a channel it reports', async () => {
+    store.channels.splice(0, store.channels.length, channelRow({ id: '7', label: 'ops\u2028inbox', verified: true }))
+
+    const ran = await runCli(['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`], {
+      env: keyedEnv(),
+    })
+
+    expect(ran.status).toBe(0)
+    expect(ran.stdout).toContain('alerts: opsU+2028inbox (email)')
+    expect(ran.stdout).not.toContain('\u2028')
   })
 
   it('takes the id it was handed instead of creating a second monitor for it', async () => {

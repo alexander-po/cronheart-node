@@ -12,6 +12,7 @@ import {
   MONITOR_GRACE_SECONDS_MIN,
   MONITOR_NAME_MAX_LENGTH,
   MONITOR_NAME_MIN_LENGTH,
+  NAME_FORBIDDEN_RANGES,
   SCHEDULE_EXPR_MAX_LENGTH,
   SCHEDULE_KINDS,
   SIGNUP_EMAIL_MAX_LENGTH,
@@ -145,6 +146,46 @@ export function assertSnoozeDuration(value: unknown): asserts value is SnoozeDur
   }
 }
 
+function isForbidden(codePoint: number): boolean {
+  return NAME_FORBIDDEN_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high)
+}
+
+function codePointName(codePoint: number): string {
+  return `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`
+}
+
+function forbiddenIn(value: string): number | undefined {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0
+
+    if (isForbidden(codePoint)) {
+      return codePoint
+    }
+  }
+
+  return undefined
+}
+
+// A refused name is still the label a refusal is written under, so the characters that
+// refused it are spelled out rather than handed to a terminal or a log line raw.
+function withForbidden(value: string, written: (codePoint: number) => string): string {
+  return [...value]
+    .map((character) => {
+      const codePoint = character.codePointAt(0) ?? 0
+
+      return isForbidden(codePoint) ? written(codePoint) : character
+    })
+    .join('')
+}
+
+export function withForbiddenSpelledOut(value: string): string {
+  return withForbidden(value, codePointName)
+}
+
+export function withForbiddenRemoved(value: string): string {
+  return withForbidden(value, () => '')
+}
+
 // Counted in characters, as the service counts them: a string's length here is code units,
 // which makes one emoji two and puts the two bounds wrong in opposite directions.
 function assertBounded(value: unknown, field: string, min: number, max: number): asserts value is string {
@@ -159,11 +200,24 @@ function assertBounded(value: unknown, field: string, min: number, max: number):
   }
 }
 
+// Read before blankness and length, so a name of two line breaks is reported as holding one.
+function assertDisplayable(value: unknown, field: string): void {
+  const forbidden = typeof value === 'string' ? forbiddenIn(value) : undefined
+
+  if (forbidden !== undefined) {
+    refuse(
+      `${field} holds ${codePointName(forbidden)}. A name or a label may not hold a control character, a line break or a direction override, so it is refused here rather than sent.`,
+    )
+  }
+}
+
 export function assertMonitorName(value: unknown): asserts value is string {
+  assertDisplayable(value, 'name')
   assertBounded(value, 'name', MONITOR_NAME_MIN_LENGTH, MONITOR_NAME_MAX_LENGTH)
 }
 
 export function assertChannelLabel(value: unknown): asserts value is string {
+  assertDisplayable(value, 'label')
   assertBounded(value, 'label', CHANNEL_LABEL_MIN_LENGTH, CHANNEL_LABEL_MAX_LENGTH)
 }
 

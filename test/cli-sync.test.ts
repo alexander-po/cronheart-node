@@ -480,6 +480,99 @@ describe('a configuration this command will not accept is not a configuration it
     expect(ran.stderr).toContain('could not be read')
     expect(ran.stderr).toContain('the disk fell over')
   })
+
+  it.each([
+    ['a JSON file', jsonConfig],
+    ['a module', moduleConfig],
+  ])('refuses a name holding a line separator in %s, spelling the character out and sending nothing', async (_what, write) => {
+    const refused = write([{ name: 'night\u2028ly', schedule: '@daily', channels: ['ops inbox'] }])
+    const ran = await runCli(['sync', `--config=${refused}`, '--apply'], { env: envFor() })
+    const output = `${ran.stdout}${ran.stderr}`
+
+    expect(ran.status).toBe(1)
+    expect(ran.stderr).toContain('"nightU+2028ly": name holds U+2028.')
+    expect(output).not.toContain('\u2028')
+    expect(store.requests).toEqual([])
+  })
+
+  it('shows a configured and an orphaned name shaped like an id by its last four characters', async () => {
+    const configured = '00000000-0000-0000-0000-000000000001'
+    const orphaned = '00000000-0000-0000-0000-000000000002'
+
+    store.monitors.push(monitorRow({ name: orphaned }))
+
+    const ran = await runCli(['sync', `--config=${jsonConfig([{ name: configured, schedule: '@daily', channels: ['ops inbox'] }])}`], {
+      env: envFor(),
+    })
+    const output = `${ran.stdout}${ran.stderr}`
+
+    expect(ran.status).toBe(0)
+    expect(ran.stdout).toMatch(/^ {2}create +id\u20260001$/m)
+    expect(ran.stdout).toMatch(/^ {2}orphan +id\u20260002$/m)
+    expect(output).not.toContain(configured)
+    expect(output).not.toContain(orphaned)
+  })
+})
+
+describe('a channel label or reference holding a refused character', () => {
+  it('is spelled out where the plan says who a monitor alerts', async () => {
+    store.channels.splice(0, store.channels.length, channelRow({ id: '7', label: 'ops\u2028inbox', verified: true }))
+
+    const ran = await runCli(['sync', `--config=${jsonConfig([{ name: 'a-job', schedule: '@daily', channels: ['ops\u2028inbox'] }])}`], {
+      env: envFor(),
+    })
+
+    expect(ran.status).toBe(0)
+    expect(ran.stdout).toContain('opsU+2028inbox (email)')
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain('\u2028')
+  })
+
+  it('is spelled out where the plan says a named channel is not verified', async () => {
+    store.channels.splice(0, store.channels.length, channelRow({ id: '7', label: 'ops\u2028inbox', verified: false }))
+
+    const ran = await runCli(['sync', `--config=${jsonConfig([{ name: 'a-job', schedule: '@daily', channels: ['ops\u2028inbox'] }])}`], {
+      env: envFor(),
+    })
+
+    expect(ran.stdout).toContain('would alert nobody: opsU+2028inbox is named here but is not verified')
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain('\u2028')
+  })
+
+  it('is spelled out on both sides of a routing change', async () => {
+    store.channels.splice(
+      0,
+      store.channels.length,
+      channelRow({ id: '7', label: 'ops\u2028inbox', verified: true }),
+      channelRow({ id: '8', label: 'pager\u202Educk', verified: true }),
+    )
+    store.monitors.push(monitorRow({ name: 'a-job', schedule_kind: 'cron', schedule_expr: '0 3 * * *', channel_ids: ['7'] }))
+
+    const ran = await runCli(['sync', `--config=${jsonConfig([{ name: 'a-job', schedule: '0 3 * * *', channels: ['8'] }])}`], {
+      env: envFor(),
+    })
+
+    expect(ran.stdout).toMatch(/opsU\+2028inbox.*pagerU\+202Educk/)
+    expect(`${ran.stdout}${ran.stderr}`).not.toMatch(/[\u2028\u202E]/)
+  })
+
+  it('is spelled out where the plan says a reference names no channel', async () => {
+    const ran = await runCli(['sync', `--config=${jsonConfig([{ name: 'a-job', schedule: '@daily', channels: ['no\u2028such'] }])}`], {
+      env: envFor(),
+    })
+
+    expect(ran.stdout).toContain('no channel of this account is named "noU+2028such"')
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain('\u2028')
+  })
+
+  it('is spelled out where a configuration gives channels something that is not a list', async () => {
+    const ran = await runCli(['sync', `--config=${jsonConfig([{ name: 'a-job', schedule: '@daily', channels: 'ops\u2028inbox' }])}`], {
+      env: envFor(),
+    })
+
+    expect(ran.status).toBe(1)
+    expect(ran.stderr).toContain('"opsU+2028inbox" is not something channels can be')
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain('\u2028')
+  })
 })
 
 describe('declining the deletion is an answer, not a failure', () => {
