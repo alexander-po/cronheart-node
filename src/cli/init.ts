@@ -3,11 +3,12 @@ import { dirname } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
 import { isCronheartApiError } from '../api/errors.js'
-import { assertMonitorName, withForbiddenSpelledOut } from '../api/validate.js'
+import { assertMonitorName } from '../api/validate.js'
 import { outcomeLine } from '../ping/describe.js'
 import { envVarFor, isMonitorId } from '../ping/resolve.js'
 import { isSyncConfigurationError } from '../sync/errors.js'
 import { idempotencyKeyFor } from '../sync/key.js'
+import { printedBare } from '../sync/label.js'
 import { describeApiRefusal } from '../sync/refusal.js'
 import { normaliseSchedule } from '../sync/schedule.js'
 import { type ParsedArgs, readFlag, readText, unknownFlags } from './args.js'
@@ -192,7 +193,7 @@ async function named(api: CronheartApi, name: string): Promise<readonly Monitor[
 }
 
 function describeChannels(channels: readonly { kind: string; label: string }[]): string {
-  return channels.map((channel) => `${withForbiddenSpelledOut(channel.label)} (${channel.kind})`).join(', ')
+  return channels.map((channel) => `${printedBare(channel.label)} (${printedBare(channel.kind)})`).join(', ')
 }
 
 function alertsOf(

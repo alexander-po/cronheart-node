@@ -1,5 +1,6 @@
 import process from 'node:process'
 import { createInterface } from 'node:readline'
+import { isMonitorId } from '../ping/resolve.js'
 import { applySync } from '../sync/apply.js'
 import { defineMonitors } from '../sync/define.js'
 import { planSync } from '../sync/plan.js'
@@ -84,16 +85,24 @@ function printEnv(
   monitors: readonly AppliedMonitor[],
   plan: SyncPlan,
   applied: boolean,
-): void {
-  for (const line of envLinesFor([...monitors].sort((one, other) => one.name.localeCompare(other.name)))) {
+): boolean {
+  const ordered = [...monitors].sort((one, other) => one.name.localeCompare(other.name))
+
+  for (const line of envLinesFor(ordered)) {
     io.out(`${line}\n`)
+  }
+
+  const withheld = ordered.filter((monitor) => !isMonitorId(monitor.uuid)).map((monitor) => monitorLabel(monitor.name))
+
+  if (withheld.length > 0) {
+    io.err(`cronheart: the service returned something that is not a monitor id for ${withheld.join(', ')} — no line was printed for it\n`)
   }
 
   const named = new Set(monitors.map((monitor) => monitor.name))
   const pending = plan.rows.map((row) => row.name).filter((name) => !named.has(name)).map(monitorLabel)
 
   if (pending.length === 0) {
-    return
+    return withheld.length > 0
   }
 
   io.err(
@@ -101,6 +110,8 @@ function printEnv(
       ? `cronheart: no identifier for ${pending.join(', ')} — this run made none, and the report above says why\n`
       : `cronheart: no identifier yet for ${pending.join(', ')} — run again with --apply to create them first\n`,
   )
+
+  return withheld.length > 0
 }
 
 function driftUnder(plan: SyncPlan, mode: Mode): boolean {
@@ -153,11 +164,9 @@ async function reconcile(
       report('  Run again with --apply to make these changes.\n')
     }
 
-    if (mode.printEnv) {
-      printEnv(io, knownMonitors(plan), plan, false)
-    }
+    const withheld = mode.printEnv && printEnv(io, knownMonitors(plan), plan, false)
 
-    return plan.faults ? EXIT_PROBLEM : EXIT_OK
+    return plan.faults || withheld ? EXIT_PROBLEM : EXIT_OK
   }
 
   if (pruning && unsafe === undefined) {
@@ -181,14 +190,12 @@ async function reconcile(
 
   report(renderResult(result))
 
-  if (mode.printEnv) {
-    printEnv(io, appliedMonitors(result), plan, true)
-  }
+  const withheld = mode.printEnv && printEnv(io, appliedMonitors(result), plan, true)
 
   // A declined confirmation is the prompt working; every other surviving orphan is not.
   const undeleted = mode.prune && !result.pruneDeclined && result.deleted.length < orphans.length
 
-  return result.failures.length > 0 || unsafe !== undefined || result.pruneSkipped !== undefined || undeleted
+  return withheld || result.failures.length > 0 || unsafe !== undefined || result.pruneSkipped !== undefined || undeleted
     ? EXIT_PROBLEM
     : EXIT_OK
 }

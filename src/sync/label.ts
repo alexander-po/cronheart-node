@@ -1,4 +1,5 @@
-import { withForbiddenRemoved, withForbiddenSpelledOut } from '../api/validate.js'
+import { withForbiddenRemoved, withForbiddenSpelledOut, withForbiddenSpelledOutBetween } from '../api/validate.js'
+import { IDENTIFIER_SHAPED } from '../identifier-shape.js'
 import { labelFor, looksLikeAnId } from '../ping/resolve.js'
 
 // Read with the refused characters taken out, so one placed before an id cannot stop it
@@ -8,5 +9,33 @@ export function isIdShaped(name: string): boolean {
 }
 
 export function monitorLabel(name: string): string {
-  return isIdShaped(name) ? labelFor(withForbiddenRemoved(name).trim()) : withForbiddenSpelledOut(labelFor(name))
+  return isIdShaped(name) ? labelFor(withForbiddenRemoved(name).trim()) : printedBare(labelFor(name))
+}
+
+// A monitor id is the whole check-in capability, so text shaped like one is cut as a
+// monitor's label is, wherever in it the id sits; any other text has its refused and
+// invisible characters spelled out. Only a name is cut for merely opening like an id: a
+// channel label or a zone that happens to open with a date is not a mistyped one.
+function printedWith(text: string, spell: (value: string) => string, openingCuts: boolean): string {
+  const flat = withForbiddenRemoved(text).trim()
+
+  if (openingCuts && isIdShaped(text)) {
+    return labelFor(flat)
+  }
+
+  return IDENTIFIER_SHAPED.test(flat)
+    ? flat.replace(new RegExp(IDENTIFIER_SHAPED.source, 'gi'), (found) => `id…${found.slice(-4)}`)
+    : spell(text)
+}
+
+export function printed(text: string): string {
+  return printedWith(text, withForbiddenSpelledOutBetween, true)
+}
+
+export function printedBetween(text: string): string {
+  return printedWith(text, withForbiddenSpelledOutBetween, false)
+}
+
+export function printedBare(text: string): string {
+  return printedWith(text, withForbiddenSpelledOut, false)
 }

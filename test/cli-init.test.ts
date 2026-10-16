@@ -328,6 +328,22 @@ describe('cronheart init and the API-key path', () => {
     expect(ran.stdout).not.toContain('\u2028')
   })
 
+  it('spells out a control character in the kind of a channel it reports, and cuts a label that is an identifier', async () => {
+    store.channels.splice(
+      0,
+      store.channels.length,
+      channelRow({ id: '7', label: '00000000-0000-0000-0000-000000000001', kind: 'email\u001b[31m', verified: true }),
+    )
+
+    const ran = await runCli(['init', '--name=job', '--schedule=@daily', `--env-path=${envFile()}`], {
+      env: keyedEnv(),
+    })
+
+    expect(ran.stdout).toContain('alerts: id…0001 (email')
+    expect(ran.stdout).not.toContain('\u001b')
+    expect(ran.stdout).not.toContain('00000000-0000-0000-0000-000000000001')
+  })
+
   it('takes the id it was handed instead of creating a second monitor for it', async () => {
     const ran = await runCli(
       ['init', '--name=job', `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`],

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 // @ts-expect-error — a plain script, deliberately not part of the typed source tree
 import { ROWS, SPLIT, TAG_FALLBACKS, classify, disagreements } from '../contract/classify.mjs'
 // @ts-expect-error — a plain script, deliberately not part of the typed source tree
-import { COMPARED_POINTERS, tagsFor } from '../contract/drift.mjs'
+import { COMPARED_POINTERS, comparedPointers, project, tagsFor } from '../contract/drift.mjs'
 
 const root = new URL('../', import.meta.url)
 
@@ -49,6 +49,22 @@ function mutated(change: (facts: Record<string, unknown>) => void): string {
   writeFileSync(path, JSON.stringify(snapshot, null, 2))
 
   return path
+}
+
+const CONTRACT_JSON = JSON.parse(readFileSync(CONTRACT, 'utf8')) as Record<string, unknown>
+
+const KIND_LIMIT = '/api/constraints/channel.webhook_url/max_length_by_kind/'
+
+function contractKinds(): string[] {
+  const contract = JSON.parse(readFileSync(CONTRACT, 'utf8')) as {
+    api: { constraints: Record<string, { max_length_by_kind: Record<string, number> }> }
+  }
+
+  return Object.keys(contract.api.constraints['channel.webhook_url']?.max_length_by_kind ?? {})
+}
+
+function kindPointers(kinds: readonly string[]): string[] {
+  return kinds.map((kind) => `${KIND_LIMIT}${kind}`)
 }
 
 function members(facts: Record<string, unknown>, pointer: string): string[] {
@@ -220,7 +236,7 @@ const MUTATIONS = MUTATED_ROWS.flatMap((row) =>
 
 describe('the classifier and the documented rule table agree on what each row covers', () => {
   it('agrees on the committed table', () => {
-    expect(disagreements(RULE_TABLE, COMPARED_POINTERS)).toEqual([])
+    expect(disagreements(RULE_TABLE, comparedPointers(CONTRACT_JSON, shipped().facts))).toEqual([])
   })
 
   it('mutates every row it holds, and states a condition on the member rows', () => {
@@ -232,7 +248,7 @@ describe('the classifier and the documented rule table agree on what each row co
 
   it.each(MUTATIONS)('reports row %s when the table %s', (row, _what, text) => {
     expect(text).not.toBe(RULE_TABLE)
-    expect(disagreements(text, COMPARED_POINTERS)).toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^rule ${row} — `))]))
+    expect(disagreements(text, comparedPointers(CONTRACT_JSON, shipped().facts))).toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^rule ${row} — `))]))
   })
 
   it.each([
@@ -244,7 +260,7 @@ describe('the classifier and the documented rule table agree on what each row co
     const text = withCell(RULE_TABLE, SPLIT.row as string, cell, edit)
 
     expect(text).not.toBe(RULE_TABLE)
-    expect(disagreements(text, COMPARED_POINTERS)).toEqual(expect.arrayContaining([`rule ${SPLIT.row as string} — ${reported}`]))
+    expect(disagreements(text, comparedPointers(CONTRACT_JSON, shipped().facts))).toEqual(expect.arrayContaining([`rule ${SPLIT.row as string} — ${reported}`]))
   })
 
   it.each((TAG_FALLBACKS as { tag: string }[]).map((entry) => entry.tag))('reports the fallback of %s when the table changes or drops it', (tag) => {
@@ -255,7 +271,7 @@ describe('the classifier and the documented rule table agree on what each row co
       [RULE_TABLE.replace(row, ''), /^tag fallback — the rule table does not read /],
     ] as const) {
       expect(text).not.toBe(RULE_TABLE)
-      expect(disagreements(text, COMPARED_POINTERS)).toEqual(expect.arrayContaining([expect.stringMatching(reported)]))
+      expect(disagreements(text, comparedPointers(CONTRACT_JSON, shipped().facts))).toEqual(expect.arrayContaining([expect.stringMatching(reported)]))
     }
   })
 
@@ -263,7 +279,7 @@ describe('the classifier and the documented rule table agree on what each row co
     const text = RULE_TABLE.replace('| `layer` | `server` |', '| `layer` | `server` |\n| `zz_tag` | `on` |')
 
     expect(text).not.toBe(RULE_TABLE)
-    expect(disagreements(text, COMPARED_POINTERS)).toEqual(
+    expect(disagreements(text, comparedPointers(CONTRACT_JSON, shipped().facts))).toEqual(
       expect.arrayContaining(['tag fallback — the rule table reads zz_tag as the value on, which this does not']),
     )
   })
@@ -326,7 +342,7 @@ describe('the rule table states each row once, in a shape this reads', () => {
     ['a fenced block inside the section', withLine(RULE_TABLE, ROW_49, '```\n| 52 | `/zz/*` | `additive` | — | — | — |\n```'), /^rule table — line \d+ opens a fenced block inside the section$/],
   ])('reports %s', (_what, text, reported) => {
     expect(text).not.toBe(RULE_TABLE)
-    expect(disagreements(text, COMPARED_POINTERS)).toEqual(expect.arrayContaining([expect.stringMatching(reported)]))
+    expect(disagreements(text, comparedPointers(CONTRACT_JSON, shipped().facts))).toEqual(expect.arrayContaining([expect.stringMatching(reported)]))
   })
 
   it.each([
@@ -337,17 +353,26 @@ describe('the rule table states each row once, in a shape this reads', () => {
     ['a fenced copy of the heading before the real one', RULE_TABLE.replace('## Rule table\n', '```\n## Rule table\n| 8 | x |\n```\n\n## Rule table\n')],
   ])('stays silent on %s', (_what, text) => {
     expect(text).not.toBe(RULE_TABLE)
-    expect(disagreements(text, COMPARED_POINTERS)).toEqual([])
+    expect(disagreements(text, comparedPointers(CONTRACT_JSON, shipped().facts))).toEqual([])
   })
 
   it('finds the heading past a commented-out copy of it, and reports only the comment', () => {
     const text = RULE_TABLE.replace('## Rule table\n', '<!--\n## Rule table\n| 8 | x |\n-->\n\n## Rule table\n')
 
-    expect(disagreements(text, COMPARED_POINTERS)).toEqual([expect.stringMatching(/^rule table — line \d+ opens an HTML comment/)])
+    expect(disagreements(text, comparedPointers(CONTRACT_JSON, shipped().facts))).toEqual([expect.stringMatching(/^rule table — line \d+ opens an HTML comment/)])
   })
 
   it('reads the pointers the drift watch compares, not a list of its own', () => {
-    expect([...COMPARED_POINTERS].sort()).toEqual(Object.keys(shipped().facts).sort())
+    expect([...COMPARED_POINTERS, ...kindPointers(contractKinds())].sort()).toEqual(Object.keys(shipped().facts).sort())
+    expect([...comparedPointers(CONTRACT_JSON, shipped().facts)].sort()).toEqual(Object.keys(shipped().facts).sort())
+  })
+
+  it('compares the pointers the contract and the published document name, whatever kinds they hold', () => {
+    const contract = JSON.parse(readFileSync(CONTRACT, 'utf8')) as Record<string, unknown>
+    const facts = { ...shipped().facts, [`${KIND_LIMIT}sixth_kind`]: 700 }
+
+    expect([...comparedPointers(contract, shipped().facts)].sort()).toEqual(Object.keys(shipped().facts).sort())
+    expect([...comparedPointers(contract, facts)].sort()).toEqual(Object.keys(facts).sort())
   })
 })
 
@@ -486,6 +511,44 @@ describe('the drift watch compares the contract against what the server publishe
     }).api.constraints['channel.webhook_url']?.required_for_kinds
 
     expect(kinds).toEqual([...(needing ?? [])].sort())
+  })
+
+  it('fails on a webhook kind the document publishes and the contract does not state', () => {
+    const run = drift(['--snapshot', mutated((facts) => { facts[`${KIND_LIMIT}sixth_kind`] = 700 })])
+
+    expect(run.output).toContain(`${KIND_LIMIT}sixth_kind`)
+    expect(run.output).toContain('undecidable')
+    expect(run.status).toBe(1)
+  })
+
+  it('writes a control or direction character in a published kind name as its escape', () => {
+    const run = drift(['--snapshot', mutated((facts) => { facts[`${KIND_LIMIT}odd\u009b\u202ename`] = 700 })])
+
+    expect(run.output).toContain('odd\\u009b\\u202ename')
+    expect(run.output).not.toMatch(/[\u009b\u202e]/)
+    expect(run.status).toBe(1)
+  })
+
+  it('fails on a webhook kind the contract states and the document stopped publishing', () => {
+    const run = drift(['--snapshot', mutated((facts) => { delete facts[`${KIND_LIMIT}teams`] })])
+
+    expect(run.output).toContain(`${KIND_LIMIT}teams`)
+    expect(run.output).toContain('states nothing')
+    expect(run.status).toBe(1)
+  })
+
+  it('projects every kind the document states a limit for, and reads a malformed one as no kinds', () => {
+    const document = (held: unknown) => ({
+      components: { schemas: { ChannelCreate: { properties: { webhook_url: { 'x-max-length-by-kind': held } } } } },
+    })
+    const kinds = (held: unknown) =>
+      Object.keys(project(document(held))).filter((pointer) => pointer.startsWith(KIND_LIMIT))
+
+    expect(kinds({ slack: 255, sixth_kind: 700 })).toEqual([`${KIND_LIMIT}slack`, `${KIND_LIMIT}sixth_kind`])
+    expect(project(document({ 'a/b~c': 1 }))[`${KIND_LIMIT}a~1b~0c`]).toBe(1)
+    expect(kinds(null)).toEqual([])
+    expect(kinds('slack')).toEqual([])
+    expect(kinds(['slack'])).toEqual([])
   })
 
   it('fails on a difference the rules cannot place rather than passing it quietly', () => {

@@ -3,8 +3,12 @@ import {
   CRON_ALIASES,
   CRON_FIELD_COUNT,
   cronDialectRefusal,
+  foreignSeparator,
+  isCronAlias,
   readsAsAnHourOfTheDay,
 } from '../src/cron-dialect.js'
+import { assertScheduleExpression } from '../src/api/validate.js'
+import { defineMonitors } from '../src/sync/define.js'
 import { CRON_ALIASES as API_ALIASES, CRON_FIELD_COUNT as API_FIELDS } from '../src/api/constants.js'
 
 describe('the schedulers’ cron dialect against the service’s', () => {
@@ -57,3 +61,43 @@ describe('whether a schedule reads as an hour of the day', () => {
     expect(readsAsAnHourOfTheDay('@hourly')).toBe(false)
   })
 })
+
+describe('one home for the rules every layer reads a cron expression by', () => {
+  const KELVIN_WEEKLY = '@wee\u212Aly'
+
+  it('matches an alias in ASCII case only, so the Kelvin sign is not a k', () => {
+    expect(isCronAlias('@WeeKly')).toBe(true)
+    expect(isCronAlias('@weekly')).toBe(true)
+    expect(isCronAlias(KELVIN_WEEKLY)).toBe(false)
+    expect(isCronAlias(' @weekly')).toBe(false)
+  })
+
+  it('refuses the Kelvin sign as an alias in the management client and in sync alike', () => {
+    expect(() => assertScheduleExpression('cron', KELVIN_WEEKLY)).toThrow('The only schedule aliases')
+    expect(() => defineMonitors([{ name: 'job', schedule: KELVIN_WEEKLY } as never])).toThrow('not a schedule alias')
+  })
+
+  it('refuses the Kelvin sign as an alias in the scheduler dialect check, and reads it as no hour', () => {
+    expect(cronDialectRefusal(KELVIN_WEEKLY, 'node-cron')).toContain('is an alias node-cron resolves')
+    expect(readsAsAnHourOfTheDay(KELVIN_WEEKLY)).toBe(false)
+  })
+
+  it.each([
+    ['a no-break space', '0\u00A04 * * *', 0xa0],
+    ['a line break', '0\n4 * * *', 0x0a],
+    ['an ideographic space', '0\u30004 * * *', 0x3000],
+  ])('names %s as a separator the rule does not allow', (_what, expression, codePoint) => {
+    expect(foreignSeparator(expression)).toBe(codePoint)
+  })
+
+  it('allows spaces and tabs between fields and nothing else', () => {
+    expect(foreignSeparator('0 \t4 * * *')).toBeUndefined()
+    expect(foreignSeparator('0 4 * * *')).toBeUndefined()
+  })
+
+  it('leaves the management client taking what the service takes: any run of whitespace', () => {
+    expect(() => assertScheduleExpression('cron', '0\u00A04 * * *')).not.toThrow()
+    expect(() => assertScheduleExpression('cron', '0\n4 * * *')).not.toThrow()
+  })
+})
+

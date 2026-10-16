@@ -1,6 +1,5 @@
-import { withForbiddenSpelledOut } from '../api/validate.js'
-import { envVarFor } from '../ping/resolve.js'
-import { monitorLabel } from './label.js'
+import { envVarFor, isMonitorId } from '../ping/resolve.js'
+import { monitorLabel, printedBare } from './label.js'
 import { describeSchedule } from './schedule.js'
 import type {
   AlertSuppression,
@@ -69,7 +68,7 @@ function alertsOf(
 
   return alerts.length === 0
     ? NOBODY
-    : alerts.map((channel) => `${withForbiddenSpelledOut(channel.label)} (${channel.kind})`).join(', ')
+    : alerts.map((channel) => `${printedBare(channel.label)} (${printedBare(channel.kind)})`).join(', ')
 }
 
 function field(name: string, value: string): string {
@@ -191,7 +190,10 @@ export function renderResult(result: SyncResult): string {
 }
 
 // What closes the gap between a monitor existing and a job being able to address it. This is
-// the one output that carries identifiers, because that is what it is for.
+// the one output that carries identifiers, because that is what it is for. A value the
+// service returned that is not an identifier is left out: the output is a file a shell reads.
 export function envLinesFor(monitors: readonly AppliedMonitor[]): readonly string[] {
-  return monitors.map((monitor) => `${envVarFor(monitor.name)}=${monitor.uuid}`)
+  return monitors
+    .filter((monitor) => isMonitorId(monitor.uuid))
+    .map((monitor) => `${envVarFor(monitor.name)}=${monitor.uuid}`)
 }

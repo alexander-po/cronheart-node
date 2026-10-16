@@ -22,11 +22,6 @@ const FACTS = [
   ['/api/constraints/channel.label/min_length', 'value', (doc) => property(doc, 'ChannelCreate', 'label')?.minLength],
   ['/api/constraints/channel.label/max_length', 'value', (doc) => property(doc, 'ChannelCreate', 'label')?.maxLength],
   ['/api/constraints/channel.webhook_url/max_length', 'value', (doc) => property(doc, 'ChannelCreate', 'webhook_url')?.maxLength],
-  ...['slack', 'discord', 'teams', 'google_chat', 'webhook'].map((kind) => [
-    `/api/constraints/channel.webhook_url/max_length_by_kind/${kind}`,
-    'value',
-    (doc) => property(doc, 'ChannelCreate', 'webhook_url')?.['x-max-length-by-kind']?.[kind],
-  ]),
   ['/api/constraints/channel.secret/min_length', 'value', (doc) => property(doc, 'ChannelCreate', 'secret')?.minLength],
   ['/api/constraints/channel.secret/max_length', 'value', (doc) => property(doc, 'ChannelCreate', 'secret')?.maxLength],
   ['/api/constraints/channel.routing_key/format', 'value', (doc) => property(doc, 'ChannelCreate', 'routing_key')?.pattern],
@@ -82,6 +77,33 @@ const FACTS = [
 ]
 
 export const COMPARED_POINTERS = FACTS.map(([pointer]) => pointer)
+
+const KIND_LIMIT = '/api/constraints/channel.webhook_url/max_length_by_kind/'
+
+function plainObject(held) {
+  return held !== null && typeof held === 'object' && !Array.isArray(held) ? held : undefined
+}
+
+function pointerToken(key) {
+  return key.replaceAll('~', '~0').replaceAll('/', '~1')
+}
+
+function kindLimits(document) {
+  return plainObject(property(document, 'ChannelCreate', 'webhook_url')?.['x-max-length-by-kind'])
+}
+
+// A kind is a fact because the contract states it or the document publishes it, so one only
+// the document holds, or only the contract holds, is a difference and not an omission.
+function kindPointers(contract, facts) {
+  const stated = plainObject(resolve(contract, KIND_LIMIT.slice(0, -1)))
+  const named = Object.keys(facts).filter((pointer) => pointer.startsWith(KIND_LIMIT))
+
+  return [...new Set([...Object.keys(stated ?? {}).map((kind) => `${KIND_LIMIT}${pointerToken(kind)}`), ...named])]
+}
+
+export function comparedPointers(contract, facts) {
+  return [...COMPARED_POINTERS, ...kindPointers(contract, facts)]
+}
 
 function schema(document, name) {
   return document?.components?.schemas?.[name]
@@ -151,6 +173,12 @@ export function project(document) {
     }
   }
 
+  for (const [kind, limit] of Object.entries(kindLimits(document) ?? {})) {
+    if (limit !== undefined) {
+      facts[`${KIND_LIMIT}${pointerToken(kind)}`] = limit
+    }
+  }
+
   return facts
 }
 
@@ -216,7 +244,12 @@ export function tagsFor(contract, pointer) {
 export function compare(contract, facts) {
   const findings = []
 
-  for (const [pointer, shape] of FACTS) {
+  const compared = [
+    ...FACTS.map(([pointer, shape]) => [pointer, shape]),
+    ...kindPointers(contract, facts).map((pointer) => [pointer, 'value']),
+  ]
+
+  for (const [pointer, shape] of compared) {
     const published = facts[pointer]
     const believed = resolve(contract, pointer)
 
@@ -265,6 +298,14 @@ function detailOf(difference) {
   return `${difference.direction} — the contract states ${JSON.stringify(difference.before)}, the specification publishes ${JSON.stringify(difference.after)}`
 }
 
+const NOT_PRINTED = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g
+
+// What the published document names reaches a terminal and a pull request body, so a control or
+// direction character in it is written as its escape.
+function unprinted(text) {
+  return text.replace(NOT_PRINTED, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`)
+}
+
 function argumentAfter(argv, flag, fallback) {
   const at = argv.indexOf(flag)
 
@@ -279,7 +320,7 @@ async function main(argv) {
   const contract = JSON.parse(readFileSync(contractPath, 'utf8'))
   const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8'))
   const live = argv.includes('--live')
-  const drifted = disagreements(readFileSync(rulesPath, 'utf8'), COMPARED_POINTERS)
+  const drifted = disagreements(readFileSync(rulesPath, 'utf8'), comparedPointers(contract, snapshot.facts))
 
   if (drifted.length > 0) {
     throw new Error(`the classifier and the documented rule table disagree:\n  - ${drifted.join('\n  - ')}`)
@@ -315,7 +356,7 @@ async function main(argv) {
 
   for (const finding of findings) {
     out.push(
-      `  ${finding.verdict === 'additive' ? '.' : '!'} ${finding.pointer} — ${finding.detail} — ${finding.verdict}${finding.rows.length === 0 ? '' : ` (rule ${finding.rows.join(', ')})`}`,
+      `  ${finding.verdict === 'additive' ? '.' : '!'} ${unprinted(finding.pointer)} — ${unprinted(finding.detail)} — ${finding.verdict}${finding.rows.length === 0 ? '' : ` (rule ${finding.rows.join(', ')})`}`,
     )
   }
 

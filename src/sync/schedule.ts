@@ -6,7 +6,9 @@ import {
   SIMPLE_SCHEDULES,
 } from '../api/constants.js'
 import type { ScheduleKind } from '../api/types.js'
-import { codePointName, withForbiddenSpelledOutBetween } from '../api/validate.js'
+import { codePointName } from '../api/validate.js'
+import { foreignSeparator, isCronAlias } from '../cron-dialect.js'
+import { printedBetween } from './label.js'
 import { quoted, refuse } from './errors.js'
 
 export interface NormalisedSchedule {
@@ -24,18 +26,12 @@ const CRON_FIELDS = 'minute, hour, day of month, month, day of week'
 // which is what separates a wrong field count from something that was never cron at all.
 const CRON_WORDS = /JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|SUN|MON|TUE|WED|THU|FRI|SAT/gi
 
-const NOT_A_FIELD_SEPARATOR = /[^\S \t]/u
-
 const CRON_FIELD = /^[0-9*,\-/?LW#]*$/
 
 const OTHER_FORMS = `Write an interval as a whole number of seconds or with a unit — 90s, 5m, 2h, 1d — or name one of the twelve schedules this service knows: ${SIMPLE_SCHEDULES.join(', ')}.`
 
 function isCronField(field: string): boolean {
   return CRON_FIELD.test(field.replace(CRON_WORDS, ''))
-}
-
-function isAlias(expression: string): boolean {
-  return (CRON_ALIASES as readonly string[]).includes(expression.toLowerCase())
 }
 
 function isSimple(expression: string): boolean {
@@ -46,7 +42,7 @@ function isSimple(expression: string): boolean {
 // service stores what it is given and returns it unchanged, so anything normalised here
 // would read back as a difference on the next run.
 function asCron(expression: string, monitor: string): NormalisedSchedule {
-  if (isAlias(expression)) {
+  if (isCronAlias(expression)) {
     return { kind: 'cron', expr: expression }
   }
 
@@ -57,7 +53,7 @@ function asCron(expression: string, monitor: string): NormalisedSchedule {
     )
   }
 
-  const separator = NOT_A_FIELD_SEPARATOR.exec(expression)?.[0]?.codePointAt(0)
+  const separator = foreignSeparator(expression)
 
   if (separator !== undefined) {
     refuse(
@@ -198,7 +194,7 @@ export function normaliseSchedule(schedule: unknown, monitor: string): Normalise
 }
 
 export function describeSchedule(kind: string, expr: string): string {
-  const written = withForbiddenSpelledOutBetween(expr)
+  const written = printedBetween(expr)
 
-  return kind === 'interval' ? `every ${written}s` : `${kind} ${written}`
+  return kind === 'interval' ? `every ${written}s` : `${printedBetween(kind)} ${written}`
 }

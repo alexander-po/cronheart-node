@@ -20,6 +20,7 @@ import {
   SNOOZE_DURATIONS,
   TIMEZONE_MAX_LENGTH,
 } from './constants.js'
+import { isCronAlias } from '../cron-dialect.js'
 import { UUID_WHOLE } from '../identifier-shape.js'
 import { ApiInvalidRequestError } from './errors.js'
 import type { ChannelKind, ScheduleKind, SnoozeDuration } from './types.js'
@@ -150,18 +151,33 @@ function isForbidden(codePoint: number): boolean {
 }
 
 // Invisible, direction-marking and look-alike space characters a name may hold but a terminal may not be handed raw.
+// Default-ignorable code points and space separators, less the space itself and the four
+// that emoji sequences are written with, which stay readable, plus the blank Braille pattern
+// and the interlinear annotation marks, which draw as nothing; ranges rather than a property
+// escape, so the set does not move with the runtime's Unicode tables.
 const UNPRINTED_RANGES = [
   [0x00a0, 0x00a0],
+  [0x00ad, 0x00ad],
+  [0x034f, 0x034f],
   [0x061c, 0x061c],
+  [0x115f, 0x1160],
   [0x1680, 0x1680],
+  [0x17b4, 0x17b5],
+  [0x180b, 0x180f],
   [0x2000, 0x200b],
   [0x200e, 0x200f],
   [0x202f, 0x202f],
-  [0x205f, 0x205f],
-  [0x2060, 0x2064],
+  [0x205f, 0x206f],
+  [0x2800, 0x2800],
   [0x3000, 0x3000],
+  [0x3164, 0x3164],
+  [0xfe00, 0xfe0d],
   [0xfeff, 0xfeff],
-  [0xe0000, 0xe007f],
+  [0xffa0, 0xffa0],
+  [0xfff0, 0xfffb],
+  [0x1bca0, 0x1bca3],
+  [0x1d173, 0x1d17a],
+  [0xe0000, 0xe0fff],
 ] as const
 
 function isPrintedEscaped(codePoint: number): boolean {
@@ -206,7 +222,7 @@ export function withForbiddenSpelledOutBetween(value: string): string {
 }
 
 export function withForbiddenRemoved(value: string): string {
-  return withForbidden(value.replace(/[\u200C\u200D]/g, ''), () => '')
+  return withForbidden(value.replace(/[\u200C\u200D\uFE0E\uFE0F]/g, ''), () => '')
 }
 
 // Counted in characters, as the service counts them: a string's length here is code units,
@@ -319,7 +335,7 @@ export function assertGraceSeconds(value: unknown): asserts value is number {
 }
 
 function assertCron(expression: string): void {
-  if (CRON_ALIASES.includes(expression.toLowerCase() as (typeof CRON_ALIASES)[number])) {
+  if (isCronAlias(expression)) {
     return
   }
 

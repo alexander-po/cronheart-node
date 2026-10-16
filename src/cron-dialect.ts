@@ -18,6 +18,8 @@ const HOUR_FIELD_INDEX = 1
 // hour of the day, so which zone the scheduler reads them in decides when they fire.
 const ZONE_FREE_ALIASES: ReadonlySet<string> = new Set(['@hourly'])
 
+const NOT_A_FIELD_SEPARATOR = /[^\S \t]/u
+
 const PURE_STEP = /^\*(\/[0-9]+)?$/
 
 export function cronFields(expression: string): readonly string[] {
@@ -27,8 +29,19 @@ export function cronFields(expression: string): readonly string[] {
     .filter((field) => field !== '')
 }
 
+// The one rule about field separators that is this SDK's and not the service's, which splits
+// on any run of whitespace: sync refuses what its answer would otherwise read differently.
+export function foreignSeparator(expression: string): number | undefined {
+  return NOT_A_FIELD_SEPARATOR.exec(expression)?.[0]?.codePointAt(0)
+}
+
+// ASCII case only: full Unicode lowercasing reads the Kelvin sign as a k, and so as @weekly.
+function asciiLowerCase(value: string): string {
+  return value.replace(/[A-Z]+/g, (upper) => upper.toLowerCase())
+}
+
 export function isCronAlias(expression: string): boolean {
-  return (CRON_ALIASES as readonly string[]).includes(expression.trim().toLowerCase())
+  return (CRON_ALIASES as readonly string[]).includes(asciiLowerCase(expression))
 }
 
 // undefined means the service would take the expression exactly as the scheduler was given
@@ -64,7 +77,7 @@ export function readsAsAnHourOfTheDay(expression: string): boolean {
   const written = expression.trim()
 
   if (written.startsWith('@')) {
-    return isCronAlias(written) && !ZONE_FREE_ALIASES.has(written.toLowerCase())
+    return isCronAlias(written) && !ZONE_FREE_ALIASES.has(asciiLowerCase(written))
   }
 
   const fields = cronFields(written)
