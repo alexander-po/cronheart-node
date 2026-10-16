@@ -1,8 +1,5 @@
-import { withForbiddenRemoved, withForbiddenSpelledOutBetween } from '../api/validate.js'
-import { IDENTIFIER_SHAPED } from '../identifier-shape.js'
-import { labelFor } from '../ping/resolve.js'
 import { CronheartConfigurationError } from '../wiring/errors.js'
-import { isIdShaped, monitorLabel } from './label.js'
+import { monitorLabel, printed } from './label.js'
 
 // Registered rather than private, for the reason the management client's brand is: two
 // copies of this package in one dependency tree hold different classes, so instanceof
@@ -33,21 +30,8 @@ export function isSyncConfigurationError(value: unknown): value is SyncConfigura
   }
 }
 
-// A monitor id is the whole check-in capability, so text shaped like one is cut as a
-// monitor's label is, wherever in a refusal it was quoted.
 export function quoted(value: unknown): string {
-  const text = String(value)
-  const flat = withForbiddenRemoved(text).trim()
-
-  if (isIdShaped(text)) {
-    return JSON.stringify(labelFor(flat))
-  }
-
-  return JSON.stringify(
-    IDENTIFIER_SHAPED.test(flat)
-      ? flat.replace(new RegExp(IDENTIFIER_SHAPED.source, 'gi'), (found) => `id…${found.slice(-4)}`)
-      : withForbiddenSpelledOutBetween(text),
-  )
+  return JSON.stringify(printed(String(value)))
 }
 
 export function refuse(message: string, monitor?: string): never {

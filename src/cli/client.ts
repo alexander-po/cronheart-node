@@ -1,4 +1,4 @@
-import { withForbiddenSpelledOut } from '../api/validate.js'
+import { withForbiddenRemoved, withForbiddenSpelledOut } from '../api/validate.js'
 import { DEFAULT_BASE_URL } from '../constants.js'
 import { inAnyCase } from '../ping/body.js'
 import { createPingClient } from '../ping/client.js'
@@ -6,6 +6,7 @@ import { ambientEnv, envSource, isDisabled, readEnv } from '../ping/env.js'
 import type { EnvSource } from '../ping/env.js'
 import { isMonitorId, labelFor, looksLikeAnId, resolveMonitor } from '../ping/resolve.js'
 import type { PingClient, PingClientOptions } from '../ping/types.js'
+import { printedBare } from '../sync/label.js'
 import { type ParsedArgs, type Read, readText } from './args.js'
 
 export type Opened =
@@ -93,10 +94,16 @@ function readIdFlag(value: string): GivenId {
     around.push(wrapper[2])
   }
 
-  return {
-    core: wrapper === undefined ? trimmed : trimmed.slice(1, -1).trim(),
-    around: around.length === 0 ? undefined : around.join(' and '),
+  const core = wrapper === undefined ? trimmed : trimmed.slice(1, -1).trim()
+  const bare = withForbiddenRemoved(core).trim()
+
+  if (bare !== core && (isMonitorId(bare) || (!looksLikeAnId(core) && looksLikeAnId(bare)))) {
+    around.push('an invisible character')
+
+    return { core: bare, around: around.join(' and ') }
   }
+
+  return { core, around: around.length === 0 ? undefined : around.join(' and ') }
 }
 
 function wrongWith(core: string, around: string | undefined): string {
@@ -121,7 +128,7 @@ export function idFlagRefusal(value: string): string | undefined {
   const { core, around } = readIdFlag(value)
 
   if (!looksLikeAnId(core)) {
-    return `--uuid=${withForbiddenSpelledOut(core)} is not a monitor id — an id is 36 characters, hexadecimal in groups of 8-4-4-4-12. To address a monitor by the name you configured it under, pass --name.`
+    return `--uuid=${printedBare(core)} is not a monitor id — an id is 36 characters, hexadecimal in groups of 8-4-4-4-12. To address a monitor by the name you configured it under, pass --name.`
   }
 
   const fix =

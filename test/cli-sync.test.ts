@@ -459,6 +459,28 @@ describe('what --print-env puts on stdout, which is a file the shell will read b
   })
 })
 
+describe('a service that answers with something that is not an identifier', () => {
+  it('writes no line for it and names the monitor on stderr without repeating the value', async () => {
+    store.monitors.push(
+      monitorRow({ name: 'hostile', uuid: '00000000-0000-0000-0000-000000000001\nCRONHEART_INJECTED_UUID=1' }),
+      monitorRow({ name: 'honest', uuid: '00000000-0000-0000-0000-000000000002' }),
+    )
+
+    const config = jsonConfig([
+      { name: 'hostile', schedule: '0 3 * * *', channels: ['ops inbox'] },
+      { name: 'honest', schedule: '0 3 * * *', channels: ['ops inbox'] },
+    ])
+    const ran = await runCli(['sync', `--config=${config}`, '--print-env'], { env: envFor() })
+
+    expect(ran.status).toBe(1)
+    expect(ran.stdout).toBe('CRONHEART_HONEST_UUID=00000000-0000-0000-0000-000000000002\n')
+    expect(ran.stderr).toContain('hostile')
+    expect(ran.stderr).toContain('not a monitor id')
+    expect(ran.stderr).not.toContain('INJECTED')
+    expect(ran.stderr).not.toContain('run again with --apply')
+  })
+})
+
 describe('a configuration this command will not accept is not a configuration it could not read', () => {
   it('frames a refusal raised inside the module the same way it frames one raised outside it', async () => {
     const refused = moduleConfig([

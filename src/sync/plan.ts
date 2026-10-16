@@ -6,9 +6,9 @@ import type {
   RequestOptions,
   UpdateMonitorRequest,
 } from '../api/types.js'
-import { withForbiddenSpelledOut } from '../api/validate.js'
 import { defineMonitors } from './define.js'
 import { idempotencyKeyFor } from './key.js'
+import { printedBare } from './label.js'
 import { NO_CHANNELS, resolveChannels, routingKeys, verifiedAmong } from './routing.js'
 import { describeSchedule } from './schedule.js'
 import type {
@@ -42,7 +42,7 @@ function nobodyReason(routing: ResolvedRouting, channels: readonly Channel[]): s
 
   const named = channels
     .filter((channel) => routing.ids.includes(channel.id))
-    .map((channel) => withForbiddenSpelledOut(channel.label))
+    .map((channel) => printedBare(channel.label))
 
   return `would alert nobody: ${named.join(', ')} ${named.length === 1 ? 'is named here but is not verified on this account' : 'are named here and none of them is verified on this account'}, and the service skips an unverified channel when it sends an alert. ${SAY_SO_INSTEAD}`
 }
@@ -54,6 +54,10 @@ function changed(field: string, from: unknown, to: unknown): FieldChange | undef
   return String(from) === String(to)
     ? undefined
     : { field, from: String(from), to: String(to) }
+}
+
+function printedChange(change: FieldChange | undefined): FieldChange | undefined {
+  return change === undefined ? undefined : { ...change, from: printedBare(change.from), to: printedBare(change.to) }
 }
 
 // One field to the configuration and two on the wire, so both halves travel whenever either
@@ -71,7 +75,7 @@ function scheduleChange(monitor: DefinedMonitor, existing: Monitor): FieldChange
 }
 
 function labelsFor(ids: readonly string[], channels: readonly Channel[]): string {
-  const named = ids.map((id) => withForbiddenSpelledOut(channels.find((channel) => channel.id === id)?.label ?? id))
+  const named = ids.map((id) => printedBare(channels.find((channel) => channel.id === id)?.label ?? id))
 
   return named.length === 0 ? NO_CHANNELS : named.join(', ')
 }
@@ -81,7 +85,7 @@ function channelChange(
   existing: Monitor,
   channels: readonly Channel[],
 ): FieldChange {
-  const attached = existing.channels.map((channel) => withForbiddenSpelledOut(channel.label))
+  const attached = existing.channels.map((channel) => printedBare(channel.label))
 
   return {
     field: 'channels',
@@ -193,7 +197,7 @@ function differencesFrom(
 
   return [
     scheduleChange(monitor, existing),
-    monitor.tz === undefined ? undefined : changed('tz', existing.tz, monitor.tz),
+    printedChange(monitor.tz === undefined ? undefined : changed('tz', existing.tz, monitor.tz)),
     monitor.graceSeconds === undefined
       ? undefined
       : changed('graceSeconds', existing.graceSeconds, monitor.graceSeconds),

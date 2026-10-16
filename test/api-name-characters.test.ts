@@ -275,3 +275,46 @@ describe('the fields a sync refusal repeats from the service', () => {
     expect(describeApiRefusal(failure, 'creating it')).toBe('the service refused this request over name.')
   })
 })
+
+describe('what the command line echoes of an identifier that came wrapped', () => {
+  const ID = '00000000-0000-0000-0000-000000000001'
+
+  it.each([
+    ['behind a left-to-right mark', `\u200E${ID}`],
+    ['behind a soft hyphen', `\u00AD${ID}`],
+    ['inside an address', `https://h.invalid/ping/${ID}`],
+    ['in a crontab line', `0 4 * * * curl https://h.invalid/ping/${ID}`],
+  ])('cuts an identifier %s in --uuid', (_what, given) => {
+    const message = idFlagRefusal(given) ?? ''
+
+    expect(message).toContain('is not a monitor id')
+    expect(message).not.toContain(ID)
+    expect(message).toContain('id…0001')
+  })
+
+  it.each([
+    ['a left-to-right mark', `\u200E${ID}`],
+    ['a soft hyphen', `\u00AD${ID}`],
+  ])('refuses %s in front of an identifier given as --name', (_what, given) => {
+    const message = nameFlagRefusal(given) ?? ''
+
+    expect(message).toContain('reads as a monitor id')
+    expect(message).not.toContain(ID)
+  })
+
+  it.each(['nightly backup', `tenant ${ID}`])('leaves the name %j alone', (name) => {
+    expect(nameFlagRefusal(name)).toBeUndefined()
+  })
+
+  it('names an invisible character that trails an identifier', () => {
+    const message = idFlagRefusal(`${ID}\u200B`) ?? ''
+
+    expect(message).toContain('an invisible character came with them')
+    expect(message).not.toContain(ID)
+  })
+
+  it('names the invisible character that came with an identifier', () => {
+    expect(idFlagRefusal(`\u200E${ID}`)).toContain('an invisible character came with them')
+  })
+})
+
