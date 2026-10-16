@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.0
+
+### Minor Changes
+
+This release closes the follow-ups of the review of `cronheart sync`'s printing and of its refusal of cron fields. **Upgrading from `0.7.1` changes four things a caller can see.**
+
+- **`cronheart sync --print-env` and `envLinesFor` write a line only for a monitor whose returned identifier is an identifier.** The run names the monitors it left out on stderr and ends with a problem status, so a service that answers with anything else cannot add a line to a file the shell reads back, and a missing line is not silent.
+- **A schedule alias is matched in ASCII case only**, in the management client, in sync and in the scheduler adapters. A schedule written with the Kelvin sign U+212A in place of a k is refused as an unknown alias rather than taken for `@weekly`. The management client and the adapters still take any run of whitespace between the fields of a cron expression, because that is what the service accepts; only sync refuses more.
+- **Text the service returned is printed through the same set as everything else.** The plan, `cronheart init` and the drift report spell out the unprintable code points of a zone, a schedule, a channel kind and a channel label, and cut an identifier held in a label or in a name wherever it sits. A `--uuid` refusal cuts an identifier that came behind or in front of an invisible character, or inside an address or a crontab line, and says that an invisible character came with it.
+- **More code points are spelled out.** The set is the Unicode default-ignorable code points and space separators, with the blank Braille pattern U+2800 and U+FFF9 to U+FFFB: among others U+00AD, U+034F, U+180B to U+180F, U+2065 to U+206F, U+3164, U+FE00 to U+FE0D and U+FFA0. U+200C, U+200D, U+FE0E and U+FE0F stay readable, so an emoji name prints whole.
+
+### Patch Changes
+
+- **A cron expression whose fields are separated by anything but spaces and tabs is refused by `cronheart sync`.** A schedule is printed in the plan with its unprintable code points spelled out, a refusal that quotes text shaped like a monitor id cuts it as a monitor's label is cut, and the invisible, direction-marking and look-alike space characters a name may hold are spelled out wherever sync prints them. The package states the channel webhook URL limit per kind, as the service now publishes it.
+
 ## 0.7.1
 
 ### Patch Changes
