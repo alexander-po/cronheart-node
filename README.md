@@ -307,9 +307,10 @@ and `429` are answers rather than failures. **The default is two retries, so one
 check-in is up to three requests**, all of them inside one `CRONHEART_TIMEOUT_MS` budget;
 set `CRONHEART_RETRIES=0` if your service-side rate limit counts requests rather than
 check-ins. The count is capped at 5 however it
-is configured, attempts are spaced by 50 ms — less only when less than that is
-left of the budget — and the whole sequence, delays included, is spent inside
-`CRONHEART_TIMEOUT_MS`. The base URL is
+is configured, attempts are spaced by 50 ms — or, after a `503` that states a
+`Retry-After`, by that many seconds, at most 5 — and the whole sequence, delays
+included, is spent inside `CRONHEART_TIMEOUT_MS`: a wait the budget cannot hold
+is not taken, and the `503` already in hand is the answer. The base URL is
 validated when the client is built: a query string, a fragment or a scheme that
 is not http(s) is refused there, because the ping path is appended to it and a
 check-in would otherwise land on the site root and be recorded as accepted. A
@@ -1236,7 +1237,7 @@ consumer onto the package rather than by reading the code; `0.1.1` added four
 more, each of them something the package reported wrongly rather than something
 it could not do. [CHANGELOG.md](CHANGELOG.md) names all fifteen.
 
-**The wire contract.** This package is built against wire contract 4.0.0, the
+**The wire contract.** This package is built against wire contract 4.0.1, the
 machine-readable statement of the service's wire surface its checks run
 against. `cronheart --version` prints it, and it rides in the User-Agent, so a
 support request names it.

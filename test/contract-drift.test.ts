@@ -676,3 +676,14 @@ describe('the drift watch compares the contract against what the server publishe
     expect(contract.api.read_shapes.monitor.nullable).toContain('open_incident')
   })
 })
+
+describe('what the live job prints of text the service sent', () => {
+  it('writes a line of an unparseable answer that opens with two colons as an escape, not a workflow command', () => {
+    const run = drift(['--live'], './test/fixtures/drift/serve-a-workflow-command.mjs')
+
+    expect(run.status).toBe(1)
+    expect(run.output).toContain('contract drift FAILED')
+    expect(run.output).toContain('\\u000a::error::injected')
+    expect(run.output.split('\n').filter((line) => line.startsWith('::'))).toEqual([])
+  })
+})

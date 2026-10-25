@@ -100,7 +100,7 @@ export async function applySync(
 
       try {
         const made = await api.monitors.create(row.request, create)
-        progress.created.push({ name: made.name, uuid: made.uuid })
+        progress.created.push({ name: row.name, uuid: made.uuid })
       } catch (error) {
         record(progress, row, error)
       }
@@ -110,8 +110,8 @@ export async function applySync(
 
     if (row.action === 'update') {
       try {
-        const changed = await api.monitors.update(row.uuid, row.request, request)
-        progress.updated.push({ name: changed.name, uuid: changed.uuid })
+        await api.monitors.update(row.uuid, row.request, request)
+        progress.updated.push({ name: row.name, uuid: row.uuid })
       } catch (error) {
         record(progress, row, error)
       }

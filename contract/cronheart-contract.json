@@ -1,5 +1,5 @@
 {
-  "contract_version": "4.0.0",
+  "contract_version": "4.0.1",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -294,7 +294,8 @@
         {
           "status": "5xx",
           "outcome": "server-error",
-          "retryable": true
+          "retryable": true,
+          "note": "A 503 on the ping route carries a Retry-After header and stores nothing, so repeating the ping is safe. The SDK waits the stated seconds before the next attempt, at most 5 per wait and never beyond what is left of the budget."
         }
       ],
       "status_to_outcome": {
@@ -374,7 +375,7 @@
     "budget": "One timeout budget covers every attempt and every delay between them. An attempt is not started once the budget is spent.",
     "rules": [
       "A 429 is never retried. Its Retry-After is reported to the caller instead.",
-      "The delay between attempts is a floor rather than a backoff, and is clamped to whatever remains of the budget.",
+      "The delay between attempts is a floor rather than a backoff, and is clamped to whatever remains of the budget. After a 503 that carries a Retry-After, the delay is that many seconds instead, never below the floor and at most 5 seconds; when the budget cannot hold it, the 503 already in hand is the answer and no wait is spent.",
       "max_retries is a ceiling on the configured value, not a default: the default is 2. A configured count above it is clamped silently, because a check-in must not fail for being configured ambitiously.",
       "The ceiling exists because a single misconfigured job would otherwise spend its whole budget issuing requests into the per-monitor and per-IP limits above."
     ]
@@ -396,7 +397,7 @@
       "A result below 0 clamps to 0. A date in the past therefore yields 0, not a negative number.",
       "Valid results are integers in the range 0 to 2147483647 inclusive. Anything outside that range, and anything unparseable, yields no value.",
       "A missing or empty header yields no value.",
-      "A parsed value is reported to the caller. It is never used to schedule an automatic retry: 429 is not retried."
+      "A parsed value is reported to the caller. It spaces the retry of a 503 on the ping route, capped at 5 seconds; a 429 is never retried."
     ]
   },
 

@@ -1,6 +1,5 @@
 import { withForbiddenRemoved, withForbiddenSpelledOut, withForbiddenSpelledOutBetween } from '../api/validate.js'
-import { IDENTIFIER_SHAPED } from '../identifier-shape.js'
-import { labelFor, looksLikeAnId } from '../ping/resolve.js'
+import { labelFor, looksLikeAnId, withIdsCut } from '../ping/resolve.js'
 
 // Read with the refused characters taken out, so one placed before an id cannot stop it
 // being recognised as one.
@@ -23,9 +22,7 @@ function printedWith(text: string, spell: (value: string) => string, openingCuts
     return labelFor(flat)
   }
 
-  return IDENTIFIER_SHAPED.test(flat)
-    ? flat.replace(new RegExp(IDENTIFIER_SHAPED.source, 'gi'), (found) => `id…${found.slice(-4)}`)
-    : spell(text)
+  return withIdsCut(flat) !== flat ? withIdsCut(flat) : spell(text)
 }
 
 export function printed(text: string): string {

@@ -124,6 +124,9 @@ const SHAPED = [
   ['a bare run of 32 hex digits', COMPACT],
   ['a bare run of 32 hex digits in upper case', COMPACT.replace('3', 'F')],
   ['a bare run of 32 hex digits between non-hex characters', `_${COMPACT}_`],
+  ['a hyphenated id written with non-breaking hyphens', MONITOR_UUID.replaceAll('-', '\u2011')],
+  ['a hyphenated id written with en dashes', MONITOR_UUID.replaceAll('-', '\u2013')],
+  ['a hyphenated id written with one look-alike among real dashes', MONITOR_UUID.replace('-', '\u2011')],
 ] as const
 
 const NOT_SHAPED = [
@@ -137,6 +140,11 @@ const NOT_SHAPED = [
 ] as const
 
 describe('the identifier-shaped text shape', () => {
+  it('leaves the shape that gates the wire strict about its dashes', () => {
+    expect(UUID_WHOLE.test(MONITOR_UUID.replaceAll('-', '\u2011'))).toBe(false)
+    expect(UUID_WHOLE.test(MONITOR_UUID.replaceAll('-', '\u2013'))).toBe(false)
+  })
+
   it.each(SHAPED)('matches %s', (_name, text) => {
     expect(IDENTIFIER_SHAPED.test(text)).toBe(true)
   })

@@ -26,6 +26,8 @@ function modeOf(path: string): string {
   return (statSync(path).mode & 0o777).toString(8)
 }
 
+const TENANT_ID = ['0a1b2c3d', '1111', '2222', '3333', '444455556666'].join('-')
+
 let server: PingServer
 let workspace: string
 
@@ -376,6 +378,25 @@ describe('cronheart init and the API-key path', () => {
     expect(second.status).toBe(0)
     expect(store.monitors).toHaveLength(1)
     expect(readFileSync(envFile(), 'utf8')).toContain(store.monitors[0]?.uuid ?? 'no monitor')
+  })
+
+  it('prints the name it created, and the one it found, cut when they hold a monitor id', async () => {
+    const name = `tenant ${TENANT_ID}`
+    const args = ['init', `--name=${name}`, '--schedule=0 3 * * *', `--env-path=${envFile()}`]
+
+    const first = await runCli(args, { env: keyedEnv() })
+    store.sweepFinalisedKeys()
+    const second = await runCli(args, { env: keyedEnv() })
+
+    const spoken = (stdout: string): string[] =>
+      stdout.split('\n').filter((line) => /created|already here/.test(line))
+
+    expect(first.status).toBe(0)
+    expect(second.status).toBe(0)
+    expect(spoken(first.stdout)).toEqual(['  created "tenant id…6666"'])
+    expect(spoken(second.stdout)).toEqual([
+      '  "tenant id…6666" is already here — using it rather than making a second',
+    ])
   })
 
   it('refuses rather than guessing when the account already carries that name twice', async () => {

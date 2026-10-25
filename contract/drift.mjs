@@ -337,7 +337,11 @@ async function main(argv) {
       throw new Error(`${source} answered ${response.status}`)
     }
 
-    facts = project(await response.json())
+    const published = await response.json().catch((error) => {
+      throw new Error(`${source} did not answer with JSON: ${unprinted(error instanceof Error ? error.message : String(error))}`)
+    })
+
+    facts = project(published)
     moved = !isDeepStrictEqual(facts, snapshot.facts)
 
     if (moved) {

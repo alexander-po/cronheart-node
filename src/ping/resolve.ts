@@ -1,4 +1,4 @@
-import { UUID_WHOLE } from '../identifier-shape.js'
+import { IDENTIFIER_SHAPED, UUID_WHOLE } from '../identifier-shape.js'
 import type { EnvSource } from './env.js'
 
 const OPENS_LIKE_AN_ID = /^[0-9a-fA-F]{8}-/
@@ -16,6 +16,8 @@ export interface Resolution {
   // name, and naming one would print a screamed copy of the id the route is secured by.
   readonly envVar: string | undefined
   readonly label: string
+  // What a once-per-monitor warning is keyed on. Never printed, because it is the name as given.
+  readonly key: string
 }
 
 export function isMonitorId(value: unknown): value is string {
@@ -41,6 +43,18 @@ function screaming(name: string): string {
     .replace(/^_+|_+$/g, '')
 }
 
+// A monitor id is the whole check-in capability, so text that carries one is cut wherever in it
+// the id sits: a name holding an address or a crontab line is still a name.
+const ID_ANY_SEPARATOR = /[0-9a-f]{8}(?:[^0-9a-z][0-9a-f]{4}){3}[^0-9a-z][0-9a-f]{12}/gi
+
+export function withIdsCut(text: string): string {
+  return text
+    .replace(ID_ANY_SEPARATOR, (found) => `id…${found.slice(-4)}`)
+    .replace(new RegExp(IDENTIFIER_SHAPED.source, 'gi'), (found) => `id…${found.slice(-4)}`)
+}
+
+const SCREAMED_ID = /[0-9A-F]{8}(?:_[0-9A-F]{4}){3}_[0-9A-F]{12}|(?<![0-9A-F])[0-9A-F]{32}(?![0-9A-F])/g
+
 export function envVarFor(name: string): string {
   return `CRONHEART_${screaming(name)}_UUID`
 }
@@ -50,7 +64,18 @@ export function labelFor(name: unknown): string {
     return '<no monitor>'
   }
 
-  return looksLikeAnId(name) ? `id…${name.slice(-4)}` : name
+  return looksLikeAnId(name) ? `id…${name.slice(-4)}` : withIdsCut(name)
+}
+
+// The variable a diagnostic tells the reader to set. Looking a name up still screams the whole
+// of it, so a name that carries an id keeps the variable it always had; only its printed form
+// shows the id's place. Cut after screaming, so every separator the id was written with is covered.
+export function shownVariable(variable: string): string {
+  return variable.replace(SCREAMED_ID, '<ID>')
+}
+
+function shownEnvVarFor(name: string): string {
+  return shownVariable(envVarFor(name))
 }
 
 function definedFor(
@@ -69,7 +94,7 @@ function configuredIn(env: EnvSource, name: string): string | undefined {
 
 function settle(
   candidate: string | undefined,
-  named: { readonly envVar: string | undefined; readonly label: string },
+  named: { readonly envVar: string | undefined; readonly label: string; readonly key: string },
 ): Resolution {
   if (candidate === undefined) {
     return { id: undefined, reason: 'unset', ...named }
@@ -89,17 +114,17 @@ export function resolveMonitor(
   env: EnvSource,
 ): Resolution {
   if (isMonitorId(name)) {
-    return { id: name, reason: 'ok', envVar: undefined, label: labelFor(name) }
+    return { id: name, reason: 'ok', envVar: undefined, label: labelFor(name), key: name }
   }
 
   const idShaped = looksLikeAnId(name)
-  const envVar = idShaped ? undefined : envVarFor(name)
+  const envVar = idShaped ? undefined : shownEnvVarFor(name)
   const configured =
     definedFor(defined, name) ?? (hasIdShape(name) ? undefined : configuredIn(env, name))
 
   if (configured !== undefined) {
-    return settle(configured, { envVar, label: name })
+    return settle(configured, { envVar, label: withIdsCut(name), key: name })
   }
 
-  return settle(idShaped ? name : undefined, { envVar, label: labelFor(name) })
+  return settle(idShaped ? name : undefined, { envVar, label: labelFor(name), key: name })
 }
