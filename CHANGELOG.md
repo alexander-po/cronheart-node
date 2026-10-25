@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0
+
+### Minor Changes
+
+This release makes a check-in survive the service's brief refusals and closes three printing follow-ups. **Upgrading from `0.8.0` changes how long a check-in can take.**
+
+- **A check-in answered `503` is retried after the `Retry-After` the service states**, at most 5 seconds per wait, inside the same `CRONHEART_TIMEOUT_MS` budget and the same three attempts by default. A wait the budget cannot hold is not taken: the `503` already in hand is the answer, and it stays the answer if the next attempt then runs out of budget. A caller's abort ends a wait at once and sends nothing further. Other `5xx` answers and connection errors keep the 50 ms wait, and a `4xx` is never retried. The management client is unchanged.
+- **A name that carries a monitor id anywhere in it is printed with the id cut**, written with any separator, in the label of a check-in and in `cronheart doctor`. The variable a diagnostic tells the reader to set shows `<ID>` where the id sits. Looking a name up still reads the whole variable, so a monitor whose name holds an id keeps working. An id written with a non-breaking hyphen or an en dash is now recognised as one wherever an id is recognised, which includes the problem text the management client withholds and the labels sync prints.
+- **Text the service returned is printed through the print set in three more places.** `cronheart init` prints the name of a monitor it created or found cut, `cronheart sync --print-env` takes each variable name and each updated monitor's identifier from the configuration and the plan rather than the service's echo, and the contract drift job escapes the excerpt of an answer it cannot parse. `cronheart init` still prints the name it was given, and the variable that name makes, in its other lines.
+
 ## 0.8.0
 
 ### Minor Changes
