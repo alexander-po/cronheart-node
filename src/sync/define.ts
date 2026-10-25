@@ -5,7 +5,7 @@ import {
   assertScheduleExpression,
   canonicalTimezone,
 } from '../api/validate.js'
-import { envVarFor } from '../ping/resolve.js'
+import { envVarFor, shownVariable } from '../ping/resolve.js'
 import { refuse } from './errors.js'
 import { isIdShaped, monitorLabel } from './label.js'
 import { routingFrom } from './routing.js'
@@ -111,7 +111,7 @@ function refuseRepeats(monitors: readonly DefinedMonitor[]): void {
   for (const [variable, names] of byVariable) {
     if (names.length > 1) {
       refuse(
-        `${names.map((name) => JSON.stringify(monitorLabel(name))).join(' and ')} both resolve to ${names.some(isIdShaped) ? 'one environment variable' : variable}, so only one of them could ever be addressed by name.`,
+        `${names.map((name) => JSON.stringify(monitorLabel(name))).join(' and ')} both resolve to ${names.some(isIdShaped) ? 'one environment variable' : shownVariable(variable)}, so only one of them could ever be addressed by name.`,
       )
     }
   }

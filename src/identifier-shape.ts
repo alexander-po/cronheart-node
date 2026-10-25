@@ -10,4 +10,9 @@ export function hideIdentifierSegments(path: string): string {
   return path.replace(UUID_SEGMENT, '/{uuid}')
 }
 
-export const IDENTIFIER_SHAPED = /*#__PURE__*/ new RegExp(`${HEX_UUID}|(?<![0-9a-f])${HEX_COMPACT}(?![0-9a-f])`, 'i')
+const HEX_UUID_DASH_LIKE = ['{8}', '{4}', '{4}', '{4}', '{12}'].map((count) => `[0-9a-f]${count}`).join('[-\\u2011\\u2013]')
+
+export const IDENTIFIER_SHAPED = /*#__PURE__*/ new RegExp(
+  `${HEX_UUID_DASH_LIKE}|(?<![0-9a-f])${HEX_COMPACT}(?![0-9a-f])`,
+  'i',
+)

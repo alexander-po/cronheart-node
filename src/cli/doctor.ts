@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { outcomeLine } from '../ping/describe.js'
 import type { EnvSource } from '../ping/env.js'
-import { isMonitorId, resolveMonitor } from '../ping/resolve.js'
+import { isMonitorId, labelFor, resolveMonitor } from '../ping/resolve.js'
 import type { FetchLike, PingHttpResponse } from '../ping/types.js'
 import { ambientFetch } from '../transport/send.js'
 import { CONTRACT_VERSION, SDK_VERSION } from '../version.js'
@@ -188,7 +188,7 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
         ? 'no monitor is configured in this environment'
         : `the monitors configured here are ${monitors.map((monitor) => monitor.name).join(', ')}`
 
-    io.out(label('check-in', `skipped — nothing resolves ${JSON.stringify(asked)}; ${known}`))
+    io.out(label('check-in', `skipped — nothing resolves ${JSON.stringify(labelFor(asked))}; ${known}`))
 
     return EXIT_PROBLEM
   }

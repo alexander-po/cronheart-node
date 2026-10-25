@@ -197,7 +197,7 @@ function build(options: PingClientOptions, refusal?: string): PingClient {
       if (result.message !== undefined) {
         warnOnce(
           result.outcome,
-          resolution.envVar ?? resolution.label,
+          resolution.key,
           `cronheart: ${result.message}`,
         )
       }

@@ -303,7 +303,7 @@ async function createThroughTheApi(
   const only = already[0]
 
   if (only !== undefined) {
-    io.out(`  ${JSON.stringify(only.name)} is already here — using it rather than making a second\n`)
+    io.out(`  ${JSON.stringify(printedBare(only.name))} is already here — using it rather than making a second\n`)
 
     return {
       kind: 'created',
@@ -318,7 +318,7 @@ async function createThroughTheApi(
       idempotencyKey: await idempotencyKeyFor(request),
     })
 
-    io.out(`  created ${JSON.stringify(made.name)}\n`)
+    io.out(`  created ${JSON.stringify(printedBare(made.name))}\n`)
 
     return {
       kind: 'created',

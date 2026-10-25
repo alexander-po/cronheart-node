@@ -1,4 +1,4 @@
-import { BODY_RELEASE_BUDGET_MS, RETRY_FLOOR_DELAY_MS } from '../constants.js'
+import { BODY_RELEASE_BUDGET_MS, RETRY_AFTER_CAP_MS, RETRY_FLOOR_DELAY_MS } from '../constants.js'
 import type {
   AbortSignalLike,
   FetchLike,
@@ -7,6 +7,7 @@ import type {
 } from '../ping/types.js'
 import { type Countdown, countdown, detachedCountdown } from '../timer.js'
 import type { Attempts } from './attempts.js'
+import { parseRetryAfter } from './retry-after.js'
 
 export type TransportReason = 'timeout' | 'aborted' | 'network-error' | 'unexpected'
 
@@ -47,6 +48,7 @@ export interface TransportRequest {
   readonly attempts: Attempts
   readonly signal: AbortSignalLike | undefined
   readonly fetch: FetchLike | undefined
+  readonly wait?: ((ms: number, signal: AbortSignalLike | undefined) => Promise<void>) | undefined
 }
 
 export interface TransportResult {
@@ -293,6 +295,35 @@ function relayAbort(signal: unknown, relay: () => void): AbortSignalLike | undef
   }
 }
 
+function holdFor(ms: number, signal: AbortSignalLike | undefined): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = countdown(ms)
+    let listening: AbortSignalLike | undefined
+    const done = (): void => {
+      timer.cancel()
+      stopRelaying(listening, done)
+      resolve()
+    }
+
+    void timer.reached.then(done)
+    listening = relayAbort(signal, done)
+  })
+}
+
+// Only a 503 says how long the server wants to be left alone, and it records nothing when it
+// does, so honouring the wait is safe and a shorter one only lands inside the same window.
+function delayAfter(answer: ReadResponse | undefined): number {
+  if (answer?.status !== 503) {
+    return RETRY_FLOOR_DELAY_MS
+  }
+
+  const seconds = parseRetryAfter(answer.retryAfter, Date.now())
+
+  return seconds === undefined
+    ? RETRY_FLOOR_DELAY_MS
+    : Math.min(Math.max(seconds * 1000, RETRY_FLOOR_DELAY_MS), RETRY_AFTER_CAP_MS)
+}
+
 function wasStopped(signal: unknown): boolean {
   try {
     return isAbortSignalLike(signal) && signal.aborted === true
@@ -439,10 +470,23 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
   let attempt = 0
   let last: TransportFailure | undefined
   let answered: ReadResponse | undefined
+  let pause = RETRY_FLOOR_DELAY_MS
+  let stated: ReadResponse | undefined
+  const wait = request.wait ?? holdFor
 
   while (attempt < request.attempts) {
     if (attempt > 0) {
-      await countdown(Math.min(RETRY_FLOOR_DELAY_MS, Math.max(0, deadline - Date.now()))).reached
+      // A wait the budget cannot hold buys no further attempt, so the answer already in hand
+      // is returned now instead of after the job has been kept waiting for nothing.
+      if (stated !== undefined && !wasStopped(request.signal) && pause >= deadline - Date.now()) {
+        return { ...stated, attempts: attempt }
+      }
+
+      await wait(Math.min(pause, Math.max(0, deadline - Date.now())), request.signal)
+
+      if (wasStopped(request.signal)) {
+        throw new TransportFailure('aborted', CANCELLED, last, attempt)
+      }
     }
 
     attempt += 1
@@ -469,6 +513,8 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
 
       if (isServerError(outcome.status) && attempt < request.attempts) {
         answered = outcome
+        pause = delayAfter(outcome)
+        stated = pause > RETRY_FLOOR_DELAY_MS ? outcome : undefined
 
         continue
       }
@@ -480,11 +526,17 @@ export async function send(request: TransportRequest): Promise<TransportResult> 
           ? new TransportFailure(error.reason, error.message, error.cause, attempt)
           : new TransportFailure('network-error', UNREACHABLE, undefined, attempt)
 
+      if (failure.reason === 'timeout' && stated !== undefined && !wasStopped(request.signal)) {
+        return { ...stated, attempts: attempt - 1 }
+      }
+
       if (failure.reason !== 'network-error' || attempt >= request.attempts) {
         throw failure
       }
 
       last = failure
+      stated = undefined
+      pause = RETRY_FLOOR_DELAY_MS
     }
   }
 

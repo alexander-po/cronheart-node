@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { applySync } from '../src/sync/apply.js'
 import { planSync } from '../src/sync/plan.js'
-import { renderResult } from '../src/sync/render.js'
+import { envLinesFor, renderResult } from '../src/sync/render.js'
 import type { MonitorDefinition, PlannedCreate } from '../src/sync/types.js'
 import { channelRow, createMonitorStore, monitorRow } from './support/monitor-store.js'
 import { apiFor, bodiesSentTo, transportFor } from './support/sync-api.js'
+
+const TENANT_ID = ['0a1b2c3d', '1111', '2222', '3333', '444455556666'].join('-')
 
 const VERIFIED = channelRow({ id: '7', label: 'ops inbox', verified: true })
 
@@ -588,5 +590,56 @@ describe('the order a result is read in', () => {
     expect(lines.findIndex((line) => line.includes('replacement'))).toBeLessThan(
       lines.findIndex((line) => line.includes('deleted 1')),
     )
+  })
+})
+
+describe('the name an applied monitor is reported under', () => {
+  it('is the configured one, not what the service echoed back', async () => {
+    const store = createMonitorStore([], [VERIFIED])
+    const real = apiFor(store)
+    const echoing = {
+      ...real,
+      monitors: {
+        ...real.monitors,
+        create: async (...given: Parameters<typeof real.monitors.create>) => ({
+          ...(await real.monitors.create(...given)),
+          name: `tenant ${TENANT_ID}`,
+        }),
+      },
+    } as typeof real
+    const plan = await planSync(
+      real,
+      config({ name: 'nightly-backup', schedule: '0 3 * * *', channels: ['ops inbox'] }),
+    )
+
+    const result = await applySync(echoing, plan)
+
+    expect(result.created.map((entry) => entry.name)).toEqual(['nightly-backup'])
+    expect(envLinesFor(result.created)).toEqual([
+      `CRONHEART_NIGHTLY_BACKUP_UUID=${result.created[0]?.uuid}`,
+    ])
+  })
+
+  it('reports an updated monitor under the configured name as well', async () => {
+    const store = createMonitorStore([monitorRow({ name: 'nightly-backup' })], [VERIFIED])
+    const real = apiFor(store)
+    const echoing = {
+      ...real,
+      monitors: {
+        ...real.monitors,
+        update: async (...given: Parameters<typeof real.monitors.update>) => ({
+          ...(await real.monitors.update(...given)),
+          name: `tenant ${TENANT_ID}`,
+        }),
+      },
+    } as typeof real
+    const plan = await planSync(
+      real,
+      config({ name: 'nightly-backup', schedule: '0 4 * * *', channels: ['ops inbox'] }),
+    )
+
+    const result = await applySync(echoing, plan)
+
+    expect(result.updated.map((entry) => entry.name)).toEqual(['nightly-backup'])
   })
 })
