@@ -106,6 +106,42 @@ describe('cronheart init on the free path', () => {
   })
 
   it.each([
+    ['passed as --name', [`--name=backup-${TENANT_ID}`, `--uuid=${MONITOR_ID}`], ''],
+    ['typed at the prompt', [`--uuid=${MONITOR_ID}`], `backup-${TENANT_ID}\n`],
+    ['written with doubled dashes', [`--name=backup-${TENANT_ID.replaceAll('-', '--')}`, `--uuid=${MONITOR_ID}`], ''],
+    ['written with a no-break space as one separator', [`--name=backup-${TENANT_ID.replace('-', '\u00A0')}`, `--uuid=${MONITOR_ID}`], ''],
+    ['written with an invisible character inside it', [`--name=backup-${TENANT_ID.replace('-1111', '-11\u200B11')}`, `--uuid=${MONITOR_ID}`], ''],
+  ] as const)('refuses a name holding a monitor id %s, printing neither it nor its variable', async (_how, extra, input) => {
+    const ran = await runCli(['init', ...extra, `--env-path=${envFile()}`], { env: envFor(), input })
+    const printed = `${ran.stdout}${ran.stderr}`
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain('looks like it holds a monitor id, so it is not shown')
+    expect(printed).not.toMatch(/0a1b2c3d/i)
+    expect(() => readFileSync(envFile(), 'utf8')).toThrow()
+    expect(server.requests).toEqual([])
+  })
+
+  it.each([
+    ['a dash missing', `job ${TENANT_ID.replace('3333-', '3333')}`],
+    ['no dashes, against a hex letter', `web${TENANT_ID.replaceAll('-', '')}`],
+    ['a letter that upper-cases into hex', `job ${TENANT_ID.slice(0, -2)}\uFB00`],
+    ['a mark inside a group', `job ${TENANT_ID.replace('0a1b', '0a1b.')}`],
+    ['a combining accent inside a group', `job ${TENANT_ID.replace('0a1b', '0a1b\u0301')}`],
+    ['a second one the label would not cut', `job ${TENANT_ID.replace('0a1b', '9a1b')} and ${TENANT_ID.replace('3333-', '3333')}`],
+  ])('refuses a name holding a monitor id with %s without printing it', async (_how, name) => {
+    const ran = await runCli(['init', `--name=${name}`, `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`], {
+      env: envFor(),
+    })
+
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain('holds a monitor id')
+    expect(`${ran.stdout}${ran.stderr}`).not.toMatch(/0a1b2c3d/i)
+    expect(() => readFileSync(envFile(), 'utf8')).toThrow()
+    expect(server.requests).toEqual([])
+  })
+
+  it.each([
     ['one character', 'x'],
     ['130 characters', 'x'.repeat(130)],
   ])('refuses a name of %s alongside a pasted id, as the service would, writing nothing and sending nothing', async (_what, name) => {
@@ -304,6 +340,7 @@ describe('cronheart init and the API-key path', () => {
   it.each([
     ['an id', MONITOR_ID, 'reads as a monitor id rather than a name, so it is shown cut'],
     ['a name holding a direction override', 'night\u202Ely', 'cronheart: name holds U+202E.'],
+    ['a name holding an id', `backup-${TENANT_ID}`, 'looks like it holds a monitor id, so it is not shown'],
   ])('refuses %s typed at the name prompt before it creates anything', async (_what, typed, said) => {
     const ran = await runCli(['init', '--schedule=@daily', `--env-path=${envFile()}`], {
       env: keyedEnv(),
@@ -380,23 +417,17 @@ describe('cronheart init and the API-key path', () => {
     expect(readFileSync(envFile(), 'utf8')).toContain(store.monitors[0]?.uuid ?? 'no monitor')
   })
 
-  it('prints the name it created, and the one it found, cut when they hold a monitor id', async () => {
-    const name = `tenant ${TENANT_ID}`
-    const args = ['init', `--name=${name}`, '--schedule=0 3 * * *', `--env-path=${envFile()}`]
+  it('refuses a name that holds a monitor id before it creates anything', async () => {
+    const ran = await runCli(
+      ['init', `--name=tenant ${TENANT_ID}`, '--schedule=0 3 * * *', `--env-path=${envFile()}`],
+      { env: keyedEnv() },
+    )
 
-    const first = await runCli(args, { env: keyedEnv() })
-    store.sweepFinalisedKeys()
-    const second = await runCli(args, { env: keyedEnv() })
-
-    const spoken = (stdout: string): string[] =>
-      stdout.split('\n').filter((line) => /created|already here/.test(line))
-
-    expect(first.status).toBe(0)
-    expect(second.status).toBe(0)
-    expect(spoken(first.stdout)).toEqual(['  created "tenant id…6666"'])
-    expect(spoken(second.stdout)).toEqual([
-      '  "tenant id…6666" is already here — using it rather than making a second',
-    ])
+    expect(ran.status).toBe(64)
+    expect(ran.stderr).toContain('cronheart: name looks like it holds a monitor id, so it is not shown')
+    expect(`${ran.stdout}${ran.stderr}`).not.toContain(TENANT_ID)
+    expect(store.monitors).toEqual([])
+    expect(() => readFileSync(envFile(), 'utf8')).toThrow()
   })
 
   it('refuses rather than guessing when the account already carries that name twice', async () => {

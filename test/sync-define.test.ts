@@ -287,6 +287,13 @@ describe('the time zones a value copied out of a working crontab can be written 
     )
   })
 
+  it('refuses CET, which the service holds at one offset all year, naming the region zone to use', () => {
+    const said = refusal({ name: 'a-job', schedule: '@daily', channels: 'none', tz: 'CET' })
+
+    expect(said).toContain('one UTC offset all year')
+    expect(said).toContain('Europe/Berlin')
+  })
+
   // POSIX reads TZ=GMT+3 as three hours west of Greenwich and everything else reads it as
   // three hours east, so accepting it would pick a side of an eight-hour disagreement.
   it('refuses GMT+3 by naming the offset form that has only one meaning', () => {

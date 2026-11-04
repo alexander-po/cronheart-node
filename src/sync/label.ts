@@ -1,4 +1,4 @@
-import { withForbiddenRemoved, withForbiddenSpelledOut, withForbiddenSpelledOutBetween } from '../api/validate.js'
+import { withForbiddenRemoved, withForbiddenSpelledOut, withForbiddenSpelledOutBetween } from '../print-set.js'
 import { labelFor, looksLikeAnId, withIdsCut } from '../ping/resolve.js'
 
 // Read with the refused characters taken out, so one placed before an id cannot stop it

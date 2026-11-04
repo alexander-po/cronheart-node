@@ -637,8 +637,10 @@ is verified — because a report with nothing wrong in it would otherwise read a
 reassurance about alerting that nothing here established.
 
 `init` writes `CRONHEART_<NAME>_UUID` for a monitor and verifies it with a
-check-in. Creating the monitor from the command line needs an API key;
-without one, `init` links to the dashboard and takes a pasted id instead.
+check-in. It refuses a name that holds a monitor id, because that name is
+printed whole in the variable and the crontab line it suggests. Creating the
+monitor from the command line needs an API key; without one, `init` links to
+the dashboard and takes a pasted id instead.
 Its destination flag is `--env-path` rather than
 `--env-file`, because Node reads `--env-file` as one of its own options
 wherever it appears on the line.
@@ -849,11 +851,13 @@ because that identifier is the check-in capability.
 
 A request the service is certain to refuse is refused here instead, with a
 message that names the field the value came from: a channel missing the key its
-kind needs, a time zone the runtime cannot name — the service reports that one
-against the schedule expression — and a name or label outside its bounds,
-counted in characters as the service counts them rather than in UTF-16 code
-units, so one emoji is one. This client also refuses, before sending, a name or
-a label holding a character of the class the service describes as control
+kind needs, a time zone the runtime cannot name or an abbreviation such as
+`CET` or `utc` that the service holds at one offset all year
+(`TIMEZONE_ABBREVIATIONS`; `UTC` spelled exactly, and `Z`, are accepted) — the
+service reports both against the schedule expression — and a name or label
+outside its bounds, counted in characters as the service counts them rather
+than in UTF-16 code units, so one emoji is one. This client also refuses, before
+sending, a name or a label holding a character of the class the service describes as control
 characters, line breaks and direction-override characters, which it reads as
 U+0000-001F, U+007F-009F, U+2028-2029, U+202A-202E and U+2066-2069, the ranges
 `NAME_FORBIDDEN_RANGES` holds: the refusal names the field and the first such
@@ -1237,7 +1241,7 @@ consumer onto the package rather than by reading the code; `0.1.1` added four
 more, each of them something the package reported wrongly rather than something
 it could not do. [CHANGELOG.md](CHANGELOG.md) names all fifteen.
 
-**The wire contract.** This package is built against wire contract 4.0.1, the
+**The wire contract.** This package is built against wire contract 5.0.0, the
 machine-readable statement of the service's wire surface its checks run
 against. `cronheart --version` prints it, and it rides in the User-Agent, so a
 support request names it.

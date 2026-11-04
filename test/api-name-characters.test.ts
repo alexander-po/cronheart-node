@@ -237,6 +237,17 @@ describe('a refused name in a configuration', () => {
     }
   })
 
+  it('cuts the id from the variable two names resolve to when an invisible character sits inside it', () => {
+    const id = ['0a1b2c3d', '1111', '2222', '3333', '444455556666'].join('-')
+    const refused = refusalOfAll([
+      { name: `tenant ${id.replace('0a1b', '0a1b\u00AD')}`, schedule: '@daily', channels: 'none' },
+      { name: `tenant ${id.replace('0a1b', '0a1b\u2060')}`, schedule: '@hourly', channels: 'none' },
+    ])
+
+    expect(refused.message).toContain('both resolve to CRONHEART_TENANT_<ID>_UUID')
+    expect(refused.message).not.toMatch(/0a1b/i)
+  })
+
   it('still names the variable two plain names both resolve to', () => {
     const refused = refusalOfAll([
       { name: 'nightly backup', schedule: '@daily', channels: 'none' },

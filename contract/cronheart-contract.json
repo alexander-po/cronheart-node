@@ -1,5 +1,5 @@
 {
-  "contract_version": "4.0.1",
+  "contract_version": "5.0.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -375,7 +375,7 @@
     "budget": "One timeout budget covers every attempt and every delay between them. An attempt is not started once the budget is spent.",
     "rules": [
       "A 429 is never retried. Its Retry-After is reported to the caller instead.",
-      "The delay between attempts is a floor rather than a backoff, and is clamped to whatever remains of the budget. After a 503 that carries a Retry-After, the delay is that many seconds instead, never below the floor and at most 5 seconds; when the budget cannot hold it, the 503 already in hand is the answer and no wait is spent.",
+      "The delay between attempts is a floor rather than a backoff, and is clamped to whatever remains of the budget. After a 503 that carries a Retry-After, the delay is that many seconds instead, never below the floor and at most 5 seconds, and a Retry-After that parses but lies beyond the range the caller is told is read as that cap; when the budget cannot hold it, the 503 already in hand is the answer and no wait is spent.",
       "max_retries is a ceiling on the configured value, not a default: the default is 2. A configured count above it is clamped silently, because a check-in must not fail for being configured ambitiously.",
       "The ceiling exists because a single misconfigured job would otherwise spend its whole budget issuing requests into the per-monitor and per-IP limits above."
     ]
@@ -397,7 +397,7 @@
       "A result below 0 clamps to 0. A date in the past therefore yields 0, not a negative number.",
       "Valid results are integers in the range 0 to 2147483647 inclusive. Anything outside that range, and anything unparseable, yields no value.",
       "A missing or empty header yields no value.",
-      "A parsed value is reported to the caller. It spaces the retry of a 503 on the ping route, capped at 5 seconds; a 429 is never retried."
+      "A parsed value is reported to the caller. It spaces the retry of a 503 on the ping route, capped at 5 seconds, and a value that parses but lies beyond the range spaces that retry by the cap while the caller is told no value; a 429 is never retried."
     ]
   },
 
@@ -652,7 +652,24 @@
         "max_length": 64,
         "not_blank": true,
         "default": "UTC",
-        "validation": "Must name a zone the server's timezone database can construct. Rejected as a schedule error, not as a field-format error."
+        "validation": "Must name a zone the server's timezone database can construct, and not one of refused_abbreviations, which the service refuses as held at one offset all year. Rejected as a schedule error, not as a field-format error.",
+        "refused_abbreviations": [
+          "a", "acdt", "acst", "addt", "adt", "aedt", "aest", "ahdt", "ahst", "akdt", "akst", "amt", "apt",
+          "ast", "awdt", "awst", "awt", "b", "bdst", "bdt", "bmt", "bst", "c", "cast", "cat", "cddt", "cdt",
+          "cemt", "cest", "cet", "chst", "cmt", "cpt", "cst", "cwt", "d", "dmt", "e", "eat", "eddt", "edt",
+          "eest", "eet", "emt", "ept", "est", "ewt", "f", "ffmt", "fmt", "g", "gdt", "gmt", "gst", "h",
+          "hdt", "hkst", "hkt", "hmt", "hpt", "hst", "hwt", "i", "iddt", "idt", "imt", "ist", "jdt", "jmt",
+          "jst", "k", "kdt", "kmt", "kst", "l", "lst", "m", "mddt", "mdst", "mdt", "mest", "met", "mmt",
+          "mpt", "msd", "msk", "mst", "mwt", "n", "nddt", "ndt", "npt", "nst", "nwt", "nzdt", "nzmt", "nzst",
+          "o", "p", "pddt", "pdt", "pkst", "pkt", "plmt", "pmt", "ppmt", "ppt", "pst", "pwt", "q", "qmt",
+          "r", "rmt", "s", "sast", "sdmt", "sjmt", "smt", "sst", "t", "tbmt", "tmt", "u", "uct", "utc", "v",
+          "w", "wast", "wat", "wemt", "west", "wet", "wib", "wit", "wita", "wmt", "x", "y", "yddt", "ydt",
+          "ypt", "yst", "ywt", "z"
+        ],
+        "refused_abbreviations_case": "ascii-insensitive",
+        "refused_abbreviations_accepted_exactly": ["UTC"],
+        "refused_abbreviations_applies_to": "a zone being set or changed; a monitor already stored in one keeps its zone and its deadline",
+        "note": "refused_abbreviations is matched ignoring ASCII case, except that a value equal to one of refused_abbreviations_accepted_exactly names the zone and is accepted. The refusal reads: Timezone \"<tz>\" keeps one UTC offset all year, so a schedule in it would ignore daylight saving time. Use a region zone such as Europe/Berlin or America/New_York, or UTC."
       },
       "monitor.grace_seconds": {
         "type": "integer",
@@ -680,7 +697,8 @@
           "statement": "Fewer than 5 fields is rejected outright, and a 6th field is rejected as an invalid field position. The 6-field form with leading seconds that several popular schedulers accept is therefore a 422 here, reported as an invalid cron expression rather than as a dialect mismatch.",
           "sdk_rule": "Detect the 6-field form client-side and reject it with a message that names the dialect. An adapter reading an expression out of a scheduler must do this before the monitor is ever created."
         },
-        "note": "@reboot is not among the aliases and is rejected."
+        "note": "@reboot is not among the aliases and is rejected.",
+        "matches_no_time": "An expression that matches no time occurring in the monitor's zone, such as 0 0 30 2 *, is refused under errors.schedule_expr, on create and on any update, including one that leaves the schedule out, because the stored expression is checked against the zone the monitor will have. The refusal reads: This cron expression matches no time that occurs in the monitor's timezone, so the monitor would never expect a ping. This SDK does not decide it client-side."
       },
       "schedule.interval": {
         "type": "string",
@@ -872,6 +890,8 @@
         "the interval second bounds",
         "the 5-field cron dialect",
         "monitor.tz maximum length",
+        "the zone abbreviations monitor.tz refuses",
+        "the refusal of a cron expression that matches no time in the monitor's zone, which the document carries as prose only",
         "channel address and chat id constraints, the webhook URL scheme and the webhook host each kind takes, which the document carries as prose only",
         "which kinds each channel field is required for",
         "the ordering guarantees",
@@ -970,6 +990,7 @@
     { "id": "constraints.monitor.name.max", "pointer": "/api/constraints/monitor.name/max_length", "value": 120 },
     { "id": "constraints.schedule_expr.max", "pointer": "/api/constraints/monitor.schedule_expr/max_length", "value": 120 },
     { "id": "constraints.tz.max", "pointer": "/api/constraints/monitor.tz/max_length", "value": 64 },
+    { "id": "constraints.tz.refused_abbreviations", "pointer": "/api/constraints/monitor.tz/refused_abbreviations" },
     { "id": "constraints.channel.label.min", "pointer": "/api/constraints/channel.label/min_length", "value": 2 },
     { "id": "constraints.channel.label.max", "pointer": "/api/constraints/channel.label/max_length", "value": 80 },
     { "id": "constraints.monitor.name.forbidden_ranges", "pointer": "/api/constraints/monitor.name/forbidden_ranges", "value": [[0, 31], [127, 159], [8232, 8233], [8234, 8238], [8294, 8297]] },

@@ -92,7 +92,7 @@ function parseHttpDate(value: string, now: number): number | undefined {
   return undefined
 }
 
-export function parseRetryAfter(
+export function unboundedRetryAfterSeconds(
   header: string | null | undefined,
   now: number,
 ): number | undefined {
@@ -107,18 +107,21 @@ export function parseRetryAfter(
   }
 
   if (DELTA_SECONDS.test(value)) {
-    const seconds = Number(value)
-
-    return Number.isSafeInteger(seconds) && seconds <= RETRY_AFTER_MAX_SECONDS ? seconds : undefined
+    return Number(value)
   }
 
   const instant = parseHttpDate(value, now)
 
-  if (instant === undefined) {
-    return undefined
-  }
+  return instant === undefined ? undefined : Math.max(0, Math.floor((instant - now) / 1000))
+}
 
-  const seconds = Math.max(0, Math.floor((instant - now) / 1000))
+export function parseRetryAfter(
+  header: string | null | undefined,
+  now: number,
+): number | undefined {
+  const seconds = unboundedRetryAfterSeconds(header, now)
 
-  return seconds <= RETRY_AFTER_MAX_SECONDS ? seconds : undefined
+  return seconds !== undefined && Number.isSafeInteger(seconds) && seconds <= RETRY_AFTER_MAX_SECONDS
+    ? seconds
+    : undefined
 }

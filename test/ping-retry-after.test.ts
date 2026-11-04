@@ -70,6 +70,21 @@ describe('the wait before a retried ping', () => {
   })
 
   it.each([
+    ['in seconds past the parser’s range', '2147483648'],
+    ['in seconds past a safe integer', '99999999999999999999'],
+    ['as a date centuries away', 'Fri, 01 Jan 9999 00:00:00 GMT'],
+  ])('caps the wait rather than dropping to the floor when Retry-After is %s', async (_what, retryAfter) => {
+    const recorder = createPingRecorder((_, attempt) =>
+      attempt === 1 ? { status: 503, headers: { 'retry-after': retryAfter } } : { status: 200 },
+    )
+    const { given, wait } = waits()
+
+    await sent(recorder, wait)
+
+    expect(given).toEqual([RETRY_AFTER_CAP_MS])
+  })
+
+  it.each([
     ['is absent', {}],
     ['is zero', { 'retry-after': '0' }],
     ['is not a duration', { 'retry-after': 'soon' }],
@@ -217,6 +232,34 @@ describe('the wait through the client', () => {
     expect(recorder.pings).toHaveLength(2)
     expect(result.outcome).toBe('accepted')
   })
+
+  it.each(['2147483648', 'Fri, 01 Jan 9999 00:00:00 GMT'])(
+    'waits the cap after a Retry-After of %s and still reports no value for it',
+    async (retryAfter) => {
+      vi.useFakeTimers()
+      const recorder = createPingRecorder({ status: 503, headers: { 'retry-after': retryAfter } })
+      const sdk = createPingClient({
+        baseUrl: 'https://ping.example',
+        fetch: recorder.fetch,
+        env: {},
+        retries: 1,
+        timeoutMs: 60_000,
+        monitors: { job: MONITOR_ID },
+      })
+
+      const pending = sdk.ping('job')
+      await vi.advanceTimersByTimeAsync(RETRY_AFTER_CAP_MS - 100)
+
+      expect(recorder.pings).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(200)
+      const result = await pending
+
+      expect(recorder.pings).toHaveLength(2)
+      expect(result.status).toBe(503)
+      expect(result.retryAfterSeconds).toBeUndefined()
+    },
+  )
 
   it('wakes a wait early when the caller aborts', async () => {
     const recorder = createPingRecorder({ status: 503, headers: { 'retry-after': '5' } })

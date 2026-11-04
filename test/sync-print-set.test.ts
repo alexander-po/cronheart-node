@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { codePointName, withForbiddenRemoved, withForbiddenSpelledOut } from '../src/api/validate.js'
+import { codePointName, withForbiddenRemoved, withForbiddenSpelledOut } from '../src/print-set.js'
 import { defineMonitors } from '../src/sync/define.js'
 import { quoted } from '../src/sync/errors.js'
 import { monitorLabel } from '../src/sync/label.js'

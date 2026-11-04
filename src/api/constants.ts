@@ -1,4 +1,5 @@
 export { CRON_ALIASES, CRON_FIELD_COUNT } from '../cron-dialect.js'
+export { NAME_FORBIDDEN_RANGES } from '../print-set.js'
 
 export const API_BASE_PATH = '/api/v1'
 
@@ -71,17 +72,23 @@ export const SCHEDULE_EXPR_MAX_LENGTH = 120
 
 export const TIMEZONE_MAX_LENGTH = 64
 
+export const TIMEZONE_ABBREVIATIONS = [
+  'a', 'acdt', 'acst', 'addt', 'adt', 'aedt', 'aest', 'ahdt', 'ahst', 'akdt', 'akst', 'amt', 'apt',
+  'ast', 'awdt', 'awst', 'awt', 'b', 'bdst', 'bdt', 'bmt', 'bst', 'c', 'cast', 'cat', 'cddt',
+  'cdt', 'cemt', 'cest', 'cet', 'chst', 'cmt', 'cpt', 'cst', 'cwt', 'd', 'dmt', 'e', 'eat', 'eddt',
+  'edt', 'eest', 'eet', 'emt', 'ept', 'est', 'ewt', 'f', 'ffmt', 'fmt', 'g', 'gdt', 'gmt', 'gst',
+  'h', 'hdt', 'hkst', 'hkt', 'hmt', 'hpt', 'hst', 'hwt', 'i', 'iddt', 'idt', 'imt', 'ist', 'jdt',
+  'jmt', 'jst', 'k', 'kdt', 'kmt', 'kst', 'l', 'lst', 'm', 'mddt', 'mdst', 'mdt', 'mest', 'met',
+  'mmt', 'mpt', 'msd', 'msk', 'mst', 'mwt', 'n', 'nddt', 'ndt', 'npt', 'nst', 'nwt', 'nzdt',
+  'nzmt', 'nzst', 'o', 'p', 'pddt', 'pdt', 'pkst', 'pkt', 'plmt', 'pmt', 'ppmt', 'ppt', 'pst',
+  'pwt', 'q', 'qmt', 'r', 'rmt', 's', 'sast', 'sdmt', 'sjmt', 'smt', 'sst', 't', 'tbmt', 'tmt',
+  'u', 'uct', 'utc', 'v', 'w', 'wast', 'wat', 'wemt', 'west', 'wet', 'wib', 'wit', 'wita', 'wmt',
+  'x', 'y', 'yddt', 'ydt', 'ypt', 'yst', 'ywt', 'z',
+] as const
+
 export const CHANNEL_LABEL_MIN_LENGTH = 2
 
 export const CHANNEL_LABEL_MAX_LENGTH = 80
-
-export const NAME_FORBIDDEN_RANGES = [
-  [0x0000, 0x001f],
-  [0x007f, 0x009f],
-  [0x2028, 0x2029],
-  [0x202a, 0x202e],
-  [0x2066, 0x2069],
-] as const
 
 export const CHANNEL_ADDRESS_KINDS = ['email'] as const
 
