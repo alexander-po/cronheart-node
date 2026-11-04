@@ -8,7 +8,7 @@ This release follows the service's new refusal of time-zone abbreviations and cl
 
 - **A zone the service holds at one offset all year is refused before anything is sent**, such as `CET`, `EST` or `utc`, with the service's advice to use a region zone instead. `UTC` and `Z` still work. The list is exported from `cronheart/api` as `TIMEZONE_ABBREVIATIONS`, and the wire contract moves up a major version. A sync configuration naming such a zone is refused even when it matches the monitor's stored zone.
 - **`cronheart init` refuses a name that holds a monitor id**, which it would otherwise print whole in the variable and the crontab line it suggests.
-- **An id hidden by an invisible character or unusual separators is cut from diagnostics**, in a check-in's label and in the variable it names.
+- **An id written with an invisible character, or with a run of separators between its groups, is cut** from a check-in's label and from the variable it names.
 - **A 503 asking for a wait beyond range is retried after the 5-second cap**, not the short floor.
 
 ## 0.9.0
