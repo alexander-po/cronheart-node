@@ -12,16 +12,17 @@ import {
   MONITOR_GRACE_SECONDS_MIN,
   MONITOR_NAME_MAX_LENGTH,
   MONITOR_NAME_MIN_LENGTH,
-  NAME_FORBIDDEN_RANGES,
   SCHEDULE_EXPR_MAX_LENGTH,
   SCHEDULE_KINDS,
   SIGNUP_EMAIL_MAX_LENGTH,
   SIMPLE_SCHEDULES,
   SNOOZE_DURATIONS,
+  TIMEZONE_ABBREVIATIONS,
   TIMEZONE_MAX_LENGTH,
 } from './constants.js'
 import { isCronAlias } from '../cron-dialect.js'
 import { UUID_WHOLE } from '../identifier-shape.js'
+import { codePointName, forbiddenIn } from '../print-set.js'
 import { ApiInvalidRequestError } from './errors.js'
 import type { ChannelKind, ScheduleKind, SnoozeDuration } from './types.js'
 
@@ -146,85 +147,6 @@ export function assertSnoozeDuration(value: unknown): asserts value is SnoozeDur
   }
 }
 
-function isForbidden(codePoint: number): boolean {
-  return NAME_FORBIDDEN_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high)
-}
-
-// Invisible, direction-marking and look-alike space characters a name may hold but a terminal may not be handed raw.
-// Default-ignorable code points and space separators, less the space itself and the four
-// that emoji sequences are written with, which stay readable, plus the blank Braille pattern
-// and the interlinear annotation marks, which draw as nothing; ranges rather than a property
-// escape, so the set does not move with the runtime's Unicode tables.
-const UNPRINTED_RANGES = [
-  [0x00a0, 0x00a0],
-  [0x00ad, 0x00ad],
-  [0x034f, 0x034f],
-  [0x061c, 0x061c],
-  [0x115f, 0x1160],
-  [0x1680, 0x1680],
-  [0x17b4, 0x17b5],
-  [0x180b, 0x180f],
-  [0x2000, 0x200b],
-  [0x200e, 0x200f],
-  [0x202f, 0x202f],
-  [0x205f, 0x206f],
-  [0x2800, 0x2800],
-  [0x3000, 0x3000],
-  [0x3164, 0x3164],
-  [0xfe00, 0xfe0d],
-  [0xfeff, 0xfeff],
-  [0xffa0, 0xffa0],
-  [0xfff0, 0xfffb],
-  [0x1bca0, 0x1bca3],
-  [0x1d173, 0x1d17a],
-  [0xe0000, 0xe0fff],
-] as const
-
-function isPrintedEscaped(codePoint: number): boolean {
-  return isForbidden(codePoint) || UNPRINTED_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high)
-}
-
-export function codePointName(codePoint: number): string {
-  return `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`
-}
-
-function forbiddenIn(value: string): number | undefined {
-  for (const character of value) {
-    const codePoint = character.codePointAt(0) ?? 0
-
-    if (isForbidden(codePoint)) {
-      return codePoint
-    }
-  }
-
-  return undefined
-}
-
-// A refused name is still the label a refusal is written under, so the characters that
-// refused it, and the invisible ones beside them, are spelled out rather than handed to a
-// terminal or a log line raw.
-function withForbidden(value: string, written: (codePoint: number) => string): string {
-  return [...value]
-    .map((character) => {
-      const codePoint = character.codePointAt(0) ?? 0
-
-      return isPrintedEscaped(codePoint) ? written(codePoint) : character
-    })
-    .join('')
-}
-
-export function withForbiddenSpelledOut(value: string): string {
-  return withForbidden(value, codePointName)
-}
-
-export function withForbiddenSpelledOutBetween(value: string): string {
-  return withForbidden(value, (codePoint) => `<${codePointName(codePoint)}>`)
-}
-
-export function withForbiddenRemoved(value: string): string {
-  return withForbidden(value.replace(/[\u200C\u200D\uFE0E\uFE0F]/g, ''), () => '')
-}
-
 // Counted in characters, as the service counts them: a string's length here is code units,
 // which makes one emoji two and puts the two bounds wrong in opposite directions.
 function assertBounded(value: unknown, field: string, min: number, max: number): asserts value is string {
@@ -291,10 +213,28 @@ function pad(value: string): string {
   return value.padStart(2, '0')
 }
 
+// The service's match ignores ASCII case only, and to it the exact spelling UTC is the zone
+// rather than the abbreviation.
+function heldAtOneOffset(value: string): boolean {
+  const lowered = value.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+
+  return value !== 'UTC' && (TIMEZONE_ABBREVIATIONS as readonly string[]).includes(lowered)
+}
+
 export function assertTimezone(value: unknown): asserts value is string {
   assertBounded(value, 'tz', 1, TIMEZONE_MAX_LENGTH)
 
-  if (UTC_DESIGNATOR.test(value) || namesAZone(value)) {
+  if (UTC_DESIGNATOR.test(value)) {
+    return
+  }
+
+  if (heldAtOneOffset(value)) {
+    refuse(
+      `tz ${JSON.stringify(value)} keeps one UTC offset all year, so a schedule in it would ignore daylight saving time. Use a region zone such as Europe/Berlin or America/New_York, or UTC.`,
+    )
+  }
+
+  if (namesAZone(value)) {
     return
   }
 

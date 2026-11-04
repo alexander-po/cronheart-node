@@ -1,4 +1,5 @@
 import { IDENTIFIER_SHAPED, UUID_WHOLE } from '../identifier-shape.js'
+import { withForbiddenRemoved } from '../print-set.js'
 import type { EnvSource } from './env.js'
 
 const OPENS_LIKE_AN_ID = /^[0-9a-fA-F]{8}-/
@@ -45,12 +46,22 @@ function screaming(name: string): string {
 
 // A monitor id is the whole check-in capability, so text that carries one is cut wherever in it
 // the id sits: a name holding an address or a crontab line is still a name.
-const ID_ANY_SEPARATOR = /[0-9a-f]{8}(?:[^0-9a-z][0-9a-f]{4}){3}[^0-9a-z][0-9a-f]{12}/gi
+const ID_ANY_SEPARATOR = /[0-9a-f]{8}(?:[^0-9a-z]+[0-9a-f]{4}){3}[^0-9a-z]+[0-9a-f]{12}/gi
 
-export function withIdsCut(text: string): string {
+function idsCut(text: string): string {
   return text
     .replace(ID_ANY_SEPARATOR, (found) => `id…${found.slice(-4)}`)
     .replace(new RegExp(IDENTIFIER_SHAPED.source, 'gi'), (found) => `id…${found.slice(-4)}`)
+}
+
+// Read as written and again without invisible characters: one inside an id hides it, and one
+// between two groups joins them once removed.
+export function withIdsCut(text: string): string {
+  const asWritten = idsCut(text)
+  const visible = withForbiddenRemoved(asWritten)
+  const cut = idsCut(visible)
+
+  return asWritten === text && cut === visible ? text : cut
 }
 
 const SCREAMED_ID = /[0-9A-F]{8}(?:_[0-9A-F]{4}){3}_[0-9A-F]{12}|(?<![0-9A-F])[0-9A-F]{32}(?![0-9A-F])/g
@@ -74,8 +85,24 @@ export function shownVariable(variable: string): string {
   return variable.replace(SCREAMED_ID, '<ID>')
 }
 
-function shownEnvVarFor(name: string): string {
-  return shownVariable(envVarFor(name))
+function placeholders(text: string): number {
+  return text.split('<ID>').length - 1
+}
+
+// Read without invisible characters only where that shows more of the ids the label cut, and
+// not at all when neither reading shows every one of them.
+export function shownVariableFor(name: string): string {
+  const shown = shownVariable(envVarFor(name))
+  const label = withIdsCut(name)
+
+  if (label === name) {
+    return shown
+  }
+
+  const visible = shownVariable(envVarFor(withForbiddenRemoved(name)))
+  const best = placeholders(visible) > placeholders(shown) ? visible : shown
+
+  return placeholders(best) >= label.split('id…').length - 1 ? best : 'CRONHEART_<NAME>_UUID'
 }
 
 function definedFor(
@@ -118,7 +145,7 @@ export function resolveMonitor(
   }
 
   const idShaped = looksLikeAnId(name)
-  const envVar = idShaped ? undefined : shownEnvVarFor(name)
+  const envVar = idShaped ? undefined : shownVariableFor(name)
   const configured =
     definedFor(defined, name) ?? (hasIdShape(name) ? undefined : configuredIn(env, name))
 

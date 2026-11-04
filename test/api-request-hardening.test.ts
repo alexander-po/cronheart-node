@@ -35,9 +35,18 @@ import {
   optionNameOf,
   requiredBy,
 } from './support/channel-requirements.js'
+import { readFileSync } from 'node:fs'
 import { API_RESPONSE_BODY_CAP_BYTES } from '../src/api/constants.js'
+import { assertTimezone } from '../src/api/validate.js'
 import { ApiTransportError } from '../src/api/errors.js'
 import type { FetchLike, PingHttpResponse } from '../src/ping/types.js'
+
+const ZONE_RULE: {
+  readonly note: string
+  readonly refused_abbreviations: string[]
+  readonly refused_abbreviations_accepted_exactly: string[]
+} = JSON.parse(readFileSync(new URL('../contract/cronheart-contract.json', import.meta.url), 'utf8')).api
+  .constraints['monitor.tz']
 
 const CREATE = {
   name: 'nightly-backup',
@@ -337,6 +346,70 @@ describe('what this client refuses before a guaranteed rejection reaches the wir
       'UTC',
       '+05:00',
     ])
+  })
+
+  const SERVICE_ZONE_ADVICE = String(ZONE_RULE.note.split('"<tz>" ')[1])
+
+  it.each(['CET', 'EST', 'GMT', 'UCT', 'PST', 'utc', 'cet', 'Utc', 'CEST'])(
+    'refuses %s, which the service holds at one offset all year, with the service’s own hint',
+    async (tz) => {
+      const { api, recorder } = apiWith({ json: MONITOR_JSON })
+
+      const failure = await api.monitors
+        .create({ name: 'nightly-backup', scheduleKind: 'cron', scheduleExpr: '0 3 * * *', tz })
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        )
+
+      expect(failure).toBeInstanceOf(ApiInvalidRequestError)
+      expect((failure as Error).message).toBe(`tz ${JSON.stringify(tz)} ${SERVICE_ZONE_ADVICE}`)
+      expect(recorder.requests).toHaveLength(0)
+    },
+  )
+
+  it('refuses an abbreviation on update as well as on create', async () => {
+    const { api, recorder } = apiWith({ json: MONITOR_JSON })
+
+    await expect(api.monitors.update(MONITOR_UUID, { tz: 'EET' })).rejects.toThrow(/one UTC offset all year/)
+    expect(recorder.requests).toHaveLength(0)
+  })
+
+  it.each(['UTC', 'Etc/UTC', 'Etc/GMT+5', 'EST5EDT', 'Zulu', 'Universal', 'europe/berlin', '-0500'])(
+    'sends %s, which the service keeps the rules of',
+    async (tz) => {
+      const { api, recorder } = apiWith({ json: MONITOR_JSON })
+
+      await api.monitors.create({ name: 'nightly-backup', scheduleKind: 'cron', scheduleExpr: '0 3 * * *', tz })
+
+      expect(recorder.requests.map((request) => JSON.parse(String(request.body))['tz'])).toEqual([tz])
+    },
+  )
+
+  // Z is the exception on this side only: it is sent as UTC, so the service never sees it.
+  it('refuses every abbreviation the contract lists, in any casing but the one spelling of UTC', async () => {
+    const listed: string[] = ZONE_RULE.refused_abbreviations
+    const refused = (tz: string): boolean => {
+      try {
+        assertTimezone(tz)
+
+        return false
+      } catch (error) {
+        return error instanceof ApiInvalidRequestError && error.message.includes('one UTC offset all year')
+      }
+    }
+    const mixed = (name: string): string =>
+      [...name].map((letter, at) => (at % 2 === 0 ? letter.toUpperCase() : letter)).join('')
+
+    expect(listed).toContain('cet')
+    const exact = ZONE_RULE.refused_abbreviations_accepted_exactly
+
+    expect(exact).toEqual(['UTC'])
+    expect(listed.filter((name) => ![name, name.toUpperCase(), mixed(name)].every(refused))).toEqual(
+      [...exact.map((spelling) => spelling.toLowerCase()), 'z'].sort(),
+    )
+    expect(exact.map(refused)).toEqual(exact.map(() => false))
+    expect(exact.map((spelling) => refused(spelling.toLowerCase()))).toEqual(exact.map(() => true))
   })
 
   it('counts a name the way the service counts it, in characters and not in code units', async () => {

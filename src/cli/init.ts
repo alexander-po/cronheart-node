@@ -5,7 +5,8 @@ import { createInterface } from 'node:readline'
 import { isCronheartApiError } from '../api/errors.js'
 import { assertMonitorName } from '../api/validate.js'
 import { outcomeLine } from '../ping/describe.js'
-import { envVarFor, isMonitorId } from '../ping/resolve.js'
+import { envVarFor, isMonitorId, labelFor, shownVariable } from '../ping/resolve.js'
+import { withForbiddenRemoved } from '../print-set.js'
 import { isSyncConfigurationError } from '../sync/errors.js'
 import { idempotencyKeyFor } from '../sync/key.js'
 import { printedBare } from '../sync/label.js'
@@ -160,6 +161,16 @@ type Created =
   | { readonly kind: 'usage'; readonly problem: string }
   | { readonly kind: 'degraded'; readonly notice: string }
 
+// Wider than the label's reading, because a refusal here only costs a rename.
+const ID_IN_ANY_SPELLING = /[0-9a-f]{8}(?:[^0-9a-z]*[0-9a-f]{4}){3}[^0-9a-z]*[0-9a-f]{12}/i
+
+function holdsAnId(name: string): boolean {
+  return (
+    ID_IN_ANY_SPELLING.test(withForbiddenRemoved(name)) ||
+    shownVariable(envVarFor(name)) !== envVarFor(name)
+  )
+}
+
 function nameRefusal(name: string | undefined): string | undefined {
   if (name === undefined) {
     return undefined
@@ -169,6 +180,17 @@ function nameRefusal(name: string | undefined): string | undefined {
 
   if (idShaped !== undefined) {
     return idShaped
+  }
+
+  // The name becomes the variable and the crontab line printed below, where no cut applies.
+  if (holdsAnId(name)) {
+    const shown = labelFor(name)
+    const quoted =
+      shown === name
+        ? 'name holds a monitor id, so it is not shown'
+        : `name ${JSON.stringify(shown)} holds a monitor id, so it is shown cut`
+
+    return `${quoted}: init would print it whole in the variable and the crontab line. Pick a name without it.`
   }
 
   try {

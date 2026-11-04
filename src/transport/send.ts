@@ -7,7 +7,7 @@ import type {
 } from '../ping/types.js'
 import { type Countdown, countdown, detachedCountdown } from '../timer.js'
 import type { Attempts } from './attempts.js'
-import { parseRetryAfter } from './retry-after.js'
+import { unboundedRetryAfterSeconds } from './retry-after.js'
 
 export type TransportReason = 'timeout' | 'aborted' | 'network-error' | 'unexpected'
 
@@ -317,7 +317,7 @@ function delayAfter(answer: ReadResponse | undefined): number {
     return RETRY_FLOOR_DELAY_MS
   }
 
-  const seconds = parseRetryAfter(answer.retryAfter, Date.now())
+  const seconds = unboundedRetryAfterSeconds(answer.retryAfter, Date.now())
 
   return seconds === undefined
     ? RETRY_FLOOR_DELAY_MS

@@ -135,7 +135,8 @@ Usage
   no key, nothing is created: the monitor is made in the dashboard and its id pasted here.
 
 Options
-  --name=<name>       the monitor name. It is what CRONHEART_<NAME>_UUID is derived from.
+  --name=<name>       the monitor name. It is what CRONHEART_<NAME>_UUID is derived from, so
+                      a name holding a monitor id is refused.
   --schedule=<sched>  how often the job is meant to run: a five-field cron expression, one
                       of the seven @ aliases, one of the twelve named schedules, or a
                       duration such as 5m. Only read when a monitor is being created.
@@ -229,7 +230,8 @@ Configuration
               is not managed at all and nothing this command sends can change it. An empty
               list is refused, because it is what a defaulted value looks like and it would
               silence the monitor.
-  tz          a zone name. Left out, it is not managed.
+  tz          a zone name: a region zone such as Europe/Berlin, UTC, or a fixed offset such
+              as +05:00. An abbreviation such as CET is refused. Left out, it is not managed.
   graceSeconds  Left out, it is not managed.
 
   A monitor whose attached channels include none that is verified alerts nobody, and creating

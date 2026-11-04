@@ -6,7 +6,7 @@ import {
   SIMPLE_SCHEDULES,
 } from '../api/constants.js'
 import type { ScheduleKind } from '../api/types.js'
-import { codePointName } from '../api/validate.js'
+import { codePointName } from '../print-set.js'
 import { foreignSeparator, isCronAlias } from '../cron-dialect.js'
 import { printedBetween } from './label.js'
 import { quoted, refuse } from './errors.js'

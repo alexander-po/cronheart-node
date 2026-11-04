@@ -1,4 +1,4 @@
-import { withForbiddenRemoved, withForbiddenSpelledOut } from '../api/validate.js'
+import { withForbiddenRemoved, withForbiddenSpelledOut } from '../print-set.js'
 import { DEFAULT_BASE_URL } from '../constants.js'
 import { inAnyCase } from '../ping/body.js'
 import { createPingClient } from '../ping/client.js'
