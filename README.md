@@ -852,11 +852,12 @@ because that identifier is the check-in capability.
 A request the service is certain to refuse is refused here instead, with a
 message that names the field the value came from: a channel missing the key its
 kind needs, a time zone the runtime cannot name or an abbreviation such as
-`CET` that the service holds at one offset all year (`TIMEZONE_ABBREVIATIONS`)
-— the service reports both against the schedule expression — and a name or
-label outside its bounds, counted in characters as the service counts them
-rather than in UTF-16 code units, so one emoji is one. This client also refuses, before sending, a name or
-a label holding a character of the class the service describes as control
+`CET` or `utc` that the service holds at one offset all year
+(`TIMEZONE_ABBREVIATIONS`; `UTC` spelled exactly, and `Z`, are accepted) — the
+service reports both against the schedule expression — and a name or label
+outside its bounds, counted in characters as the service counts them rather
+than in UTF-16 code units, so one emoji is one. This client also refuses, before
+sending, a name or a label holding a character of the class the service describes as control
 characters, line breaks and direction-override characters, which it reads as
 U+0000-001F, U+007F-009F, U+2028-2029, U+202A-202E and U+2066-2069, the ranges
 `NAME_FORBIDDEN_RANGES` holds: the refusal names the field and the first such

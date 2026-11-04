@@ -85,6 +85,13 @@ describe('a name that carries a monitor id', () => {
     expect(resolution.label).toBe('a id…6666 b id…6666')
   })
 
+  it('names no variable when an upper-cased ligature stands in for the id the label cut', () => {
+    const resolution = resolveMonitor(`tenant 0a1b2c3d ${'\uFB00'.repeat(16)} 1111-2222-3333-444455556666`, {}, {})
+
+    expect(resolution.label).toBe('tenant id…6666')
+    expect(resolution.envVar).toBe('CRONHEART_<NAME>_UUID')
+  })
+
   it('names no variable when screaming the name hides the id it holds from the cut', () => {
     const resolution = resolveMonitor(`tenant ${ID.replace('-', '\u0131')}`, {}, {})
 

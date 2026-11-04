@@ -116,8 +116,7 @@ describe('cronheart init on the free path', () => {
     const printed = `${ran.stdout}${ran.stderr}`
 
     expect(ran.status).toBe(64)
-    expect(ran.stderr).toContain('holds a monitor id, so it is shown cut')
-    expect(ran.stderr).toContain('id…6666')
+    expect(ran.stderr).toContain('looks like it holds a monitor id, so it is not shown')
     expect(printed).not.toMatch(/0a1b2c3d/i)
     expect(() => readFileSync(envFile(), 'utf8')).toThrow()
     expect(server.requests).toEqual([])
@@ -127,6 +126,9 @@ describe('cronheart init on the free path', () => {
     ['a dash missing', `job ${TENANT_ID.replace('3333-', '3333')}`],
     ['no dashes, against a hex letter', `web${TENANT_ID.replaceAll('-', '')}`],
     ['a letter that upper-cases into hex', `job ${TENANT_ID.slice(0, -2)}\uFB00`],
+    ['a mark inside a group', `job ${TENANT_ID.replace('0a1b', '0a1b.')}`],
+    ['a combining accent inside a group', `job ${TENANT_ID.replace('0a1b', '0a1b\u0301')}`],
+    ['a second one the label would not cut', `job ${TENANT_ID.replace('0a1b', '9a1b')} and ${TENANT_ID.replace('3333-', '3333')}`],
   ])('refuses a name holding a monitor id with %s without printing it', async (_how, name) => {
     const ran = await runCli(['init', `--name=${name}`, `--uuid=${MONITOR_ID}`, `--env-path=${envFile()}`], {
       env: envFor(),
@@ -338,7 +340,7 @@ describe('cronheart init and the API-key path', () => {
   it.each([
     ['an id', MONITOR_ID, 'reads as a monitor id rather than a name, so it is shown cut'],
     ['a name holding a direction override', 'night\u202Ely', 'cronheart: name holds U+202E.'],
-    ['a name holding an id', `backup-${TENANT_ID}`, 'holds a monitor id, so it is shown cut'],
+    ['a name holding an id', `backup-${TENANT_ID}`, 'looks like it holds a monitor id, so it is not shown'],
   ])('refuses %s typed at the name prompt before it creates anything', async (_what, typed, said) => {
     const ran = await runCli(['init', '--schedule=@daily', `--env-path=${envFile()}`], {
       env: keyedEnv(),
@@ -422,7 +424,7 @@ describe('cronheart init and the API-key path', () => {
     )
 
     expect(ran.status).toBe(64)
-    expect(ran.stderr).toContain('cronheart: name "tenant id…6666" holds a monitor id, so it is shown cut')
+    expect(ran.stderr).toContain('cronheart: name looks like it holds a monitor id, so it is not shown')
     expect(`${ran.stdout}${ran.stderr}`).not.toContain(TENANT_ID)
     expect(store.monitors).toEqual([])
     expect(() => readFileSync(envFile(), 'utf8')).toThrow()

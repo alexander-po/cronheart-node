@@ -89,20 +89,23 @@ function placeholders(text: string): number {
   return text.split('<ID>').length - 1
 }
 
-// Read without invisible characters only where that shows more of the ids the label cut, and
-// not at all when neither reading shows every one of them.
+const AN_IDS_WORTH_OF_HEX = /[0-9A-F]{32}/
+
+// Read without invisible characters where that cuts more, and not printed at all while an id's
+// worth of hex digits is still spelled out in it.
 export function shownVariableFor(name: string): string {
   const shown = shownVariable(envVarFor(name))
-  const label = withIdsCut(name)
 
-  if (label === name) {
+  if (withIdsCut(name) === name) {
     return shown
   }
 
-  const visible = shownVariable(envVarFor(withForbiddenRemoved(name)))
-  const best = placeholders(visible) > placeholders(shown) ? visible : shown
+  const read = shownVariable(envVarFor(withForbiddenRemoved(name)))
+  const best = placeholders(read) > placeholders(shown) ? read : shown
 
-  return placeholders(best) >= label.split('id…').length - 1 ? best : 'CRONHEART_<NAME>_UUID'
+  return AN_IDS_WORTH_OF_HEX.test(best.replaceAll('<ID>', '_').replace(/[^0-9A-F]/g, ''))
+    ? 'CRONHEART_<NAME>_UUID'
+    : best
 }
 
 function definedFor(

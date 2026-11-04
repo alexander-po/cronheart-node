@@ -52,15 +52,6 @@ interface CallShape {
 
 function ignore(): void {}
 
-// Read before the guarded region, so even a name too large to read cannot throw out of a ping.
-function guardedLabel(name: string): string {
-  try {
-    return labelFor(name)
-  } catch {
-    return '<no monitor>'
-  }
-}
-
 // onResult is typed as returning void, which permits an async one — and an async sink
 // that rejects would otherwise leave an unhandled rejection behind every check-in.
 function settleQuietly(returned: unknown): void {
@@ -335,7 +326,7 @@ function build(options: PingClientOptions, refusal?: string): PingClient {
       ok: false,
       sent: false,
       answered: false,
-      monitor: guardedLabel(name),
+      monitor: labelFor(name),
       action,
       status: undefined,
       attempts: 0,
