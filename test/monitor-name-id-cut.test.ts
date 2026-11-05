@@ -13,28 +13,28 @@ const OTHER_ID = ['9a1b2c3d', '1111', '2222', '3333', 'aaaaaaaa6666'].join('-')
 const COMPACT = ID.replaceAll('-', '')
 
 const CUT = [
-  ['an address', `https://ping.example/ping/${ID}`, 'https://ping.example/ping/id…6666'],
-  ['a crontab line', `0 4 * * * curl -fsS https://ping.example/ping/${ID}`, '0 4 * * * curl -fsS https://ping.example/ping/id…6666'],
-  ['a tenant name', `tenant ${ID}`, 'tenant id…6666'],
-  ['a compact id', `tenant ${COMPACT}`, 'tenant id…6666'],
-  ['non-breaking hyphens', `tenant ${ID.replaceAll('-', '‑')}`, 'tenant id…6666'],
-  ['en dashes', `tenant ${ID.replaceAll('-', '–')}`, 'tenant id…6666'],
-  ['an id written with other dashes', `tenant ${ID.replaceAll('-', '\u2212')}`, 'tenant id…6666'],
-  ['an id written with underscores', `tenant ${ID.replaceAll('-', '_')}`, 'tenant id…6666'],
-  ['an id with hex letters against it', `job1${ID}`, 'job1id…6666'],
-  ['an id in upper case', `tenant ${ID.toUpperCase()}`, 'tenant id…6666'],
-  ['a zero-width space inside a group', `tenant ${ID.replace('-1111', '-11\u200B11')}`, 'tenant id…6666'],
-  ['a soft hyphen inside the first group', `tenant ${ID.replace('0a1b', '0a1b\u00AD')}`, 'tenant id…6666'],
-  ['a no-break space as one separator', `tenant ${ID.replace('-', '\u00A0')}`, 'tenant id…6666'],
-  ['a tab as one separator', `tenant ${ID.replace('-', '\t')}`, 'tenant id…6666'],
-  ['a zero-width space as one separator', `tenant ${ID.replace('-', '\u200B')}`, 'tenant id…6666'],
-  ['doubled dashes', `tenant ${ID.replaceAll('-', '--')}`, 'tenant id…6666'],
-  ['spaced dashes', `tenant ${ID.replaceAll('-', ' - ')}`, 'tenant id…6666'],
-  ['an emoji as a separator', `tenant ${ID.replace('-', '\u{1F525}')}`, 'tenant id…6666'],
-  ['a direction override elsewhere in the name', `night\u202E ${ID}`, 'night id…6666'],
+  ['an address', `https://ping.example/ping/${ID}`, 'id…6666'],
+  ['a crontab line', `0 4 * * * curl -fsS https://ping.example/ping/${ID}`, 'id…6666'],
+  ['a tenant name', `tenant ${ID}`, 'id…6666'],
+  ['a compact id', `tenant ${COMPACT}`, 'id…6666'],
+  ['non-breaking hyphens', `tenant ${ID.replaceAll('-', '‑')}`, 'id…6666'],
+  ['en dashes', `tenant ${ID.replaceAll('-', '–')}`, 'id…6666'],
+  ['an id written with other dashes', `tenant ${ID.replaceAll('-', '\u2212')}`, 'id…6666'],
+  ['an id written with underscores', `tenant ${ID.replaceAll('-', '_')}`, 'id…6666'],
+  ['an id with hex letters against it', `job1${ID}`, 'id…6666'],
+  ['an id in upper case', `tenant ${ID.toUpperCase()}`, 'id…6666'],
+  ['a zero-width space inside a group', `tenant ${ID.replace('-1111', '-11\u200B11')}`, 'id…6666'],
+  ['a soft hyphen inside the first group', `tenant ${ID.replace('0a1b', '0a1b\u00AD')}`, 'id…6666'],
+  ['a no-break space as one separator', `tenant ${ID.replace('-', '\u00A0')}`, 'id…6666'],
+  ['a tab as one separator', `tenant ${ID.replace('-', '\t')}`, 'id…6666'],
+  ['a zero-width space as one separator', `tenant ${ID.replace('-', '\u200B')}`, 'id…6666'],
+  ['doubled dashes', `tenant ${ID.replaceAll('-', '--')}`, 'id…6666'],
+  ['spaced dashes', `tenant ${ID.replaceAll('-', ' - ')}`, 'id…6666'],
+  ['an emoji as a separator', `tenant ${ID.replace('-', '\u{1F525}')}`, 'id…6666'],
+  ['a direction override elsewhere in the name', `night\u202E ${ID}`, 'id…6666'],
 ] as const
 
-const KEPT = ['nightly-backup', 'night\u200Bly', 'db-2026-10-25', 'report-12345678', `tenant ${COMPACT.slice(1)}`, 'tenant 0a1b2c3d-1111']
+const KEPT = ['nightly-backup', 'db-2026-10-25', 'report-12345678', `tenant ${COMPACT.slice(1)}`, 'tenant 0a1b2c3d-1111']
 
 describe('a name that carries a monitor id', () => {
   it.each(CUT)('is printed cut when it holds %s', (_what, name, label) => {
@@ -45,8 +45,7 @@ describe('a name that carries a monitor id', () => {
   it.each(CUT)('never puts the id into the variable a diagnostic names, for %s', (_what, name) => {
     const { envVar } = resolveMonitor(name, {}, {})
 
-    expect(envVar).toMatch(/^CRONHEART_.*<ID>/)
-    expect(envVar).not.toMatch(/0A1B2C3D|444455556666/)
+    expect(envVar).toBe('CRONHEART_<NAME>_UUID')
   })
 
   it.each(CUT)('keeps no part of the id in the unset sentence for %s', (_what, name) => {
@@ -69,41 +68,41 @@ describe('a name that carries a monitor id', () => {
     })
   })
 
-  it('cuts the id from the variable whatever separator it was written with', () => {
+  it('names no variable whatever separator the id was written with', () => {
     const name = `tenant ${ID.replaceAll('-', '\u2010')}`
 
     const resolution = resolveMonitor(name, {}, {})
 
-    expect(resolution.envVar).toBe('CRONHEART_TENANT_<ID>_UUID')
-    expect(resolution.label).toBe('tenant id…6666')
+    expect(resolution.envVar).toBe('CRONHEART_<NAME>_UUID')
+    expect(resolution.label).toBe('id…6666')
   })
 
-  it('cuts every id from the variable when an invisible character hides only one of them', () => {
+  it('names no variable and shows one mark when an invisible character hides one of two ids', () => {
     const resolution = resolveMonitor(`a ${OTHER_ID} b ${ID.replace('0a1b', '0a1b\u00AD')}`, {}, {})
 
-    expect(resolution.envVar).toBe('CRONHEART_A_<ID>_B_<ID>_UUID')
-    expect(resolution.label).toBe('a id…6666 b id…6666')
+    expect(resolution.envVar).toBe('CRONHEART_<NAME>_UUID')
+    expect(resolution.label).toBe('id…6666')
   })
 
-  it('names no variable when an upper-cased ligature stands in for the id the label cut', () => {
+  it('names no variable when an upper-cased ligature stands in for part of the id', () => {
     const resolution = resolveMonitor(`tenant 0a1b2c3d ${'\uFB00'.repeat(16)} 1111-2222-3333-444455556666`, {}, {})
 
-    expect(resolution.label).toBe('tenant id…6666')
+    expect(resolution.label).toBe('id…6666')
     expect(resolution.envVar).toBe('CRONHEART_<NAME>_UUID')
   })
 
   it('names no variable when screaming the name hides the id it holds from the cut', () => {
     const resolution = resolveMonitor(`tenant ${ID.replace('-', '\u0131')}`, {}, {})
 
-    expect(resolution.label).toBe('tenant id…6666')
+    expect(resolution.label).toBe('id…6666')
     expect(resolution.envVar).toBe('CRONHEART_<NAME>_UUID')
   })
 
-  it('names the variable the lookup reads when an invisible character sits outside the id', () => {
+  it('names no variable for a name holding an id with an invisible character outside it', () => {
     const resolution = resolveMonitor(`back\u00ADup ${ID}`, {}, {})
 
-    expect(resolution.envVar).toBe('CRONHEART_BACK_UP_<ID>_UUID')
-    expect(resolution.label).toBe('backup id…6666')
+    expect(resolution.envVar).toBe('CRONHEART_<NAME>_UUID')
+    expect(resolution.label).toBe('id…6666')
   })
 
   it('cuts the id from the label of a name that is configured, which is the path that sends pings', () => {
@@ -113,7 +112,7 @@ describe('a name that carries a monitor id', () => {
     const result = { monitor: resolution.label, outcome: 'suppressed', action: 'ping' } as unknown as PingResult
 
     expect(resolution.reason).toBe('malformed')
-    expect(resolution.label).toBe('tenant id…6666')
+    expect(resolution.label).toBe('id…6666')
     expect(messageFor(result, resolution)).not.toMatch(/0a1b2c3d|444455556666/i)
   })
 
@@ -139,5 +138,9 @@ describe('a name that carries a monitor id', () => {
 
   it.each(KEPT)('prints %s whole', (name) => {
     expect(labelFor(name)).toBe(name)
+  })
+
+  it('spells out an invisible character in a name that holds no id', () => {
+    expect(labelFor('night\u200Bly')).toBe('nightU+200Bly')
   })
 })

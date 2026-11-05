@@ -131,6 +131,8 @@ Pointer patterns use `*` for one path segment and `**` for any number.
 | 49 | `/api/idempotency/max_key_length` | `additive` — a bound the service always enforced, now stated | `breaking-writers` — a writer that trusted the bound loses it | `additive` when raised, `breaking-writers` when lowered | — |
 | 50 | `/api/constraints/*/forbidden_ranges` — **widened** | `undecidable` — a newly stated set is `additive` when the service always refused it and `breaking-writers` when it is new, and nothing offline tells which | `writers-behind` — the refusal is gone, so a writer built on the old set refuses what the service now accepts | `breaking-writers` — a code point the service used to accept is now refused | — |
 | 51 | the same — **narrowed** | — | — | `writers-behind` — a writer built on the old set refuses a code point the service now accepts, and nothing it sends breaks | — |
+| 52 | `/api/constraints/*/refused_abbreviations` — **widened** | `breaking-writers` — a zone the service used to accept is now refused | `writers-behind` — the refusal is gone, so a writer built on the old set refuses a zone the service now accepts | `breaking-writers` — a zone the service used to accept is now refused | `additive` |
+| 53 | the same — **narrowed** | — | — | `writers-behind` — a writer built on the old set refuses a zone the service now accepts, and nothing it sends breaks | — |
 
 ### Editorial: never more than a patch
 

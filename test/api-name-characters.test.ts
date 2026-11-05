@@ -244,7 +244,7 @@ describe('a refused name in a configuration', () => {
       { name: `tenant ${id.replace('0a1b', '0a1b\u2060')}`, schedule: '@hourly', channels: 'none' },
     ])
 
-    expect(refused.message).toContain('both resolve to CRONHEART_TENANT_<ID>_UUID')
+    expect(refused.message).toContain('both resolve to CRONHEART_<NAME>_UUID')
     expect(refused.message).not.toMatch(/0a1b/i)
   })
 
@@ -261,9 +261,9 @@ describe('a refused name in a configuration', () => {
 describe('what the command line echoes back of a refused flag', () => {
   it.each([
     ['an escape sequence in --uuid', () => idFlagRefusal('\u001b[31mred'), '--uuid=U+001B[31mred is not a monitor id'],
-    ['a direction override in an id-shaped --uuid', () => idFlagRefusal('00000000-0000-0000-0000-00000000000\u202E'), '--uuid=id\u2026000U+202E is not a monitor id'],
-    ['a direction override in an id-shaped --name', () => nameFlagRefusal('00000000-0000-0000-0000-0000000000\u202E1'), '--name=id\u202600U+202E1 reads as a monitor id'],
-    ['an escape sequence in an id-shaped --name', () => nameFlagRefusal('00000000-0000-0000-0000-0000000000\u001b1'), '--name=id\u202600U+001B1 reads as a monitor id'],
+    ['a direction override in an id-shaped --uuid', () => idFlagRefusal('00000000-0000-0000-0000-00000000000\u202E'), '--uuid=id\u20260000 is not a monitor id'],
+    ['a direction override in an id-shaped --name', () => nameFlagRefusal('00000000-0000-0000-0000-0000000000\u202E1'), '--name=id\u20260001 reads as a monitor id'],
+    ['an escape sequence in an id-shaped --name', () => nameFlagRefusal('00000000-0000-0000-0000-0000000000\u001b1'), '--name=id\u20260001 reads as a monitor id'],
   ])('spells out %s', (_what, refuse, opening) => {
     const message = refuse() ?? ''
 

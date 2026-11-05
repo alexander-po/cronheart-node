@@ -1,11 +1,10 @@
 import process from 'node:process'
 import { createInterface } from 'node:readline'
-import { isMonitorId } from '../ping/resolve.js'
+import { isMonitorId, labelFor, nameHoldsAnId, printable } from '../ping/resolve.js'
 import { applySync } from '../sync/apply.js'
 import { defineMonitors } from '../sync/define.js'
 import { planSync } from '../sync/plan.js'
 import { destructionNotice, whyPruningIsUnsafe } from '../sync/prune.js'
-import { monitorLabel } from '../sync/label.js'
 import { describeApiRefusal } from '../sync/refusal.js'
 import { envLinesFor, renderPlan, renderResult } from '../sync/render.js'
 import type { AppliedMonitor, MonitorConfig, SyncPlan, SyncResult } from '../sync/types.js'
@@ -92,17 +91,25 @@ function printEnv(
     io.out(`${line}\n`)
   }
 
-  const withheld = ordered.filter((monitor) => !isMonitorId(monitor.uuid)).map((monitor) => monitorLabel(monitor.name))
+  const withheld = ordered.filter((monitor) => !isMonitorId(monitor.uuid)).map((monitor) => labelFor(monitor.name))
 
   if (withheld.length > 0) {
     io.err(`cronheart: the service returned something that is not a monitor id for ${withheld.join(', ')} — no line was printed for it\n`)
   }
 
+  const unnamed = ordered
+    .filter((monitor) => isMonitorId(monitor.uuid) && nameHoldsAnId(monitor.name))
+    .map((monitor) => labelFor(monitor.name))
+
+  if (unnamed.length > 0) {
+    io.err(`cronheart: no line was printed for ${unnamed.join(', ')}, because its variable would hold a monitor id in its name — rename the monitor\n`)
+  }
+
   const named = new Set(monitors.map((monitor) => monitor.name))
-  const pending = plan.rows.map((row) => row.name).filter((name) => !named.has(name)).map(monitorLabel)
+  const pending = plan.rows.map((row) => row.name).filter((name) => !named.has(name)).map(labelFor)
 
   if (pending.length === 0) {
-    return withheld.length > 0
+    return withheld.length + unnamed.length > 0
   }
 
   io.err(
@@ -111,7 +118,7 @@ function printEnv(
       : `cronheart: no identifier yet for ${pending.join(', ')} — run again with --apply to create them first\n`,
   )
 
-  return withheld.length > 0
+  return withheld.length + unnamed.length > 0
 }
 
 function driftUnder(plan: SyncPlan, mode: Mode): boolean {
@@ -204,7 +211,7 @@ export async function syncCommand(args: ParsedArgs, io: Io): Promise<number> {
   const unknown = unknownFlags(args, FLAGS)
 
   if (unknown.length > 0) {
-    io.err(`cronheart: sync does not take --${unknown.join(', --')}\n`)
+    io.err(`cronheart: sync does not take --${unknown.map(printable).join(', --')}\n`)
 
     return EXIT_USAGE
   }

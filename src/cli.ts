@@ -8,6 +8,7 @@ import { EXIT_INTERNAL, EXIT_OK, EXIT_USAGE, finish } from './cli/exit.js'
 import { HELP } from './cli/help.js'
 import { type Io, processIo, silenceStreamErrors } from './cli/io.js'
 import { pingCommand } from './cli/ping.js'
+import { printable } from './ping/resolve.js'
 import { runCommand } from './cli/run.js'
 
 type Command = (args: ParsedArgs, io: Io) => Promise<number>
@@ -30,7 +31,7 @@ async function dispatch(args: ParsedArgs, io: Io): Promise<number> {
 
   // Ahead of --help and --version: a typo in a crontab that answers 0 reads as a success.
   if (name !== undefined && command === undefined) {
-    io.err(`cronheart: ${JSON.stringify(name)} is not a cronheart command\n${HELP}`)
+    io.err(`cronheart: ${JSON.stringify(printable(name))} is not a cronheart command\n${HELP}`)
 
     return EXIT_USAGE
   }

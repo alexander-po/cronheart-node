@@ -1,6 +1,7 @@
 import process from 'node:process'
 import { PING_ACTIONS, type PingAction } from '../ping/action.js'
 import { describePingResult } from '../ping/describe.js'
+import { printable } from '../ping/resolve.js'
 import type { PingClient, PingOptions, PingResult } from '../ping/types.js'
 import type { EnvSource } from '../ping/env.js'
 import { type ParsedArgs, type Read, readFlag, readText, unknownFlags } from './args.js'
@@ -42,7 +43,7 @@ function readAction(args: ParsedArgs): Read<PingAction | undefined> {
   if (!allowed.includes(given.value)) {
     return {
       ok: false,
-      problem: `--action=${given.value} is not a check-in this SDK will send: it sends only ${PING_ACTIONS.join(', ')}, and leaving --action off sends a heartbeat. The server answers any action outside its own vocabulary with the 404 an unknown monitor gets, and records nothing.`,
+      problem: `--action=${printable(given.value)} is not a check-in this SDK will send: it sends only ${PING_ACTIONS.join(', ')}, and leaving --action off sends a heartbeat. The server answers any action outside its own vocabulary with the 404 an unknown monitor gets, and records nothing.`,
     }
   }
 
@@ -53,7 +54,7 @@ export function planPing(args: ParsedArgs, env: EnvSource): Read<PingSpec> {
   const unknown = unknownFlags(args, FLAGS)
 
   if (unknown.length > 0) {
-    return { ok: false, problem: `ping does not take --${unknown.join(', --')}` }
+    return { ok: false, problem: `ping does not take --${unknown.map(printable).join(', --')}` }
   }
 
   const monitor = args.positional[1]

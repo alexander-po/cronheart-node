@@ -1,7 +1,7 @@
 import { baseUrlRefusal } from '../net/base-url.js'
 import { type PingAction, isEmittableAction, segmentFor } from '../ping/action.js'
 import type { EnvSource } from '../ping/env.js'
-import { isMonitorId, resolveMonitor } from '../ping/resolve.js'
+import { idMark, isMonitorId, labelFor, resolveMonitor, shown } from '../ping/resolve.js'
 import {
   CronheartConfigurationError,
   InvalidActionError,
@@ -43,8 +43,10 @@ export function assertPingBaseUrl(baseUrl: unknown): asserts baseUrl is string {
 }
 
 function notEmittable(action: unknown): InvalidActionError {
+  const quoted = String(JSON.stringify(action))
+
   return new InvalidActionError(
-    `cronheart: ${JSON.stringify(action)} is not a check-in action this SDK will emit: it sends only "start", "success" or "fail", or no action for a heartbeat. The server answers any action outside its own vocabulary with the 404 an unknown monitor gets, and records nothing.`,
+    `cronheart: ${idMark(quoted.replace(/\\(?:u[0-9a-f]{4}|.)/gi, ' ')) ?? shown(quoted)} is not a check-in action this SDK will emit: it sends only "start", "success" or "fail", or no action for a heartbeat. The server answers any action outside its own vocabulary with the 404 an unknown monitor gets, and records nothing.`,
   )
 }
 
@@ -76,7 +78,7 @@ export function defineMonitors(
   for (const [name, id] of Object.entries(monitors)) {
     if (!isMonitorId(id)) {
       throw new InvalidMonitorIdError(
-        `cronheart: the id configured for ${JSON.stringify(name)} is not a monitor id. Copy the 36-character identifier from the monitor's page.`,
+        `cronheart: the id configured for ${JSON.stringify(labelFor(name))} is not a monitor id. Copy the 36-character identifier from the monitor's page.`,
       )
     }
 

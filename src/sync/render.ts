@@ -1,5 +1,4 @@
-import { envVarFor, isMonitorId } from '../ping/resolve.js'
-import { monitorLabel, printedBare } from './label.js'
+import { envVarFor, isMonitorId, labelFor, nameHoldsAnId, printable } from '../ping/resolve.js'
 import { describeSchedule } from './schedule.js'
 import type {
   AlertSuppression,
@@ -68,7 +67,7 @@ function alertsOf(
 
   return alerts.length === 0
     ? NOBODY
-    : alerts.map((channel) => `${printedBare(channel.label)} (${printedBare(channel.kind)})`).join(', ')
+    : alerts.map((channel) => `${printable(channel.label)} (${printable(channel.kind)})`).join(', ')
 }
 
 function field(name: string, value: string): string {
@@ -103,7 +102,7 @@ function linesFor(row: PlanRow): readonly string[] {
   const marked = row.action !== 'conflict' && row.action !== 'refused' && row.alertsNobody
 
   return [
-    `${marked ? SILENT_MARK : QUIET_MARK}${row.action.padEnd(ACTION_WIDTH)}${monitorLabel(row.name)}`,
+    `${marked ? SILENT_MARK : QUIET_MARK}${row.action.padEnd(ACTION_WIDTH)}${labelFor(row.name)}`,
     ...detailsOf(row),
   ]
 }
@@ -150,7 +149,7 @@ export function renderPlan(plan: SyncPlan, view: PlanView = {}): string {
 }
 
 function namesOf(applied: readonly AppliedMonitor[]): string {
-  return applied.map((entry) => monitorLabel(entry.name)).join(', ')
+  return applied.map((entry) => labelFor(entry.name)).join(', ')
 }
 
 // What failed is written above what was applied. A run that deleted something prints a line
@@ -159,7 +158,7 @@ export function renderResult(result: SyncResult): string {
   const lines: string[] = []
 
   for (const failure of result.failures) {
-    lines.push(`  ${failure.action} ${monitorLabel(failure.name)} — ${failure.message}`)
+    lines.push(`  ${failure.action} ${labelFor(failure.name)} — ${failure.message}`)
   }
 
   if (result.stopped) {
@@ -192,8 +191,9 @@ export function renderResult(result: SyncResult): string {
 // What closes the gap between a monitor existing and a job being able to address it. This is
 // the one output that carries identifiers, because that is what it is for. A value the
 // service returned that is not an identifier is left out: the output is a file a shell reads.
+// So is a monitor whose variable would hold another id in its name.
 export function envLinesFor(monitors: readonly AppliedMonitor[]): readonly string[] {
   return monitors
-    .filter((monitor) => isMonitorId(monitor.uuid))
+    .filter((monitor) => isMonitorId(monitor.uuid) && !nameHoldsAnId(monitor.name))
     .map((monitor) => `${envVarFor(monitor.name)}=${monitor.uuid}`)
 }

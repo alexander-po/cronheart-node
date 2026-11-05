@@ -26,7 +26,7 @@ import { type TruncateMode, inAnyCase, redactSecrets, truncateBody } from './bod
 import { messageFor } from './describe.js'
 import { ambientEnv, isDisabled, numberFrom, readEnv } from './env.js'
 import { classifyStatus, isAccepted } from './outcome.js'
-import { type Resolution, labelFor, resolveMonitor } from './resolve.js'
+import { type Resolution, resolveMonitor } from './resolve.js'
 import { rethrow, safely, toError } from './safely.js'
 import type {
   CheckInThunk,
@@ -212,6 +212,8 @@ function build(options: PingClientOptions, refusal?: string): PingClient {
     startedAt: number,
   ): Promise<PingResult> {
     const resolution = resolveMonitor(name, defined, env)
+
+    Object.assign(fallback, { monitor: resolution.label })
     const finish = (
       partial: Partial<Omit<PingResult, 'message'>>,
       stated?: string,
@@ -326,7 +328,7 @@ function build(options: PingClientOptions, refusal?: string): PingClient {
       ok: false,
       sent: false,
       answered: false,
-      monitor: labelFor(name),
+      monitor: '<no monitor>',
       action,
       status: undefined,
       attempts: 0,

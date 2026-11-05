@@ -1,12 +1,12 @@
-import { IDENTIFIER_SHAPED, UUID_WHOLE } from '../identifier-shape.js'
-import { withForbiddenRemoved } from '../print-set.js'
+import { UUID_WHOLE } from '../identifier-shape.js'
+import { withForbiddenRemoved, withForbiddenSpelledOut, withLabelControlsRemoved, withLabelControlsSpelledOut } from '../print-set.js'
 import type { EnvSource } from './env.js'
 
 const OPENS_LIKE_AN_ID = /^[0-9a-fA-F]{8}-/
 
 const GROUPED_LIKE_AN_ID = /^[^-]{8}-[^-]{4}-[^-]{4}-[^-]{4}-[^-]{12}$/
 
-const HEX_AND_DASHES = /^[0-9a-fA-F-]{30,40}$/
+const HEX_AND_DASHES = /^[0-9a-f-]{30,40}$/i
 
 export type ResolutionReason = 'ok' | 'unset' | 'malformed'
 
@@ -28,13 +28,15 @@ export function isMonitorId(value: unknown): value is string {
 // Shaped like an identifier the whole way through, one edit from a real one. Nobody names
 // a monitor this, which is what makes it safe to read as a broken id rather than a name.
 function hasIdShape(value: string): boolean {
-  return GROUPED_LIKE_AN_ID.test(value) || HEX_AND_DASHES.test(value)
+  const read = withLabelControlsRemoved(value)
+
+  return GROUPED_LIKE_AN_ID.test(read) || HEX_AND_DASHES.test(read)
 }
 
 // Weaker: a name may legitimately open with eight hexadecimal digits and a dash, so this
 // decides how a value is printed back, never whether it is a name.
 export function looksLikeAnId(value: string): boolean {
-  return OPENS_LIKE_AN_ID.test(value) || hasIdShape(value)
+  return OPENS_LIKE_AN_ID.test(withLabelControlsRemoved(value)) || hasIdShape(value)
 }
 
 function screaming(name: string): string {
@@ -44,27 +46,66 @@ function screaming(name: string): string {
     .replace(/^_+|_+$/g, '')
 }
 
-// A monitor id is the whole check-in capability, so text that carries one is cut wherever in it
-// the id sits: a name holding an address or a crontab line is still a name.
-const ID_ANY_SEPARATOR = /[0-9a-f]{8}(?:[^0-9a-z]+[0-9a-f]{4}){3}[^0-9a-z]+[0-9a-f]{12}/gi
+// A monitor id is the whole check-in capability, so text that carries one is never printed:
+// a label, a hint or an echo holding one is shown as the id's last four digits and nothing else.
+// It is held when an id is grouped as one, whatever separates the groups, or when a run of
+// hexadecimal digits that only characters other than letters and digits join holds an id's
+// worth of them and a letter among them. A letter or a digit of any other kind ends a run, and
+// a run of decimal digits alone is a date, an address or a number, never an id, unless it is an
+// id's length unbroken. A screamed variable joins every word, so it is held to the strict half.
+const ID_ANY_SEPARATOR = /[0-9a-f]{8}(?:[^0-9a-z]+[0-9a-f]{4}){3}[^0-9a-z]+[0-9a-f]{12}/i
 
-function idsCut(text: string): string {
-  return text
-    .replace(ID_ANY_SEPARATOR, (found) => `id…${found.slice(-4)}`)
-    .replace(new RegExp(IDENTIFIER_SHAPED.source, 'gi'), (found) => `id…${found.slice(-4)}`)
+const BETWEEN_DIGITS = /[^\p{L}\p{N}]|\p{Default_Ignorable_Code_Point}/gu
+
+const COMPACT_ID = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/i
+
+function strictlyIn(text: string): string | undefined {
+  return text.match(ID_ANY_SEPARATOR)?.[0] ?? text.match(COMPACT_ID)?.[0]
 }
 
-// Read as written and again without invisible characters: one inside an id hides it, and one
-// between two groups joins them once removed.
-export function withIdsCut(text: string): string {
-  const asWritten = idsCut(text)
-  const visible = withForbiddenRemoved(asWritten)
-  const cut = idsCut(visible)
-
-  return asWritten === text && cut === visible ? text : cut
+function strictlyHeldIn(text: string): string | undefined {
+  return strictlyIn(text) ?? strictlyIn(withForbiddenRemoved(text))
 }
 
-const SCREAMED_ID = /[0-9A-F]{8}(?:_[0-9A-F]{4}){3}_[0-9A-F]{12}|(?<![0-9A-F])[0-9A-F]{32}(?![0-9A-F])/g
+function idHeldIn(text: string): string | undefined {
+  return (
+    strictlyHeldIn(text) ??
+    text
+      .replace(BETWEEN_DIGITS, '')
+      .split(/[^0-9a-f]+/i)
+      .findLast((run) => run.length > 31 && /[a-f]/i.test(run))
+  )
+}
+
+export function idMark(text: string): string | undefined {
+  const held = idHeldIn(text)
+
+  return held === undefined ? undefined : `id…${held.slice(-4)}`
+}
+
+export function holdsAnId(text: string): boolean {
+  return idHeldIn(text) !== undefined
+}
+
+export function printable(text: string): string {
+  return idMark(text) ?? withForbiddenSpelledOut(text)
+}
+
+// A name is read once more through the variable it screams into, so the label, the hint and
+// init's refusal never disagree about whether it holds an id.
+function nameMark(name: string): string | undefined {
+  const variable = strictlyHeldIn(envVarFor(name)) ?? strictlyHeldIn(envVarFor(withForbiddenRemoved(name)))
+
+  return idMark(name) ?? (variable === undefined ? undefined : `id…${variable.slice(-4).toLowerCase()}`)
+}
+
+export function nameHoldsAnId(name: string): boolean {
+  return nameMark(name) !== undefined
+}
+
+export function shown(name: string): string {
+  return nameMark(name) ?? withLabelControlsSpelledOut(name)
+}
 
 export function envVarFor(name: string): string {
   return `CRONHEART_${screaming(name)}_UUID`
@@ -75,37 +116,13 @@ export function labelFor(name: unknown): string {
     return '<no monitor>'
   }
 
-  return looksLikeAnId(name) ? `id…${name.slice(-4)}` : withIdsCut(name)
+  return looksLikeAnId(name) ? `id…${[...name.replace(BETWEEN_DIGITS, '')].slice(-4).join('')}` : shown(name)
 }
 
 // The variable a diagnostic tells the reader to set. Looking a name up still screams the whole
-// of it, so a name that carries an id keeps the variable it always had; only its printed form
-// shows the id's place. Cut after screaming, so every separator the id was written with is covered.
-export function shownVariable(variable: string): string {
-  return variable.replace(SCREAMED_ID, '<ID>')
-}
-
-function placeholders(text: string): number {
-  return text.split('<ID>').length - 1
-}
-
-const AN_IDS_WORTH_OF_HEX = /[0-9A-F]{32}/
-
-// Read without invisible characters where that cuts more, and not printed at all while an id's
-// worth of hex digits is still spelled out in it.
+// of it, so a name or a variable that holds an id is named by a placeholder instead.
 export function shownVariableFor(name: string): string {
-  const shown = shownVariable(envVarFor(name))
-
-  if (withIdsCut(name) === name) {
-    return shown
-  }
-
-  const read = shownVariable(envVarFor(withForbiddenRemoved(name)))
-  const best = placeholders(read) > placeholders(shown) ? read : shown
-
-  return AN_IDS_WORTH_OF_HEX.test(best.replaceAll('<ID>', '_').replace(/[^0-9A-F]/g, ''))
-    ? 'CRONHEART_<NAME>_UUID'
-    : best
+  return nameHoldsAnId(name) ? 'CRONHEART_<NAME>_UUID' : envVarFor(name)
 }
 
 function definedFor(
@@ -153,7 +170,7 @@ export function resolveMonitor(
     definedFor(defined, name) ?? (hasIdShape(name) ? undefined : configuredIn(env, name))
 
   if (configured !== undefined) {
-    return settle(configured, { envVar, label: withIdsCut(name), key: name })
+    return settle(configured, { envVar, label: shown(name), key: name })
   }
 
   return settle(idShaped ? name : undefined, { envVar, label: labelFor(name), key: name })

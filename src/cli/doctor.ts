@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { outcomeLine } from '../ping/describe.js'
 import type { EnvSource } from '../ping/env.js'
-import { isMonitorId, labelFor, resolveMonitor } from '../ping/resolve.js'
+import { isMonitorId, labelFor, printable, resolveMonitor } from '../ping/resolve.js'
 import type { FetchLike, PingHttpResponse } from '../ping/types.js'
 import { ambientFetch } from '../transport/send.js'
 import { CONTRACT_VERSION, SDK_VERSION } from '../version.js'
@@ -131,7 +131,7 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
   const unknown = unknownFlags(args, [])
 
   if (unknown.length > 0) {
-    io.err(`cronheart: doctor does not take --${unknown.join(', --')}\n`)
+    io.err(`cronheart: doctor does not take --${unknown.map(printable).join(', --')}\n`)
 
     return EXIT_USAGE
   }
@@ -176,7 +176,7 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
         problems += 1
       }
 
-      io.out(`    ${monitor.name.padEnd(24)} ${monitor.variable}${leg} — ${state}\n`)
+      io.out(`    ${labelFor(monitor.name).padEnd(24)} ${printable(monitor.variable)}${leg} — ${state}\n`)
     }
   }
 
@@ -186,7 +186,7 @@ export async function doctorCommand(args: ParsedArgs, io: Io): Promise<number> {
     const known =
       monitors.length === 0
         ? 'no monitor is configured in this environment'
-        : `the monitors configured here are ${monitors.map((monitor) => monitor.name).join(', ')}`
+        : `the monitors configured here are ${monitors.map((monitor) => labelFor(monitor.name)).join(', ')}`
 
     io.out(label('check-in', `skipped — nothing resolves ${JSON.stringify(labelFor(asked))}; ${known}`))
 

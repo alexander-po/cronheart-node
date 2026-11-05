@@ -5,9 +5,8 @@ import {
   assertScheduleExpression,
   canonicalTimezone,
 } from '../api/validate.js'
-import { envVarFor, shownVariableFor } from '../ping/resolve.js'
+import { envVarFor, labelFor, looksLikeAnId, shownVariableFor } from '../ping/resolve.js'
 import { refuse } from './errors.js'
-import { isIdShaped, monitorLabel } from './label.js'
 import { routingFrom } from './routing.js'
 import { normaliseSchedule } from './schedule.js'
 import type {
@@ -103,7 +102,7 @@ function refuseRepeats(monitors: readonly DefinedMonitor[]): void {
   for (const [name, count] of byName) {
     if (count > 1) {
       refuse(
-        `This configuration defines ${count} monitors named ${JSON.stringify(monitorLabel(name))}. A name is how sync tells one monitor from another and the service enforces no uniqueness on one, so there would be no way to say which row each of them meant.`,
+        `This configuration defines ${count} monitors named ${JSON.stringify(labelFor(name))}. A name is how sync tells one monitor from another and the service enforces no uniqueness on one, so there would be no way to say which row each of them meant.`,
       )
     }
   }
@@ -111,7 +110,7 @@ function refuseRepeats(monitors: readonly DefinedMonitor[]): void {
   for (const names of byVariable.values()) {
     if (names.length > 1) {
       refuse(
-        `${names.map((name) => JSON.stringify(monitorLabel(name))).join(' and ')} both resolve to ${names.some(isIdShaped) ? 'one environment variable' : shownVariableFor(String(names[0]))}, so only one of them could ever be addressed by name.`,
+        `${names.map((name) => JSON.stringify(labelFor(name))).join(' and ')} both resolve to ${names.some(looksLikeAnId) ? 'one environment variable' : shownVariableFor(String(names[0]))}, so only one of them could ever be addressed by name.`,
       )
     }
   }

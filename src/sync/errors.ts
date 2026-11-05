@@ -1,5 +1,6 @@
 import { CronheartConfigurationError } from '../wiring/errors.js'
-import { monitorLabel, printed } from './label.js'
+import { labelFor } from '../ping/resolve.js'
+import { printed } from './label.js'
 
 // Registered rather than private, for the reason the management client's brand is: two
 // copies of this package in one dependency tree hold different classes, so instanceof
@@ -35,7 +36,7 @@ export function quoted(value: unknown): string {
 }
 
 export function refuse(message: string, monitor?: string): never {
-  const label = monitor === undefined ? undefined : monitorLabel(monitor)
+  const label = monitor === undefined ? undefined : labelFor(monitor)
 
   throw new SyncConfigurationError(
     label === undefined ? message : `${JSON.stringify(label)}: ${message}`,

@@ -4,6 +4,7 @@ import process from 'node:process'
 import { PING_BODY_BUDGET_BYTES } from '../ping/body.js'
 import { describePingResult } from '../ping/describe.js'
 import type { EnvSource } from '../ping/env.js'
+import { printable } from '../ping/resolve.js'
 import { countdown } from '../timer.js'
 import { type ParsedArgs, type Read, readText, unknownFlags } from './args.js'
 import {
@@ -135,7 +136,7 @@ function duration(args: ParsedArgs, flag: string): Read<GivenDuration | undefine
   if (parsed === undefined || parsed === 0) {
     return {
       ok: false,
-      problem: `--${flag}=${given.value} is not a duration — write it as 30s, 500ms, 5m or 2h`,
+      problem: `--${flag}=${printable(given.value)} is not a duration — write it as 30s, 500ms, 5m or 2h`,
     }
   }
 
@@ -146,7 +147,7 @@ export function planRun(args: ParsedArgs, env: EnvSource): Read<RunSpec> {
   const unknown = unknownFlags(args, FLAGS)
 
   if (unknown.length > 0) {
-    return refuse(`run does not take --${unknown.join(', --')}`)
+    return refuse(`run does not take --${unknown.map(printable).join(', --')}`)
   }
 
   const name = readText(args, 'name')
@@ -175,7 +176,7 @@ export function planRun(args: ParsedArgs, env: EnvSource): Read<RunSpec> {
 
   if (timeout.value !== undefined && timeout.value.ms > MAX_TIMER_MS) {
     return refuse(
-      `--timeout=${timeout.value.given} is longer than a deadline can be held for — use at most ${describeDuration(LONGEST_HELD_TIMEOUT_MS)}`,
+      `--timeout=${printable(timeout.value.given)} is longer than a deadline can be held for — use at most ${describeDuration(LONGEST_HELD_TIMEOUT_MS)}`,
     )
   }
 
@@ -534,7 +535,7 @@ function summaryFor(ended: Ended, spec: RunSpec): string {
   if (ended.startFailure !== undefined) {
     const why = NOT_STARTED[ended.startFailure] ?? 'could not be started'
 
-    return `${spec.command}: ${why} (${ended.startFailure})`
+    return `${printable(spec.command)}: ${why} (${ended.startFailure})`
   }
 
   if (ended.timedOut) {

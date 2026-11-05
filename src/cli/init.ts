@@ -5,11 +5,10 @@ import { createInterface } from 'node:readline'
 import { isCronheartApiError } from '../api/errors.js'
 import { assertMonitorName } from '../api/validate.js'
 import { outcomeLine } from '../ping/describe.js'
-import { envVarFor, isMonitorId, shownVariable } from '../ping/resolve.js'
-import { withForbiddenRemoved } from '../print-set.js'
+import { envVarFor, isMonitorId, labelFor, nameHoldsAnId, printable } from '../ping/resolve.js'
+import { codePointName, withLabelControlsSpelledOut } from '../print-set.js'
 import { isSyncConfigurationError } from '../sync/errors.js'
 import { idempotencyKeyFor } from '../sync/key.js'
-import { printedBare } from '../sync/label.js'
 import { describeApiRefusal } from '../sync/refusal.js'
 import { normaliseSchedule } from '../sync/schedule.js'
 import { type ParsedArgs, readFlag, readText, unknownFlags } from './args.js'
@@ -161,14 +160,14 @@ type Created =
   | { readonly kind: 'usage'; readonly problem: string }
   | { readonly kind: 'degraded'; readonly notice: string }
 
-// Wider than the label's reading, because a refusal here only costs a rename.
-const AN_IDS_DIGITS = /[0-9a-f]{32}/i
+// A ligature or a fullwidth or mathematical digit read as the hexadecimal digits it draws as,
+// one character at a time, so nothing else in the name is composed or folded into a letter.
+function asDrawn(name: string): string {
+  return name.replace(/[^\0-\x7f]/gu, (character) => {
+    const folded = character.normalize('NFKC')
 
-function holdsAnId(name: string): boolean {
-  return (
-    AN_IDS_DIGITS.test(withForbiddenRemoved(name).replace(/[^0-9a-z]/gi, '')) ||
-    shownVariable(envVarFor(name)) !== envVarFor(name)
-  )
+    return /^[0-9a-f]+$/i.test(folded) ? folded : character
+  })
 }
 
 function nameRefusal(name: string | undefined): string | undefined {
@@ -183,7 +182,7 @@ function nameRefusal(name: string | undefined): string | undefined {
   }
 
   // The name becomes the variable and the crontab line printed below, where no cut applies.
-  if (holdsAnId(name)) {
+  if (nameHoldsAnId(name) || nameHoldsAnId(asDrawn(name)) || /[0-9a-f]{32}/i.test(asDrawn(name).replace(/[^0-9a-z]/gi, ''))) {
     return 'name looks like it holds a monitor id, so it is not shown: init would print it whole in the variable and the crontab line. Pick a name without it.'
   }
 
@@ -193,7 +192,19 @@ function nameRefusal(name: string | undefined): string | undefined {
     return isCronheartApiError(error) ? error.message : String(error)
   }
 
-  return undefined
+  const spelled = withLabelControlsSpelledOut(name)
+
+  if (spelled === name) {
+    return undefined
+  }
+
+  let at = 0
+
+  while (spelled[at] === name[at]) {
+    at += 1
+  }
+
+  return `name holds ${codePointName(name.codePointAt(at) ?? 0)}, which does not print, so the crontab line init prints could not be copied as shown. Pick a name without it.`
 }
 
 async function named(api: CronheartApi, name: string): Promise<readonly Monitor[]> {
@@ -209,7 +220,7 @@ async function named(api: CronheartApi, name: string): Promise<readonly Monitor[
 }
 
 function describeChannels(channels: readonly { kind: string; label: string }[]): string {
-  return channels.map((channel) => `${printedBare(channel.label)} (${printedBare(channel.kind)})`).join(', ')
+  return channels.map((channel) => `${printable(channel.label)} (${printable(channel.kind)})`).join(', ')
 }
 
 function alertsOf(
@@ -319,7 +330,7 @@ async function createThroughTheApi(
   const only = already[0]
 
   if (only !== undefined) {
-    io.out(`  ${JSON.stringify(printedBare(only.name))} is already here — using it rather than making a second\n`)
+    io.out(`  ${JSON.stringify(labelFor(only.name))} is already here — using it rather than making a second\n`)
 
     return {
       kind: 'created',
@@ -334,7 +345,7 @@ async function createThroughTheApi(
       idempotencyKey: await idempotencyKeyFor(request),
     })
 
-    io.out(`  created ${JSON.stringify(printedBare(made.name))}\n`)
+    io.out(`  created ${JSON.stringify(labelFor(made.name))}\n`)
 
     return {
       kind: 'created',
@@ -351,7 +362,7 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
   const unknown = unknownFlags(args, FLAGS)
 
   if (unknown.length > 0) {
-    io.err(`cronheart: init does not take --${unknown.join(', --')}\n`)
+    io.err(`cronheart: init does not take --${unknown.map(printable).join(', --')}\n`)
 
     return EXIT_USAGE
   }
@@ -482,7 +493,7 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
 
     if (!existsSync(directory)) {
       io.err(
-        `cronheart: ${path} cannot be written because ${directory} does not exist — create it first, or point --env-path at a file in a directory that does\n`,
+        `cronheart: ${printable(path)} cannot be written because ${printable(directory)} does not exist — create it first, or point --env-path at a file in a directory that does\n`,
       )
 
       return EXIT_USAGE
@@ -508,7 +519,7 @@ export async function initCommand(args: ParsedArgs, io: Io): Promise<number> {
       return EXIT_PROBLEM
     }
 
-    io.out(`  wrote ${variable} to ${path}\n`)
+    io.out(`  wrote ${variable} to ${printable(path)}\n`)
   }
 
   const opened = openClient({ monitors: { [answers.name]: answers.id }, onResult: () => {} })

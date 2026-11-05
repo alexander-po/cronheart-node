@@ -1,4 +1,4 @@
-import { monitorLabel } from './label.js'
+import { labelFor } from '../ping/resolve.js'
 import type { SyncPlan } from './types.js'
 
 const EMPTY_CONFIGURATION =
@@ -20,7 +20,7 @@ export function whyPruningIsUnsafe(plan: SyncPlan, failed: number): string | und
 
 export function destructionNotice(orphans: readonly string[], onService: number): string {
   return [
-    `  ${orphans.length} of the ${onService} monitor(s) this key can see would be deleted: ${orphans.map(monitorLabel).join(', ')}`,
+    `  ${orphans.length} of the ${onService} monitor(s) this key can see would be deleted: ${orphans.map(labelFor).join(', ')}`,
     '  Deleting a monitor destroys its check-in history, and nothing here can bring it back.',
     '',
   ].join('\n')

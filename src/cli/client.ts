@@ -1,12 +1,11 @@
-import { withForbiddenRemoved, withForbiddenSpelledOut } from '../print-set.js'
+import { withForbiddenRemoved } from '../print-set.js'
 import { DEFAULT_BASE_URL } from '../constants.js'
 import { inAnyCase } from '../ping/body.js'
 import { createPingClient } from '../ping/client.js'
 import { ambientEnv, envSource, isDisabled, readEnv } from '../ping/env.js'
 import type { EnvSource } from '../ping/env.js'
-import { isMonitorId, labelFor, looksLikeAnId, resolveMonitor } from '../ping/resolve.js'
+import { isMonitorId, labelFor, looksLikeAnId, printable, resolveMonitor } from '../ping/resolve.js'
 import type { PingClient, PingClientOptions } from '../ping/types.js'
-import { printedBare } from '../sync/label.js'
 import { type ParsedArgs, type Read, readText } from './args.js'
 
 export type Opened =
@@ -97,7 +96,7 @@ function readIdFlag(value: string): GivenId {
   const core = wrapper === undefined ? trimmed : trimmed.slice(1, -1).trim()
   const bare = withForbiddenRemoved(core).trim()
 
-  if (bare !== core && (isMonitorId(bare) || (!looksLikeAnId(core) && looksLikeAnId(bare)))) {
+  if (bare !== core && looksLikeAnId(bare)) {
     around.push('an invisible character')
 
     return { core: bare, around: around.join(' and ') }
@@ -128,7 +127,7 @@ export function idFlagRefusal(value: string): string | undefined {
   const { core, around } = readIdFlag(value)
 
   if (!looksLikeAnId(core)) {
-    return `--uuid=${printedBare(core)} is not a monitor id — an id is 36 characters, hexadecimal in groups of 8-4-4-4-12. To address a monitor by the name you configured it under, pass --name.`
+    return `--uuid=${printable(core)} is not a monitor id — an id is 36 characters, hexadecimal in groups of 8-4-4-4-12. To address a monitor by the name you configured it under, pass --name.`
   }
 
   const fix =
@@ -136,14 +135,14 @@ export function idFlagRefusal(value: string): string | undefined {
       ? 'Copy the 36-character identifier from the monitor’s page again.'
       : 'Pass the 36 characters alone.'
 
-  return `--uuid=${withForbiddenSpelledOut(labelFor(core))} is not a monitor id — ${wrongWith(core, around)}, and it is shown cut because a whole one is a working check-in capability. ${fix}`
+  return `--uuid=${labelFor(core)} is not a monitor id — ${wrongWith(core, around)}, and it is shown cut because a whole one is a working check-in capability. ${fix}`
 }
 
 export function nameFlagRefusal(value: string): string | undefined {
   const { core } = readIdFlag(value)
 
   return looksLikeAnId(core)
-    ? `--name=${withForbiddenSpelledOut(labelFor(core))} reads as a monitor id rather than a name, so it is shown cut — pass an id as --uuid, or pick a name that is not hexadecimal in groups of 8-4-4-4-12.`
+    ? `--name=${labelFor(core)} reads as a monitor id rather than a name, so it is shown cut — pass an id as --uuid, or pick a name that is not hexadecimal in groups of 8-4-4-4-12.`
     : undefined
 }
 

@@ -253,6 +253,22 @@ describe('closing the gap between a monitor and the job that has to address it',
     )
   })
 
+  it('leaves out, and says it left out, a monitor whose variable would hold another id in its name', async () => {
+    const held = ['0a1b2c3d', '1111', '2222', '3333', '4444555566ff'].join('-')
+    const config = jsonConfig([
+      { name: `job ${held}`, schedule: '@daily', channels: ['ops inbox'] },
+      { name: 'nightly backup', schedule: '@daily', channels: ['ops inbox'] },
+    ])
+    const ran = await runCli(['sync', `--config=${config}`, '--apply', '--print-env'], {
+      env: envFor(),
+    })
+
+    expect(ran.stdout).toMatch(/^CRONHEART_NIGHTLY_BACKUP_UUID=/m)
+    expect(ran.stdout).not.toMatch(/0A1B2C3D/i)
+    expect(ran.stderr).toContain('no line was printed for id…66ff, because its variable would hold a monitor id')
+    expect(ran.stderr).not.toMatch(/0a1b2c3d/i)
+  })
+
   it('prints no identifier at all without being asked for one', async () => {
     store.monitors.push(monitorRow())
 

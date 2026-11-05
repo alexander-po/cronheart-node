@@ -70,6 +70,21 @@ describe('the nestjs adapter', () => {
     ])
   })
 
+  it('names an unmapped job whose name holds a monitor id by the id\'s last four digits alone', () => {
+    const test = harness()
+    const written = lines()
+    const held = ['0a1b2c3d', '1111', '2222', '3333', '4444555566ff'].join('-')
+    const registry = fakeRegistry({
+      [JOB_KEY]: fakeCronJob(SCHEDULE, () => undefined),
+      [`report ${held}`]: fakeCronJob(SCHEDULE, () => undefined),
+    })
+
+    monitorScheduledJobs(registry, { jobs: MAPPED, client: test.client, report: written.report })
+
+    expect(written.written).toEqual([expect.stringContaining('unmapped: id…66ff')])
+    expect(written.written.join('\n')).not.toMatch(/0a1b2c3d/i)
+  })
+
   it('brackets a fire of a wrapped job and awaits the terminal check-in', async () => {
     const test = harness()
     const produced = { rows: 4 }
