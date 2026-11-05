@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.1
+
+### Patch Changes
+
+This release closes the ways a monitor id could still be printed whole.
+
+- **A name that holds a monitor id is shown by the id's last four digits alone**, however the id is spelled: a dash missing, spaces or signs between its groups, a combining mark inside a group, or an invisible character anywhere in it. The variable a diagnostic names is `CRONHEART_<NAME>_UUID`.
+- **`cronheart init` refuses such a name**, and one holding a character that does not print.
+- **A mistyped command, flag or flag value, an `--env-path` or `--config` path, a base URL and a `doctor` variable list no longer echo an id**; any printed value that holds one shows its last four digits instead.
+- **Invisible characters in a monitor's label are spelled out**, and `ping()` no longer throws when a label cannot be built.
+
 ## 0.10.0
 
 ### Minor Changes
