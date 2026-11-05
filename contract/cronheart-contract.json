@@ -1,5 +1,5 @@
 {
-  "contract_version": "5.0.0",
+  "contract_version": "5.1.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -54,7 +54,7 @@
       "layer": "server",
       "direction": "read",
       "openness": "open",
-      "members": ["late", "fail", "recovered"]
+      "members": ["late", "fail", "recovered", "reminder"]
     },
     "incident.kind": {
       "layer": "server",
@@ -678,6 +678,11 @@
         "default": 60,
         "coercion": "A numeric value is truncated toward zero. A non-numeric value is ignored and the default (on create) or the current value (on update) is used."
       },
+      "monitor.incident_reminders": {
+        "type": "boolean",
+        "default": false,
+        "semantics": "On update, absent keeps the current value. When on, a reminder alert is sent every 24 hours while an incident stays open, at most 3 times."
+      },
       "monitor.channel_ids": {
         "type": "array",
         "items": ["integer", "string"],
@@ -756,7 +761,7 @@
     },
     "read_shapes": {
       "monitor": {
-        "keys": ["uuid", "name", "schedule_kind", "schedule_expr", "tz", "grace_seconds", "channels", "status", "open_incident", "next_expected_at", "snoozed_until", "last_ping_at", "created_at", "ping_url", "badge_url"],
+        "keys": ["uuid", "name", "schedule_kind", "schedule_expr", "tz", "grace_seconds", "incident_reminders", "channels", "status", "open_incident", "next_expected_at", "snoozed_until", "last_ping_at", "created_at", "ping_url", "badge_url"],
         "nullable": ["open_incident", "next_expected_at", "snoozed_until", "last_ping_at"],
         "timestamps": "RFC 3339 with an explicit offset",
         "absent_by_design": ["project", "failure_count", "last_duration_ms", "last_success_at", "last_started_at"],
@@ -869,6 +874,7 @@
         "monitor.schedule_expr maximum length",
         "monitor.tz default",
         "monitor.grace_seconds range and default",
+        "monitor.incident_reminders default",
         "channel.label length bounds",
         "channel.secret length bounds",
         "the channel.webhook_url maximum length, overall and for each kind that takes one",

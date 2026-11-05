@@ -233,6 +233,8 @@ Configuration
   tz          a zone name: a region zone such as Europe/Berlin, UTC, or a fixed offset such
               as +05:00. An abbreviation such as CET is refused. Left out, it is not managed.
   graceSeconds  Left out, it is not managed.
+  incidentReminders  true to send a reminder alert every 24 hours while an incident stays open,
+              at most three times. Left out, it is not managed.
 
   A monitor whose attached channels include none that is verified alerts nobody, and creating
   one is refused unless the file wrote 'none'. Every plan row prints what it alerts.

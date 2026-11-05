@@ -501,6 +501,7 @@ const MONITOR_REQUEST = {
   scheduleExpr: '0 3 * * *',
   tz: 'UTC',
   graceSeconds: 60,
+  incidentReminders: true,
   channelIds: ['1'],
 } as const
 
@@ -518,6 +519,7 @@ const MONITOR_WIRE_KEYS: Readonly<Record<string, string>> = {
   scheduleExpr: 'schedule_expr',
   tz: 'tz',
   graceSeconds: 'grace_seconds',
+  incidentReminders: 'incident_reminders',
   channelIds: 'channel_ids',
 }
 

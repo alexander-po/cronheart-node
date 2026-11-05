@@ -1030,6 +1030,9 @@
           "grace_seconds": {
             "type": "integer"
           },
+          "incident_reminders": {
+            "type": "boolean"
+          },
           "channels": {
             "type": "array",
             "items": {
@@ -1232,7 +1235,8 @@
             "enum": [
               "late",
               "fail",
-              "recovered"
+              "recovered",
+              "reminder"
             ]
           },
           "created_at": {
@@ -1413,6 +1417,10 @@
             "maximum": 86400,
             "default": 60
           },
+          "incident_reminders": {
+            "type": "boolean",
+            "default": false
+          },
           "channel_ids": {
             "type": "array",
             "items": {
@@ -1454,6 +1462,9 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 86400
+          },
+          "incident_reminders": {
+            "type": "boolean"
           },
           "channel_ids": {
             "type": "array",

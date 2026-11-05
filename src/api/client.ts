@@ -60,6 +60,7 @@ import {
   assertChannelKind,
   assertChannelLabel,
   assertGraceSeconds,
+  assertIncidentReminders,
   assertMonitorName,
   assertMonitorUuid,
   assertScheduleExprShape,
@@ -83,6 +84,7 @@ const MONITOR_WIRE_KEYS = {
   scheduleExpr: 'schedule_expr',
   tz: 'tz',
   graceSeconds: 'grace_seconds',
+  incidentReminders: 'incident_reminders',
   channelIds: 'channel_ids',
 } as const
 
@@ -96,7 +98,8 @@ const MONITOR_FIELDS: readonly string[] = [
 ]
 
 function monitorBodyFrom(request: CreateMonitorRequest | UpdateMonitorRequest, partial: boolean) {
-  const { name, scheduleKind, scheduleExpr, tz, graceSeconds, channelIds } = request
+  const { name, scheduleKind, scheduleExpr, tz, graceSeconds, incidentReminders, channelIds } =
+    request
   const body: Record<string, unknown> = {}
 
   if (!partial || name !== undefined) {
@@ -128,6 +131,11 @@ function monitorBodyFrom(request: CreateMonitorRequest | UpdateMonitorRequest, p
   if (graceSeconds !== undefined) {
     assertGraceSeconds(graceSeconds)
     body[MONITOR_WIRE_KEYS.graceSeconds] = graceSeconds
+  }
+
+  if (incidentReminders !== undefined) {
+    assertIncidentReminders(incidentReminders)
+    body[MONITOR_WIRE_KEYS.incidentReminders] = incidentReminders
   }
 
   if (channelIds !== undefined) {

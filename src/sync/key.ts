@@ -36,6 +36,7 @@ function canonical(request: CreateMonitorRequest): string {
     request.tz ?? null,
     request.graceSeconds ?? null,
     [...(request.channelIds ?? [])].map(String).sort((one, other) => Number(one) - Number(other)),
+    ...(request.incidentReminders === undefined ? [] : [request.incidentReminders]),
   ])
 }
 

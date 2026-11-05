@@ -12,6 +12,7 @@ export interface StoredMonitor {
   schedule_expr: string
   tz: string
   grace_seconds: number
+  incident_reminders: boolean
   channel_ids: string[]
   created_at: string
   status: string
@@ -75,6 +76,7 @@ function monitorJson(monitor: StoredMonitor, channels: readonly StoredChannel[])
     schedule_expr: monitor.schedule_expr,
     tz: monitor.tz,
     grace_seconds: monitor.grace_seconds,
+    incident_reminders: monitor.incident_reminders,
     channels: attached.map((channel) => ({
       id: channel.id,
       kind: channel.kind,
@@ -204,6 +206,7 @@ export function createMonitorStore(
           schedule_expr: String(body['schedule_expr']),
           tz: typeof body['tz'] === 'string' ? body['tz'] : 'UTC',
           grace_seconds: typeof body['grace_seconds'] === 'number' ? body['grace_seconds'] : 60,
+          incident_reminders: body['incident_reminders'] === true,
           channel_ids: idsFrom(body['channel_ids']) ?? [],
           created_at: new Date(1_760_000_000_000 + minted * 1000).toISOString(),
           status: 'new',
@@ -262,6 +265,10 @@ export function createMonitorStore(
         found.grace_seconds = body['grace_seconds']
       }
 
+      if (typeof body['incident_reminders'] === 'boolean') {
+        found.incident_reminders = body['incident_reminders']
+      }
+
       // Present, even empty, replaces the routing wholesale; absent leaves it alone. The
       // store models that literally, so a client that sent an empty array by accident
       // silences the monitor here exactly as it would on the service.
@@ -284,6 +291,7 @@ export function monitorRow(overrides: Partial<StoredMonitor> = {}): StoredMonito
     schedule_expr: '0 3 * * *',
     tz: 'UTC',
     grace_seconds: 60,
+    incident_reminders: false,
     channel_ids: ['7'],
     created_at: '2026-08-01T09:15:00.000Z',
     status: 'up',
