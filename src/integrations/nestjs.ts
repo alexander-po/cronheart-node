@@ -1,5 +1,6 @@
 import type { Abstract, DynamicModule, Type } from '@nestjs/common'
 import type { SchedulerRegistry } from '@nestjs/schedule'
+import { labelFor } from '../ping/resolve.js'
 import { sealed } from '../wiring/validate.js'
 import {
   type AdapterOptions,
@@ -131,12 +132,12 @@ function coverageLine(
   ]
 
   if (unmapped.length > 0) {
-    clauses.push(`unmapped: ${unmapped.join(', ')}`)
+    clauses.push(`unmapped: ${unmapped.map(labelFor).join(', ')}`)
   }
 
   if (unwrapped.length > 0) {
     clauses.push(
-      `could not be wrapped: ${unwrapped.join(', ')} — the scheduler holds those jobs' callbacks somewhere this adapter cannot reach`,
+      `could not be wrapped: ${unwrapped.map(labelFor).join(', ')} — the scheduler holds those jobs' callbacks somewhere this adapter cannot reach`,
     )
   }
 

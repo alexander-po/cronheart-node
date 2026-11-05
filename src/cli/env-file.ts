@@ -10,6 +10,7 @@ import {
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { escapeLiteral } from '../ping/body.js'
+import { printable } from '../ping/resolve.js'
 
 export const DEFAULT_ENV_FILE = '.env'
 
@@ -62,13 +63,13 @@ export function inspect(path: string): Existing {
       return { ok: true, text: undefined, mode: undefined }
     }
 
-    return { ok: false, problem: `${path} cannot be examined (${codeOf(error)})` }
+    return { ok: false, problem: `${printable(path)} cannot be examined (${codeOf(error)})` }
   }
 
   if (entry.isSymbolicLink()) {
     return {
       ok: false,
-      problem: `${path} is a symbolic link, and a file that will hold a credential is not written through one`,
+      problem: `${printable(path)} is a symbolic link, and a file that will hold a credential is not written through one`,
     }
   }
 
@@ -77,7 +78,7 @@ export function inspect(path: string): Existing {
   } catch (error) {
     return {
       ok: false,
-      problem: `${path} exists but cannot be read (${codeOf(error)}), so it was left untouched rather than replaced`,
+      problem: `${printable(path)} exists but cannot be read (${codeOf(error)}), so it was left untouched rather than replaced`,
     }
   }
 }
@@ -110,6 +111,6 @@ export function writeSecretly(path: string, text: string, mode: number | undefin
       } catch {}
     }
 
-    return `${path} could not be written (${codeOf(error)})`
+    return `${printable(path)} could not be written (${codeOf(error)})`
   }
 }

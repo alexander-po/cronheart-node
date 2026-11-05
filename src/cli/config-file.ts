@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
+import { idMark, printable } from '../ping/resolve.js'
 import { isSyncConfigurationError } from '../sync/errors.js'
 
 export const CONFIG_NAMES: readonly string[] = [
@@ -30,17 +31,17 @@ export function explainConfigFailure(error: unknown, path: string): string {
   const message = error instanceof Error ? error.message : String(error)
 
   if (TYPESCRIPT.test(path) && (codeOf(error) === 'ERR_UNKNOWN_FILE_EXTENSION' || /TypeScript|type strip|Unknown file extension/i.test(message))) {
-    return `${path} is TypeScript, and this Node did not load it. Node strips types by itself from 22.18 onward and from 22.6 behind --experimental-strip-types; below 22.6 there is no such flag. Run a newer Node, pass that flag if this one is at least 22.6, or point --config at a .mjs or .json file — this package adds no compiler of its own.`
+    return `${printable(path)} is TypeScript, and this Node did not load it. Node strips types by itself from 22.18 onward and from 22.6 behind --experimental-strip-types; below 22.6 there is no such flag. Run a newer Node, pass that flag if this one is at least 22.6, or point --config at a .mjs or .json file — this package adds no compiler of its own.`
   }
 
-  return `${path} could not be read (${message})`
+  return `${printable(path)} could not be read (${printable(message)})`
 }
 
 // The documented shape calls defineMonitors at module scope, so a refusal is raised inside
 // the dynamic import. One frame decides both, or could-not-be-read stops meaning it.
 export function describeConfigProblem(error: unknown, path: string): string {
   return isSyncConfigurationError(error)
-    ? `${path} — ${error.message}`
+    ? `${printable(path)} — ${idMark(error.message) ?? error.message}`
     : explainConfigFailure(error, path)
 }
 
@@ -54,9 +55,9 @@ function found(given: string | undefined, cwd: string): string | undefined {
 
 function readable(path: string): string | undefined {
   try {
-    return statSync(path).isFile() ? undefined : `${path} is not a file`
+    return statSync(path).isFile() ? undefined : `${printable(path)} is not a file`
   } catch {
-    return `${path} does not exist`
+    return `${printable(path)} does not exist`
   }
 }
 
@@ -67,7 +68,7 @@ export async function loadConfigFile(given: string | undefined): Promise<Loaded>
   if (path === undefined) {
     return {
       ok: false,
-      problem: `no configuration file was named and none of ${CONFIG_NAMES.join(', ')} is in ${cwd}`,
+      problem: `no configuration file was named and none of ${CONFIG_NAMES.join(', ')} is in ${printable(cwd)}`,
     }
   }
 

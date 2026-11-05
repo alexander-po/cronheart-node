@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 import process from 'node:process'
 import { API_KEY_VARIABLE } from '../api/constants.js'
 import { isCronheartApiError } from '../api/errors.js'
+import { printable } from '../ping/resolve.js'
 import type { SignupClient, SignupPollResult, SignupStarted } from '../api/types.js'
 import { countdown } from '../timer.js'
 import { type ParsedArgs, readFlag, readText, unknownFlags } from './args.js'
@@ -54,13 +55,13 @@ function destinationRefusal(path: string): string | undefined {
   const directory = dirname(path)
 
   if (!existsSync(directory)) {
-    return `${path} cannot be written because ${directory} does not exist — create it first, or point --env-path at a file in a directory that does`
+    return `${printable(path)} cannot be written because ${printable(directory)} does not exist — create it first, or point --env-path at a file in a directory that does`
   }
 
   try {
     accessSync(directory, constants.W_OK)
   } catch {
-    return `${directory} is not writable, so the key could not be saved once it is issued — point --env-path at a file in a directory that is`
+    return `${printable(directory)} is not writable, so the key could not be saved once it is issued — point --env-path at a file in a directory that is`
   }
 
   const existing = inspect(path)
@@ -70,13 +71,13 @@ function destinationRefusal(path: string): string | undefined {
   }
 
   if (assigns(existing.text, API_KEY_VARIABLE)) {
-    return `${path} already assigns ${API_KEY_VARIABLE}, and a signup would replace that key — point --env-path at another file, or pass --print-env`
+    return `${printable(path)} already assigns ${API_KEY_VARIABLE}, and a signup would replace that key — point --env-path at another file, or pass --print-env`
   }
 
   // The file keeps its mode when a line is added, so one others can reach would hand them the
   // key. Windows reports no such bits, so it is not asked there.
   return process.platform !== 'win32' && existing.mode !== undefined && (existing.mode & 0o077) !== 0
-    ? `${path} can be read or written by others (mode ${existing.mode.toString(8)}), and it would hold the account's key — run chmod 600 on it, or point --env-path at another file`
+    ? `${printable(path)} can be read or written by others (mode ${existing.mode.toString(8)}), and it would hold the account's key — run chmod 600 on it, or point --env-path at another file`
     : undefined
 }
 
@@ -179,7 +180,7 @@ function showCode(email: string, started: SignupStarted): string {
   const minutes = Math.max(1, Math.ceil(started.expiresIn / 60))
 
   return [
-    `  A mail with a confirmation link is on its way to ${email}. If that address already`,
+    `  A mail with a confirmation link is on its way to ${printable(email)}. If that address already`,
     '  has an account, nothing here will be confirmed and an active one is mailed that nothing',
     '  changed — take a key from Account → API tokens then.',
     '',
@@ -222,7 +223,7 @@ export async function signupCommand(args: ParsedArgs, io: Io): Promise<number> {
   const unknown = unknownFlags(args, FLAGS)
 
   if (unknown.length > 0) {
-    io.err(`cronheart: signup does not take --${unknown.join(', --')}\n`)
+    io.err(`cronheart: signup does not take --${unknown.map(printable).join(', --')}\n`)
 
     return EXIT_USAGE
   }
@@ -321,7 +322,7 @@ export async function signupCommand(args: ParsedArgs, io: Io): Promise<number> {
     return EXIT_PROBLEM
   }
 
-  say(`  confirmed — wrote ${API_KEY_VARIABLE} (${shown}) to ${path}, ${scope}\n${afterwards(path)}`)
+  say(`  confirmed — wrote ${API_KEY_VARIABLE} (${shown}) to ${printable(path)}, ${scope}\n${afterwards(printable(path) === path ? path : undefined)}`)
 
   return EXIT_OK
 }

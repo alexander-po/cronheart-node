@@ -1,5 +1,6 @@
 import type { EnvSource } from '../ping/env.js'
 import { readEnv } from '../ping/env.js'
+import { printable } from '../ping/resolve.js'
 import { type ParsedArgs, type Read, readAllText } from './args.js'
 
 export const REDACT_FLAG = 'redact'
@@ -45,7 +46,7 @@ export function planRedaction(args: ParsedArgs, env: EnvSource): Read<RedactionP
     if (compiled === undefined) {
       return {
         ok: false,
-        problem: `--${REDACT_FLAG} is not a regular expression, so it would redact nothing: ${source}`,
+        problem: `--${REDACT_FLAG} is not a regular expression, so it would redact nothing: ${printable(source)}`,
       }
     }
 
@@ -62,7 +63,7 @@ export function planRedaction(args: ParsedArgs, env: EnvSource): Read<RedactionP
         ok: true,
         value: {
           patterns: [],
-          refusal: `${REDACT_ENV} is not a regular expression, so nothing will be excerpted at all — the command runs unchanged and the check-in carries only its one-line summary: ${source}`,
+          refusal: `${REDACT_ENV} is not a regular expression, so nothing will be excerpted at all — the command runs unchanged and the check-in carries only its one-line summary: ${printable(source)}`,
         },
       }
     }

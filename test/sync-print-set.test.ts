@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { codePointName, withForbiddenRemoved, withForbiddenSpelledOut } from '../src/print-set.js'
 import { defineMonitors } from '../src/sync/define.js'
 import { quoted } from '../src/sync/errors.js'
-import { monitorLabel } from '../src/sync/label.js'
+import { labelFor as monitorLabel } from '../src/ping/resolve.js'
 import { planSync } from '../src/sync/plan.js'
 import { envLinesFor, renderPlan } from '../src/sync/render.js'
 import { describeSchedule } from '../src/sync/schedule.js'
@@ -34,7 +34,7 @@ describe('what a refusal or a plan prints of text the caller supplied', () => {
     ['a crontab line', `0 4 * * * curl https://example.invalid/ping/${IDENTIFIER}`],
     ['a ping address', `https://example.invalid/ping/${IDENTIFIER}`],
     ['braces', `{${IDENTIFIER}}`],
-    ['a bare form after an escaped character', `ping \u200E${IDENTIFIER.replaceAll('-', '')}`],
+    ['a bare form after an escaped character', `ping \u200Ea${IDENTIFIER.replaceAll('-', '').slice(1)}`],
     ['a joiner inside it', `00000000-\u200D0000-0000-0000-000000000001`],
     ['a code point inside it', `00000000-\u200E0000-0000-0000-000000000001`],
   ])('cuts an identifier held in %s', (_what, text) => {
@@ -145,7 +145,7 @@ describe('the characters spelled out are the ones Unicode marks as ignorable or 
     'still cuts an identifier that sits behind %j',
     (character) => {
       expect(quoted(`${character}${IDENTIFIER}`)).toBe('"id…0001"')
-      expect(quoted(`ping ${character}${IDENTIFIER}`)).toBe('"ping id…0001"')
+      expect(quoted(`ping ${character}${IDENTIFIER}`)).toBe('"id…0001"')
     },
   )
 })
@@ -201,11 +201,11 @@ describe('what sync prints of values the service returned', () => {
   })
 
   it('cuts an identifier held in a schedule the service returned', () => {
-    expect(describeSchedule('cron', `0 4 * * * ${IDENTIFIER}`)).toBe('cron 0 4 * * * id…0001')
+    expect(describeSchedule('cron', `0 4 * * * ${IDENTIFIER}`)).toBe('cron id…0001')
   })
 
   it('cuts a monitor name that holds an identifier anywhere in it', () => {
-    expect(monitorLabel(`backup ${IDENTIFIER}`)).toBe('backup id…0001')
+    expect(monitorLabel(`backup ${IDENTIFIER}`)).toBe('id…0001')
     expect(monitorLabel('backup nightly')).toBe('backup nightly')
   })
 

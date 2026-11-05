@@ -1,3 +1,5 @@
+import { shown } from '../ping/resolve.js'
+
 // Anchored at both ends: an unanchored prefix reads localhost.attacker.example and
 // 127.attacker.example as loopback, and a credential then travels in the clear to them.
 const LOOPBACK = /^(localhost|\[::1\]|127(\.\d+){3})$/i
@@ -17,7 +19,7 @@ export function baseUrlRefusal(baseUrl: string): string | undefined {
 
   // Origin and path only, so a key parked in the userinfo, the query or the fragment is
   // not quoted back by the message refusing it. The parser percent-encodes every quote.
-  const quoted = `"${parsed.origin}${parsed.pathname}" cannot be a base URL — `
+  const quoted = `"${shown(parsed.origin + parsed.pathname)}" cannot be a base URL — `
 
   if (parsed.search !== '' || parsed.hash !== '') {
     return `${quoted}it carries a query string or a fragment`

@@ -84,3 +84,24 @@ export function withForbiddenSpelledOutBetween(value: string): string {
 export function withForbiddenRemoved(value: string): string {
   return withForbidden(value.replace(/[\u200C\u200D\uFE0E\uFE0F]/g, ''), () => '')
 }
+
+// What a monitor's label spells out: controls, direction marks and overrides, and every
+// character that draws as nothing, those Unicode marks as ignorable among them. Kept as written: spaces of every
+// width, the joiners and variation selectors emoji sequences are written with, and a subdivision
+// flag, whose tag characters spell its region.
+const UNPRINTED_IN_A_LABEL =
+  /\u{1F3F4}[\u{E0061}-\u{E007A}]{2}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,3}\u{E007F}|[\0-\x1f\x7f-\x9f\u2028-\u202e\u2066-\u2069\u2800\ufff9-\ufffb\u{13430}-\u{1343f}\p{Default_Ignorable_Code_Point}]/gu
+
+const KEPT_IN_A_LABEL = /^(?:\u{1F3F4}.+|[\u200C\u200D\uFE0E\uFE0F])$/u
+
+function withLabelControls(value: string, written: (character: string) => string): string {
+  return value.replace(UNPRINTED_IN_A_LABEL, (found) => (KEPT_IN_A_LABEL.test(found) ? found : written(found)))
+}
+
+export function withLabelControlsSpelledOut(value: string): string {
+  return withLabelControls(value, (character) => codePointName(character.codePointAt(0) ?? 0))
+}
+
+export function withLabelControlsRemoved(value: string): string {
+  return withLabelControls(value, () => '')
+}
