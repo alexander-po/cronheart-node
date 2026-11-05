@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0
+
+### Minor Changes
+
+This release adds the service's incident reminders.
+
+- **`incidentReminders` on a monitor** turns on a reminder alert every 24 hours while an incident stays open, at most three times. `monitors.create` and `monitors.update` take it, and an update that leaves it out keeps the current value.
+- **A monitor read back carries `incidentReminders`**, and an alert can be of kind `'reminder'`.
+- **`defineMonitors` and `cronheart sync` manage it** when a monitor states it and leave it alone otherwise.
+
 ## 0.10.1
 
 ### Patch Changes
