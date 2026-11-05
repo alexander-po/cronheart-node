@@ -81,8 +81,13 @@ export function withForbiddenSpelledOutBetween(value: string): string {
   return withForbidden(value, (codePoint) => `<${codePointName(codePoint)}>`)
 }
 
+// The ranges above, the joiners emoji are written with among them, as one pattern of the
+// properties they are drawn from, so removing them costs the ping path no copy of the range
+// table. A test holds the two equal over every code point.
+const INVISIBLE = /(?! )[\p{Cc}\p{Zs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u2800\ufff9-\ufffb]/gu
+
 export function withForbiddenRemoved(value: string): string {
-  return withForbidden(value.replace(/[\u200C\u200D\uFE0E\uFE0F]/g, ''), () => '')
+  return value.replace(INVISIBLE, '')
 }
 
 // What a monitor's label spells out: controls, direction marks and overrides, and every

@@ -1,5 +1,5 @@
 import { UUID_WHOLE } from '../identifier-shape.js'
-import { withForbiddenSpelledOut, withLabelControlsRemoved, withLabelControlsSpelledOut } from '../print-set.js'
+import { withForbiddenRemoved, withForbiddenSpelledOut, withLabelControlsRemoved, withLabelControlsSpelledOut } from '../print-set.js'
 import type { EnvSource } from './env.js'
 
 const OPENS_LIKE_AN_ID = /^[0-9a-fA-F]{8}-/
@@ -59,10 +59,12 @@ const BETWEEN_DIGITS = /[^\p{L}\p{N}]|\p{Default_Ignorable_Code_Point}/gu
 
 const COMPACT_ID = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/i
 
-const IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu
+function strictlyIn(text: string): string | undefined {
+  return text.match(ID_ANY_SEPARATOR)?.[0] ?? text.match(COMPACT_ID)?.[0]
+}
 
 function strictlyHeldIn(text: string): string | undefined {
-  return text.match(ID_ANY_SEPARATOR)?.[0] ?? text.replace(IGNORABLE, '').match(COMPACT_ID)?.[0]
+  return strictlyIn(text) ?? strictlyIn(withForbiddenRemoved(text))
 }
 
 function idHeldIn(text: string): string | undefined {
@@ -92,7 +94,7 @@ export function printable(text: string): string {
 // A name is read once more through the variable it screams into, so the label, the hint and
 // init's refusal never disagree about whether it holds an id.
 function nameMark(name: string): string | undefined {
-  const variable = strictlyHeldIn(envVarFor(name))
+  const variable = strictlyHeldIn(envVarFor(name)) ?? strictlyHeldIn(envVarFor(withForbiddenRemoved(name)))
 
   return idMark(name) ?? (variable === undefined ? undefined : `id…${variable.slice(-4).toLowerCase()}`)
 }

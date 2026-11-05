@@ -36,6 +36,10 @@ const SPELLINGS = [
   ['an id with o with acute between the groups', `job ${ID.replaceAll('-', '\u00F3')}`],
   ['an id with s with caron between the groups', `job ${ID.replaceAll('-', '\u0161')}`],
   ['an id with the Kelvin sign between the groups', `job ${ID.replaceAll('-', '\u212A')}`],
+  ['an id with u with diaeresis between the groups and a zero-width space inside one', `job ${ID.replaceAll('-', '\u00FC').replace('555566', '5555\u200B66')}`],
+  ['an id with the Kelvin sign between the groups and a no-break space inside one', `job ${ID.replaceAll('-', '\u212A').replace('555566', '5555\u00A066')}`],
+  ['an id with a Cyrillic letter between the groups and an ideographic space inside one', `job ${ID.replaceAll('-', '\u0436').replace('1111', '11\u300011')}`],
+  ['an id with s with caron between the groups and a tab inside one', `job ${ID.replaceAll('-', '\u0161').replace('2222', '22\t22')}`],
 ] as const
 
 const DRAWN_AS_AN_ID = [
@@ -146,6 +150,14 @@ describe('a name holding a monitor id, however it is spelled', () => {
     expect(holdsTheId(`${ran.stdout}${ran.stderr}`)).toBe(false)
     expect(() => readFileSync(path, 'utf8')).toThrow()
     expect(server.requests).toEqual([])
+  })
+
+  it.each([
+    ['a no-break space inside the last group', 'run 12345678-1234-4234-8234-12345678\u00A09012'],
+    ['a zero-width space inside a group', 'run 12345678-12\u200B34-4234-8234-123456789012'],
+  ])('is shown by its last four digits alone when it is an all-decimal id with %s', (_what, name) => {
+    expect(labelFor(name)).toBe('id…9012')
+    expect(resolveMonitor(name, {}, {}).envVar).toBe('CRONHEART_<NAME>_UUID')
   })
 
   it('is shown by its last four digits alone when it is an all-decimal compact id', () => {
