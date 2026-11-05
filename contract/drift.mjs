@@ -19,6 +19,7 @@ const FACTS = [
   ['/api/constraints/monitor.grace_seconds/min', 'value', (doc) => property(doc, 'MonitorCreate', 'grace_seconds')?.minimum],
   ['/api/constraints/monitor.grace_seconds/max', 'value', (doc) => property(doc, 'MonitorCreate', 'grace_seconds')?.maximum],
   ['/api/constraints/monitor.grace_seconds/default', 'value', (doc) => property(doc, 'MonitorCreate', 'grace_seconds')?.default],
+  ['/api/constraints/monitor.incident_reminders/default', 'value', (doc) => property(doc, 'MonitorCreate', 'incident_reminders')?.default],
   ['/api/constraints/channel.label/min_length', 'value', (doc) => property(doc, 'ChannelCreate', 'label')?.minLength],
   ['/api/constraints/channel.label/max_length', 'value', (doc) => property(doc, 'ChannelCreate', 'label')?.maxLength],
   ['/api/constraints/channel.webhook_url/max_length', 'value', (doc) => property(doc, 'ChannelCreate', 'webhook_url')?.maxLength],

@@ -1,6 +1,7 @@
 import { isCronheartApiError } from '../api/errors.js'
 import {
   assertGraceSeconds,
+  assertIncidentReminders,
   assertMonitorName,
   assertScheduleExpression,
   canonicalTimezone,
@@ -72,6 +73,14 @@ function defined(definition: MonitorDefinition): DefinedMonitor {
     })
   }
 
+  const incidentReminders = definition.incidentReminders
+
+  if (incidentReminders !== undefined) {
+    checked(name, () => {
+      assertIncidentReminders(incidentReminders)
+    })
+  }
+
   return {
     name,
     scheduleKind: schedule.kind,
@@ -81,6 +90,7 @@ function defined(definition: MonitorDefinition): DefinedMonitor {
         ? undefined
         : checked(name, () => canonicalTimezone(definition.tz)),
     graceSeconds: definition.graceSeconds,
+    incidentReminders,
     routing: routingFrom(definition.channels, name),
   }
 }

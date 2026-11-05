@@ -182,6 +182,9 @@ function createRequestFor(monitor: DefinedMonitor, routing: ResolvedRouting): Cr
     scheduleExpr: monitor.scheduleExpr,
     ...(monitor.tz === undefined ? {} : { tz: monitor.tz }),
     ...(monitor.graceSeconds === undefined ? {} : { graceSeconds: monitor.graceSeconds }),
+    ...(monitor.incidentReminders === undefined
+      ? {}
+      : { incidentReminders: monitor.incidentReminders }),
     ...routingKeys(routing),
   }
 }
@@ -201,6 +204,9 @@ function differencesFrom(
     monitor.graceSeconds === undefined
       ? undefined
       : changed('graceSeconds', existing.graceSeconds, monitor.graceSeconds),
+    monitor.incidentReminders === undefined
+      ? undefined
+      : changed('incidentReminders', existing.incidentReminders, monitor.incidentReminders),
     // A field the configuration never states is a field sync does not manage: comparing one
     // would report a difference nobody asked to close, and closing it would change a value
     // nobody wrote down.
@@ -224,6 +230,9 @@ function updateRequestFor(
     ...(monitor.tz !== undefined && touched.has('tz') ? { tz: monitor.tz } : {}),
     ...(monitor.graceSeconds !== undefined && touched.has('graceSeconds')
       ? { graceSeconds: monitor.graceSeconds }
+      : {}),
+    ...(monitor.incidentReminders !== undefined && touched.has('incidentReminders')
+      ? { incidentReminders: monitor.incidentReminders }
       : {}),
     ...(touched.has('channels') ? routingKeys(routing) : {}),
   }

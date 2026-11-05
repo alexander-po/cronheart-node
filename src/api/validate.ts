@@ -274,6 +274,12 @@ export function assertGraceSeconds(value: unknown): asserts value is number {
   }
 }
 
+export function assertIncidentReminders(value: unknown): asserts value is boolean {
+  if (typeof value !== 'boolean') {
+    refuse('incidentReminders must be true or false.')
+  }
+}
+
 function assertCron(expression: string): void {
   if (isCronAlias(expression)) {
     return

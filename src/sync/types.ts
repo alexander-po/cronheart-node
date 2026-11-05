@@ -25,6 +25,7 @@ export interface MonitorDefinition {
   readonly schedule: ScheduleInput
   readonly tz?: string | undefined
   readonly graceSeconds?: number | undefined
+  readonly incidentReminders?: boolean | undefined
   readonly channels?: RoutingInput | undefined
 }
 
@@ -54,6 +55,7 @@ export interface DefinedMonitor {
   // move it. A field is managed by being written down, never by carrying a default here.
   readonly tz: string | undefined
   readonly graceSeconds: number | undefined
+  readonly incidentReminders: boolean | undefined
   readonly routing: DefinedRouting
 }
 

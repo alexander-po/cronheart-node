@@ -143,7 +143,9 @@ import {
   createSignupClient,
   isCronheartApiError,
 } from 'cronheart/api'
+import type { MonitorDefinition } from 'cronheart/sync'
 import type {
+  AlertKind,
   Channel,
   CreateChannelRequest,
   CreateMonitorRequest,
@@ -160,11 +162,22 @@ import type {
   StartSignupRequest,
 } from 'cronheart/api'
 
+const maybeReminders = true as boolean | undefined
+
+export const reminderKind: AlertKind = 'reminder'
+
+export const described: MonitorDefinition = {
+  name: 'nightly-backup',
+  schedule: '@daily',
+  incidentReminders: maybeReminders,
+}
+
 const create: CreateMonitorRequest = {
   name: 'nightly-backup',
   scheduleKind: 'cron',
   scheduleExpr: '0 3 * * *',
   graceSeconds: 300,
+  incidentReminders: maybeReminders,
   channelIds: ['12', 13],
 }
 
@@ -218,6 +231,7 @@ export async function retune(management: CronheartApi, uuid: string): Promise<st
     scheduleExpr: current.scheduleExpr,
     tz: current.tz,
     graceSeconds: current.graceSeconds + 60,
+    incidentReminders: current.incidentReminders === true ? undefined : true,
     channelIds: current.channels.map((one) => one.id),
   })
 

@@ -220,6 +220,7 @@ export const MONITOR_JSON = {
   schedule_expr: '0 3 * * *',
   tz: 'UTC',
   grace_seconds: 60,
+  incident_reminders: false,
   channels: [{ id: CHANNEL_ID, kind: 'email', label: 'ops inbox' }],
   status: 'up',
   open_incident: null,

@@ -153,6 +153,7 @@ export function monitorFrom(value: unknown): Monitor {
     scheduleExpr: text(source, 'schedule_expr', 'monitor'),
     tz: text(source, 'tz', 'monitor'),
     graceSeconds: integer(source, 'grace_seconds', 'monitor'),
+    incidentReminders: flag(source, 'incident_reminders', 'monitor'),
     channels: list(source, 'channels', 'monitor').map(monitorChannelFrom),
     status: text(source, 'status', 'monitor'),
     openIncident: openIncidentFrom(source['open_incident']),

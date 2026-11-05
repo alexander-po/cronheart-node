@@ -322,6 +322,7 @@ describe('the service’s own wording on a route that names a monitor', () => {
           scheduleExpr: '0 3 * * *',
           tz: 'UTC',
           graceSeconds: 60,
+          incidentReminders: true,
           channelIds: [CHANNEL_ID],
         }),
     ],

@@ -28,7 +28,7 @@ export type PlanKey = (typeof PLAN_KEYS)[number]
 
 export type PingKind = 'heartbeat' | 'start' | 'success' | 'fail'
 
-export type AlertKind = 'late' | 'fail' | 'recovered'
+export type AlertKind = 'late' | 'fail' | 'recovered' | 'reminder'
 
 export type IncidentKind = 'late' | 'fail'
 
@@ -50,6 +50,7 @@ export interface Monitor {
   readonly scheduleExpr: string
   readonly tz: string
   readonly graceSeconds: number
+  readonly incidentReminders?: boolean | undefined
   // Attachment, not deliverability: an attached channel that is not verified is skipped at
   // send time, and this projection carries no verified flag. Intersect with channels.list()
   // to answer whether a monitor alerts anybody.
@@ -201,6 +202,7 @@ export interface CreateMonitorRequest {
   readonly scheduleExpr: string
   readonly tz?: string | undefined
   readonly graceSeconds?: number | undefined
+  readonly incidentReminders?: boolean | undefined
   readonly channelIds?: readonly (string | number)[] | undefined
 }
 
@@ -210,6 +212,7 @@ export interface UpdateMonitorRequest {
   readonly scheduleExpr?: string | undefined
   readonly tz?: string | undefined
   readonly graceSeconds?: number | undefined
+  readonly incidentReminders?: boolean | undefined
   // Present, even empty, replaces the routing wholesale; absent keeps it.
   readonly channelIds?: readonly (string | number)[] | undefined
 }
