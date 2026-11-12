@@ -116,7 +116,7 @@ export function errorForStatus(
 
   if (status === 403) {
     return new ApiForbiddenError(
-      `The account may not do this (HTTP 403) on ${at}. The monitor limit may be reached, or the account's email address may still be unverified.`,
+      `The account may not do this (HTTP 403) on ${at}. The monitor or channel limit may be reached, the account's email address may still be unverified, or, on a channel write or test, the token may be scoped to one project: channels belong to the account, so use a token without a project scope.`,
       details,
     )
   }

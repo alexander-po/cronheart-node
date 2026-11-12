@@ -313,6 +313,30 @@ describe('reading a response', () => {
     expect(account.apiRateLimit.limit).toBe(120)
   })
 
+  it('reads the channel allowance when the service reports one', async () => {
+    const { api } = apiWith({ json: ACCOUNT_JSON })
+
+    const account = await api.account.get()
+
+    expect(account.channels).toEqual({ used: 4, limit: 20, userHostedUsed: 1, userHostedLimit: 3 })
+  })
+
+  it('reads an account from a server that reports no channel allowance', async () => {
+    const { channels: _omitted, ...older } = ACCOUNT_JSON
+    const { api } = apiWith({ json: older })
+
+    const account = await api.account.get()
+
+    expect(account.channels).toBeUndefined()
+    expect(account.monitorBudget.used).toBe(3)
+  })
+
+  it.each(['used', 'limit', 'user_hosted_used', 'user_hosted_limit'])('refuses a channel allowance whose %s is not an integer', async (key) => {
+    const { api } = apiWith({ json: { ...ACCOUNT_JSON, channels: { ...ACCOUNT_JSON.channels, [key]: 'four' } } })
+
+    await expect(api.account.get()).rejects.toBeInstanceOf(ApiHydrationError)
+  })
+
   it('hands back a rotated webhook secret and the channel it belongs to', async () => {
     const { api } = apiWith({ json: { ...CHANNEL_JSON, kind: 'webhook', secret: 'rotated-secret' } })
 

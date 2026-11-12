@@ -1,5 +1,5 @@
 {
-  "contract_version": "5.1.0",
+  "contract_version": "5.2.0",
   "title": "Cronheart wire contract",
   "description": "Normative, machine-readable description of the Cronheart wire surface. Every fact was read out of the running server's source, not inferred from published documentation. Consumed by per-language SDKs (constant-equality tests, hydrator tolerance rules) and by the conformance vectors under contract/vectors/.",
   "verified_on": "2026-08-21",
@@ -464,7 +464,7 @@
         { "status": 400, "class": "UnexpectedResponse" },
         { "status": 401, "class": "Authentication" },
         { "status": 402, "class": "PlanRestriction", "carries": ["upgrade_url"] },
-        { "status": 403, "class": "Forbidden", "conditions": ["monitor limit reached", "account email unverified", "signup from the API switched off, on the two signup routes"] },
+        { "status": 403, "class": "Forbidden", "conditions": ["monitor limit reached", "channel limit reached", "account email unverified", "a channel write or test made with a token scoped to one project", "signup from the API switched off, on the two signup routes"] },
         { "status": 404, "class": "NotFound", "note": "Also returned for a resource outside the token's project scope; existence is masked." },
         { "status": 409, "class": "Conflict", "conditions": ["idempotency key in flight", "idempotency key reused with a different body", "channel kind disabled"], "note": "On the channel-test route the documented condition is a channel kind whose delivery the service has switched off, and nothing is delivered; a test sent again once the kind is back on delivers a real message. A conflict there never means a resource was or was not created, which is what it means on a create." },
         { "status": 410, "class": "UnexpectedResponse", "note": "On the two signup routes only, 410 means the signup request is unknown, expired, cancelled on the confirmation page or already claimed, and is raised as a SignupExpired subclass so the caller can tell 'start a new signup' from 'our API misbehaved'. No other route answers it." },
@@ -800,11 +800,12 @@
       },
       "alert": { "keys": ["id", "kind", "created_at", "dispatched_to"], "nullable": ["dispatched_to"] },
       "account": {
-        "keys": ["plan", "monitor_budget", "api_rate_limit"],
+        "keys": ["plan", "monitor_budget", "channels", "api_rate_limit"],
         "plan_keys": ["key", "label", "monitor_limit"],
         "monitor_budget_keys": ["used", "limit", "remaining"],
+        "channels_keys": ["used", "limit", "user_hosted_used", "user_hosted_limit"],
         "api_rate_limit_keys": ["limit", "remaining"],
-        "note": "Monitor budget is per account, summed across every project. Projects are an organisational boundary, not a billing one."
+        "note": "channels is optional: a service that does not report a channel allowance omits it. It counts the account's channels against one limit shared by every plan, and its user_hosted pair counts the webhook and Teams channels against a smaller one. Monitor budget is per account, summed across every project. Projects are an organisational boundary, not a billing one."
       },
       "signup.started": { "keys": ["device_code", "user_code", "expires_in", "interval", "hint"] },
       "signup.pending": { "keys": ["status"] },
