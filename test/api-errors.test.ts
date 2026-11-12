@@ -116,6 +116,17 @@ describe('the error hierarchy', () => {
   })
 })
 
+describe('a 403 names every refusal the service gives it', () => {
+  it('says a token scoped to one project cannot change channels', () => {
+    expect(classify(403).message).toContain('scoped to one project')
+  })
+
+  it('still names the monitor limit and the unverified email', () => {
+    expect(classify(403).message).toContain('monitor or channel limit')
+    expect(classify(403).message).toContain('unverified')
+  })
+})
+
 describe('classification reads the status and nothing else', () => {
   it('maps each status the contract records to its own class', () => {
     expect(classify(401)).toBeInstanceOf(ApiAuthenticationError)

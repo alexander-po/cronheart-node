@@ -104,6 +104,13 @@ export interface MonitorBudget {
   readonly remaining: number
 }
 
+export interface ChannelAllowance {
+  readonly used: number
+  readonly limit: number
+  readonly userHostedUsed: number
+  readonly userHostedLimit: number
+}
+
 export interface AccountRateLimit {
   readonly limit: number
   readonly remaining: number
@@ -112,6 +119,7 @@ export interface AccountRateLimit {
 export interface Account {
   readonly plan: Plan
   readonly monitorBudget: MonitorBudget
+  readonly channels?: ChannelAllowance | undefined
   readonly apiRateLimit: AccountRateLimit
 }
 

@@ -1282,6 +1282,23 @@
               }
             }
           },
+          "channels": {
+            "type": "object",
+            "properties": {
+              "used": {
+                "type": "integer"
+              },
+              "limit": {
+                "type": "integer"
+              },
+              "user_hosted_used": {
+                "type": "integer"
+              },
+              "user_hosted_limit": {
+                "type": "integer"
+              }
+            }
+          },
           "api_rate_limit": {
             "type": "object",
             "properties": {

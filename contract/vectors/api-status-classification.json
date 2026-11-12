@@ -1,9 +1,9 @@
 {
-  "contract_version": "5.1.0",
+  "contract_version": "5.2.0",
   "group": "api.status_classification",
   "default_subject": "api.classifyStatus",
   "description": "How a management-API response status becomes an error class. Outside the two signup routes the service publishes no machine-readable code: every problem response carries type about:blank, three unrelated conditions share the 409, and the 401 detail is a translation key rather than prose. Status is therefore the only input, and these cases exist to keep it that way — several of them vary nothing but the detail string and assert the class does not move.",
-  "case_count": 27,
+  "case_count": 28,
   "cases": [
     {
       "id": "bad-request",
@@ -35,6 +35,12 @@
     {
       "id": "forbidden-email-unverified",
       "input": { "status": 403, "detail": "Verify your email address first." },
+      "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Forbidden" }],
+      "why": "no-stable-error-code"
+    },
+    {
+      "id": "forbidden-project-scoped-token",
+      "input": { "status": 403, "detail": "This token is scoped to one project. Channels belong to the account: use a token without a project scope to change them." },
       "expect": [{ "predicate": "rejects" }, { "predicate": "isErrorClass", "value": "Forbidden" }],
       "why": "no-stable-error-code"
     },

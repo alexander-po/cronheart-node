@@ -72,6 +72,7 @@ export type {
   AlertKind,
   AlertPage,
   Channel,
+  ChannelAllowance,
   ChannelKind,
   ChannelList,
   ChannelsApi,

@@ -207,6 +207,8 @@ export function accountFrom(value: unknown): Account {
   const budget = objectFrom(source['monitor_budget'], 'account monitor budget')
   const limit = objectFrom(source['api_rate_limit'], 'account rate limit')
 
+  const channels = source['channels'] === undefined ? undefined : objectFrom(source['channels'], 'account channels')
+
   return {
     plan: {
       key: text(plan, 'key', 'account plan'),
@@ -218,6 +220,14 @@ export function accountFrom(value: unknown): Account {
       limit: integer(budget, 'limit', 'account monitor budget'),
       remaining: integer(budget, 'remaining', 'account monitor budget'),
     },
+    ...(channels && {
+      channels: {
+        used: integer(channels, 'used', 'account channels'),
+        limit: integer(channels, 'limit', 'account channels'),
+        userHostedUsed: integer(channels, 'user_hosted_used', 'account channels'),
+        userHostedLimit: integer(channels, 'user_hosted_limit', 'account channels'),
+      },
+    }),
     apiRateLimit: {
       limit: integer(limit, 'limit', 'account rate limit'),
       remaining: integer(limit, 'remaining', 'account rate limit'),

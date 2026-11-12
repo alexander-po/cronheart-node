@@ -258,6 +258,7 @@ export const ALERT_JSON = {
 export const ACCOUNT_JSON = {
   plan: { key: 'starter', label: 'Starter', monitor_limit: 20 },
   monitor_budget: { used: 3, limit: 20, remaining: 17 },
+  channels: { used: 4, limit: 20, user_hosted_used: 1, user_hosted_limit: 3 },
   api_rate_limit: { limit: 120, remaining: 119 },
 }
 
